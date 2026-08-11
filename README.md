@@ -64,8 +64,7 @@ pnpm add @drawcall/glts three
 ```ts
 import { GLTSLoader } from "@drawcall/glts"
 
-const loader = new GLTSLoader()
-const tree = await loader.loadAsync("/assets/tree.glts")
+const tree = await new GLTSLoader().loadAsync("/assets/tree.glts")
 
 scene.add(tree.scene)
 
@@ -73,7 +72,6 @@ await tree.reload()
 await loader.reload("/assets/branch.glts")
 
 tree.dispose()
-loader.dispose()
 ```
 
 GLTS initializes its browser compiler automatically. It requires no bundler
