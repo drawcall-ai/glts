@@ -1,0 +1,50 @@
+import * as THREE from "three"
+import { createNoise2D } from "simplex-noise"
+import { MeshBVH } from "three-mesh-bvh"
+import Branch from "./branch.glts"
+
+export default class Tree extends THREE.Group {
+  private readonly boundsTree: MeshBVH
+  private readonly trunkGeometry: THREE.CylinderGeometry
+  private readonly trunkMaterial: THREE.MeshStandardMaterial
+
+  constructor() {
+    super()
+    this.name = "Procedural tree"
+
+    this.trunkGeometry = new THREE.CylinderGeometry(0.32, 0.58, 4.3, 10)
+    this.boundsTree = new MeshBVH(this.trunkGeometry)
+    this.trunkMaterial = new THREE.MeshStandardMaterial({
+      color: "#6f4b32",
+      roughness: 0.92,
+    })
+
+    const trunk = new THREE.Mesh(this.trunkGeometry, this.trunkMaterial)
+    trunk.position.y = 2.15
+    trunk.castShadow = true
+    trunk.receiveShadow = true
+    this.add(trunk)
+
+    const noise = createNoise2D()
+    for (let index = 0; index < 11; index += 1) {
+      const branch = new Branch()
+      const height = 1.35 + index * 0.29
+      const angle = index * 2.399 + noise(index, 0) * 0.22
+      const reach = 0.2 + height * 0.05
+
+      branch.position.set(Math.cos(angle) * reach, height, Math.sin(angle) * reach)
+      branch.rotation.set(
+        Math.cos(angle) * 0.68,
+        angle,
+        Math.sin(angle) * 0.68,
+      )
+      branch.scale.setScalar(0.72 + index * 0.025)
+      this.add(branch)
+    }
+  }
+
+  dispose() {
+    this.trunkGeometry.dispose()
+    this.trunkMaterial.dispose()
+  }
+}

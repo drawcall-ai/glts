@@ -1,0 +1,20 @@
+{
+  "name": "glts-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.18.0",
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "check": "pnpm build && pnpm typecheck && pnpm test",
+    "dev": "pnpm --filter @drawcall/glts-example-basic dev",
+    "test": "pnpm -r --if-present test",
+    "test:e2e": "pnpm --filter @drawcall/glts build && playwright test",
+    "typecheck": "tsc -p tsconfig.json --noEmit && pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.17"
+  }
+}

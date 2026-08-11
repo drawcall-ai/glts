@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#10130f" />
+    <title>GLTS — Procedural Three.js assets</title>
+  </head>
+  <body>
+    <main id="app">
+      <section class="intro">
+        <p class="eyebrow">GLTS / live source</p>
+        <h1>Procedural assets,<br />ordinary Three.js.</h1>
+        <p class="lede">
+          This tree is TypeScript loaded in the browser. Edit
+          <code>tree.glts</code> or <code>branch.glts</code>, then use the controls
+          below to reload its stable scene wrapper in place.
+        </p>
+        <div class="actions">
+          <button id="reload-tree" type="button">Reload tree</button>
+          <button id="reload-branch" class="secondary" type="button">
+            Reload branches
+          </button>
+        </div>
+        <div class="status-row">
+          <span id="status-dot" class="status-dot"></span>
+          <span id="status">Loading /assets/tree.glts…</span>
+        </div>
+      </section>
+      <section class="viewport" aria-label="Interactive Three.js scene">
+        <canvas id="scene"></canvas>
+        <p class="hint">Drag to orbit · Scroll to zoom</p>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,57 @@
+import * as THREE from "three"
+
+export default class Branch extends THREE.Group {
+  private readonly geometry: THREE.BufferGeometry[] = []
+  private readonly materials: THREE.Material[] = []
+  private readonly leafTexture: THREE.Texture
+
+  constructor() {
+    super()
+    this.name = "Procedural branch"
+
+    this.leafTexture = new THREE.TextureLoader().load(
+      new URL("./leaf.svg", import.meta.url).href,
+    )
+    this.leafTexture.colorSpace = THREE.SRGBColorSpace
+
+    const stemGeometry = new THREE.CylinderGeometry(0.055, 0.11, 2.1, 7)
+    const stemMaterial = new THREE.MeshStandardMaterial({
+      color: "#684932",
+      roughness: 0.95,
+    })
+    this.geometry.push(stemGeometry)
+    this.materials.push(stemMaterial)
+
+    const stem = new THREE.Mesh(stemGeometry, stemMaterial)
+    stem.position.y = 1.05
+    stem.castShadow = true
+    this.add(stem)
+
+    const leafGeometry = new THREE.IcosahedronGeometry(0.34, 1)
+    const leafMaterial = new THREE.MeshStandardMaterial({
+      bumpMap: this.leafTexture,
+      bumpScale: 0.035,
+      color: "#718c55",
+      roughness: 0.85,
+    })
+    this.geometry.push(leafGeometry)
+    this.materials.push(leafMaterial)
+
+    for (let index = 0; index < 8; index += 1) {
+      const leaf = new THREE.Mesh(leafGeometry, leafMaterial)
+      const side = index % 2 === 0 ? -1 : 1
+      leaf.position.set(side * (0.18 + index * 0.018), 0.46 + index * 0.2, 0)
+      leaf.rotation.set(-0.18, side * 0.62, side * 0.38)
+      const scale = 0.72 + index * 0.045
+      leaf.scale.set(scale * 1.25, scale * 0.58, scale * 0.72)
+      leaf.castShadow = true
+      this.add(leaf)
+    }
+  }
+
+  dispose() {
+    this.leafTexture.dispose()
+    this.geometry.forEach((geometry) => geometry.dispose())
+    this.materials.forEach((material) => material.dispose())
+  }
+}

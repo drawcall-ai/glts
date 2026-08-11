@@ -1,0 +1,59 @@
+{
+  "name": "@drawcall/glts",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Like glTF, but for procedural Three.js assets.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/drawcall-ai/glts.git",
+    "directory": "packages/glts"
+  },
+  "bugs": {
+    "url": "https://github.com/drawcall-ai/glts/issues"
+  },
+  "homepage": "https://github.com/drawcall-ai/glts#readme",
+  "keywords": [
+    "three",
+    "threejs",
+    "procedural",
+    "assets",
+    "loader",
+    "hot-reload",
+    "typescript"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
+    "prepack": "pnpm build && pnpm test",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "es-module-lexer": "^2.0.0",
+    "magic-string": "^0.30.21",
+    "sucrase": "3.35.1"
+  },
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.0",
+    "three": "^0.185.1",
+    "vitest": "^4.0.17"
+  }
+}
