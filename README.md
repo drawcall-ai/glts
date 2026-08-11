@@ -160,5 +160,3 @@ shared. Nested GLTS wrappers are owned and disposed recursively by the runtime.
 - ESM.sh package versions are intentionally live in V1; reproducible locking is
   future work.
 - GLTS code runs with the page's full JavaScript authority.
-
-See [docs/architecture.md](docs/architecture.md) for the implementation model.
