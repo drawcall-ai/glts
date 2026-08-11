@@ -55,6 +55,9 @@ jobs:
         working-directory: ./packages/glts
         run: npm pkg set version="${{ steps.gitversion.outputs.fullSemVer }}"
 
+      - name: Copy README into package
+        run: cp README.md packages/glts/README.md
+
       - name: Publish @drawcall/glts
         working-directory: ./packages/glts
         run: npm publish --access public --provenance --tag latest
