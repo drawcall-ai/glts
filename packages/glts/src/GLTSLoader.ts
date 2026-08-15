@@ -126,23 +126,32 @@ export class GLTSLoader extends Loader {
     const resolvedURL = this.#resolveURL(url);
 
     return this.#trackLoading(resolvedURL, async () => {
-      const prepared = await this.#graph.prepareAsset(
-        resolvedURL,
-        { activate: true, force: false }
-      );
-      const scene = this.#runtime.createRoot(prepared.url);
-      let handle: GLTSAssetHandle;
-      handle = new GLTSAssetHandle(
-        scene,
-        prepared.url,
-        () => this.reload(prepared.url),
-        () => {
-          this.#runtime.disposeWrapper(scene);
-          this.#assets.delete(handle);
-        }
-      );
-      this.#assets.add(handle);
-      return handle;
+      try {
+        const prepared = await this.#graph.prepareAsset(
+          resolvedURL,
+          { activate: true, force: false }
+        );
+        const scene = this.#runtime.createRoot(prepared.url);
+        this.#graph.retainRoot(prepared.url);
+        let handle: GLTSAssetHandle;
+        handle = new GLTSAssetHandle(
+          scene,
+          prepared.url,
+          () => this.reload(prepared.url),
+          () => {
+            try {
+              this.#runtime.disposeWrapper(scene);
+            } finally {
+              this.#graph.releaseRoot(prepared.url);
+              this.#assets.delete(handle);
+            }
+          }
+        );
+        this.#assets.add(handle);
+        return handle;
+      } finally {
+        this.#graph.settleReachability();
+      }
     });
   }
 
@@ -156,12 +165,24 @@ export class GLTSLoader extends Loader {
     const previous = this.#reloadQueues.get(resolvedURL) ?? Promise.resolve();
     const next = previous.catch(() => undefined).then(() =>
       this.#trackLoading(resolvedURL, async () => {
-        const prepared = await this.#graph.prepareAsset(
-          resolvedURL,
-          { activate: false, force: true }
-        );
-        this.#runtime.replace(resolvedURL, prepared.assetClass);
-        this.#graph.activateAsset(prepared);
+        try {
+          const prepared = await this.#graph.prepareAsset(
+            resolvedURL,
+            { activate: false, force: true }
+          );
+          try {
+            this.#runtime.replace(resolvedURL, prepared.assetClass);
+          } catch (error) {
+            if (error instanceof GLTSError && error.phase === "dispose") {
+              // Disposal begins only after WrapperRuntime commits the replacement.
+              this.#graph.activateAsset(prepared);
+            }
+            throw error;
+          }
+          this.#graph.activateAsset(prepared);
+        } finally {
+          this.#graph.settleReachability();
+        }
       })
     );
 

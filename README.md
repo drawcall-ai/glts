@@ -148,6 +148,10 @@ wrappers. A fetch, compile, resolution, evaluation, or construction failure
 leaves the old instances mounted. Replacement intentionally resets raw asset
 state.
 
+`loader.has(url)` reports whether an asset is reachable from at least one
+undisposed root. Reloading a root updates that reachability to its latest
+successful set of imports.
+
 GLTS calls `dispose()` on replaced raw instances. It does not automatically
 dispose geometries, materials, or textures because those resources may be
 shared. Nested GLTS wrappers are owned and disposed recursively by the runtime.

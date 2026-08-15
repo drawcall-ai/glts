@@ -9,6 +9,7 @@ import type { GLTSAssetClass, GLTSFetch } from "./types.js";
 
 interface PreparedAsset {
   readonly assetClass: GLTSAssetClass;
+  readonly dependencies: ReadonlySet<string>;
   readonly moduleURL: string;
   readonly source: string;
   readonly url: string;
@@ -85,6 +86,8 @@ export class ModuleGraph {
   readonly #runtime: WrapperRuntime;
   readonly #threeRevision: string;
   readonly #currentAssets = new Map<string, PreparedAsset>();
+  readonly #inactiveAssets = new Set<string>();
+  readonly #rootReferences = new Map<string, number>();
   readonly #assetRevisions = new Map<string, Map<string, PreparedAsset>>();
   readonly #assetLoads = new Map<string, Promise<PreparedAsset>>();
   readonly #externalModules = new Map<string, string>();
@@ -99,7 +102,57 @@ export class ModuleGraph {
   }
 
   hasAsset(url: string): boolean {
-    return this.#currentAssets.has(url);
+    return this.#reachableAssets().has(url);
+  }
+
+  settleReachability(): void {
+    const reachable = this.#reachableAssets();
+    for (const url of this.#currentAssets.keys()) {
+      if (reachable.has(url)) {
+        this.#inactiveAssets.delete(url);
+      } else {
+        this.#inactiveAssets.add(url);
+      }
+    }
+  }
+
+  retainRoot(url: string): void {
+    this.#rootReferences.set(url, (this.#rootReferences.get(url) ?? 0) + 1);
+  }
+
+  releaseRoot(url: string): void {
+    const references = this.#rootReferences.get(url);
+    if (references === undefined) {
+      throw new Error(`Cannot release untracked GLTS root: ${url}`);
+    }
+
+    if (references === 1) {
+      this.#rootReferences.delete(url);
+    } else {
+      this.#rootReferences.set(url, references - 1);
+    }
+
+    this.settleReachability();
+  }
+
+  #reachableAssets(): Set<string> {
+    const pending = [...this.#rootReferences.keys()];
+    const reachable = new Set<string>();
+
+    while (pending.length > 0) {
+      const candidate = pending.pop();
+      if (!candidate || reachable.has(candidate)) {
+        continue;
+      }
+
+      reachable.add(candidate);
+      const prepared = this.#currentAssets.get(candidate);
+      if (prepared) {
+        pending.push(...prepared.dependencies);
+      }
+    }
+
+    return reachable;
   }
 
   async prepareAsset(
@@ -115,15 +168,18 @@ export class ModuleGraph {
       });
     }
 
+    const reactivate = this.#inactiveAssets.has(url);
+    const refresh = options.force || reactivate;
     const current = this.#currentAssets.get(url);
-    if (current && !options.force) {
+    if (current && !refresh) {
       return current;
     }
 
-    const loadKey = `${options.force ? "reload" : "load"}:${url}`;
+    const nextImportChain = [...importChain, url];
+    const loadKey = `${refresh ? "reload" : "load"}:${url}`;
     let loading = this.#assetLoads.get(loadKey);
     if (!loading) {
-      loading = this.#prepareAssetRevision(url, options.force, [...importChain, url]);
+      loading = this.#prepareAssetRevision(url, refresh, nextImportChain);
       this.#assetLoads.set(loadKey, loading);
       void loading.finally(() => {
         if (this.#assetLoads.get(loadKey) === loading) {
@@ -133,6 +189,11 @@ export class ModuleGraph {
     }
 
     const prepared = await loading;
+    if (reactivate) {
+      await Promise.all([...prepared.dependencies].map((dependency) =>
+        this.prepareAsset(dependency, { activate: true, force: false }, nextImportChain)
+      ));
+    }
     if (options.activate) {
       this.activateAsset(prepared);
     }
@@ -142,6 +203,7 @@ export class ModuleGraph {
   activateAsset(prepared: PreparedAsset): void {
     this.#runtime.setAssetClass(prepared.url, prepared.assetClass);
     this.#currentAssets.set(prepared.url, prepared);
+    this.#inactiveAssets.delete(prepared.url);
   }
 
   async #prepareAssetRevision(
@@ -167,6 +229,7 @@ export class ModuleGraph {
       });
     }
 
+    const dependencies = new Set<string>();
     let transformed: string;
     try {
       transformed = await rewriteModule({
@@ -174,7 +237,7 @@ export class ModuleGraph {
         sourceURL: url,
         importChain,
         resolveImport: (specifier, importerURL, chain) =>
-          this.#resolveAssetImport(specifier, importerURL, chain)
+          this.#resolveAssetImport(specifier, importerURL, chain, dependencies)
       });
     } catch (error) {
       throw toGLTSError(error, "Unable to transform asset module", {
@@ -207,6 +270,7 @@ export class ModuleGraph {
 
     const prepared: PreparedAsset = {
       assetClass,
+      dependencies,
       moduleURL,
       source: fetched.source,
       url
@@ -220,7 +284,8 @@ export class ModuleGraph {
   async #resolveAssetImport(
     specifier: string,
     importerURL: string,
-    importChain: readonly string[]
+    importChain: readonly string[],
+    dependencies: Set<string>
   ): Promise<string> {
     if (specifier === "three") {
       return this.#runtime.threeModuleURL;
@@ -256,6 +321,7 @@ export class ModuleGraph {
     if (isGLTSURL(resolved)) {
       const childURL = canonicalize(resolved);
       await this.prepareAsset(childURL, { activate: true, force: false }, importChain);
+      dependencies.add(childURL);
       return this.#runtime.getWrapperModuleURL(childURL);
     }
 
