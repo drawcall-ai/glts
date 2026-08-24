@@ -1,7 +1,10 @@
-import { ImportType, init, parse } from "es-module-lexer";
+import { parse } from "es-module-lexer/js";
 import MagicString from "magic-string";
 
 import { GLTSError } from "./errors.js";
+
+const staticImport = 1;
+const importMeta = 3;
 
 export type StaticImportResolver = (
   specifier: string,
@@ -25,8 +28,6 @@ function locationAt(source: string, offset: number): string {
 }
 
 export async function rewriteModule(options: RewriteModuleOptions): Promise<string> {
-  await init;
-
   let imports: ReturnType<typeof parse>[0];
   try {
     [imports] = parse(options.source, options.sourceURL);
@@ -39,10 +40,10 @@ export async function rewriteModule(options: RewriteModuleOptions): Promise<stri
   }
 
   const rewritten = new MagicString(options.source, { filename: options.sourceURL });
-  const staticImports = imports.filter((entry) => entry.t === ImportType.Static);
+  const staticImports = imports.filter((entry) => entry.t === staticImport);
 
   for (const entry of imports) {
-    if (entry.t === ImportType.ImportMeta) {
+    if (entry.t === importMeta) {
       const suffix = options.source.slice(entry.e, entry.e + 4);
       if (suffix === ".url") {
         rewritten.overwrite(entry.s, entry.e + 4, JSON.stringify(options.sourceURL));
@@ -50,7 +51,7 @@ export async function rewriteModule(options: RewriteModuleOptions): Promise<stri
       continue;
     }
 
-    if (entry.t !== ImportType.Static) {
+    if (entry.t !== staticImport) {
       throw new GLTSError(
         `Dynamic and source-phase imports are not supported (${locationAt(options.source, entry.ss)})`,
         {

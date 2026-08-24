@@ -44,6 +44,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
+    "@babel/parser": "^8.0.4",
+    "@babel/types": "^8.0.4",
     "es-module-lexer": "^2.0.0",
     "magic-string": "^0.30.21",
     "sucrase": "3.35.1"

@@ -131,6 +131,39 @@ Dynamic imports, import attributes, local helper `.ts` modules, cyclic module
 graphs, cross-asset inheritance, and custom-method contracts across a `.glts`
 boundary are intentionally outside V1.
 
+## Inline a source graph
+
+`inline()` combines an in-memory GLTS graph into one TypeScript ESM string. It
+does not transpile the TypeScript or convert the entry module to another module
+format.
+
+```ts
+import { inline } from "@drawcall/glts"
+
+const source = inline(treeSource, {
+  "./branch.glts": branchSource,
+  "./leaf.glts": leafSource,
+})
+```
+
+The entry module's external imports, body, and exports stay in place. Local
+`.glts` imports become bindings to isolated dependency scopes. External imports
+used by those scopes are added to the entry module and deduplicated by their
+local binding, so namespace and named imports can coexist:
+
+```ts
+import * as THREE from "three"
+import { Group } from "three"
+```
+
+Paths in the source record are relative to the entry module unless they start
+at `/` or are absolute URLs. Each dependency must default-export a class and
+may only use default imports for other local `.glts` files. Dependency named
+exports, dynamic imports, import attributes, local helper modules, conflicting
+external bindings, and cycles fail with a `GLTSError`. Dependency
+`import.meta.url` expressions still resolve to the original source path. Local
+GLTS imports are constructor values rather than TypeScript type imports.
+
 ## Reload behavior
 
 Every root and imported asset has a stable wrapper:
