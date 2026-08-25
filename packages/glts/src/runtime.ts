@@ -72,6 +72,7 @@ export class WrapperRuntime {
     class GLTSWrapper extends THREE.Group {
       constructor() {
         super();
+        this.name = url;
         runtime.#mountWrapper(this, url);
       }
     }

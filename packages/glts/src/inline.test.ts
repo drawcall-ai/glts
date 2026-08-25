@@ -3,6 +3,38 @@ import { describe, expect, it } from "vitest";
 import { compileTypeScript } from "./compiler.js";
 import { GLTSError } from "./errors.js";
 import { inline } from "./inline.js";
+import { rewriteModule } from "./rewrite-module.js";
+
+const groupModuleURL = `data:text/javascript,${encodeURIComponent(`
+export class Group {
+  children = [];
+  name = "";
+
+  add(child) {
+    this.children.push(child);
+    return this;
+  }
+}
+`)}`;
+
+async function execute(source: string): Promise<Record<string, unknown>> {
+  const sourceURL = "https://example.test/assets/tree.glts";
+  const compiled = compileTypeScript(source);
+  const runnable = await rewriteModule({
+    source: compiled,
+    sourceURL,
+    importChain: [sourceURL],
+    resolveImport: async (specifier) => {
+      if (specifier !== "three") {
+        throw new Error(`Unexpected test import: ${specifier}`);
+      }
+
+      return groupModuleURL;
+    }
+  });
+  const url = `data:text/javascript,${encodeURIComponent(runnable)}`;
+  return import(url);
+}
 
 describe("inline", () => {
   it("returns an entry without local imports unchanged", () => {
@@ -33,6 +65,7 @@ export default class Branch extends Group {}`
 
     expect(bundled).toContain('import * as THREE from "three";');
     expect(bundled).toContain('import { Group } from "three";');
+    expect(bundled).toContain('import { Group as __glts_Group } from "three";');
     expect(bundled).toContain("class Branch extends Group {}");
     expect(bundled).toContain("const Branch = __glts_0;");
     expect(bundled).toContain(body);
@@ -87,30 +120,55 @@ export default class Branch {
     expect(bundled).toContain("const Branch = __glts_1;");
   });
 
-  it("keeps the runtime behavior of anonymous and nested default classes", async () => {
+  it("preserves GLTS wrapper nesting and source names", async () => {
     const bundled = inline(
-      `import Branch from "./branch.glts";
+      `import * as THREE from "three";
+import Branch from "./parts/branch.glts";
 
-export default class Tree {
-  branch = new Branch();
+export default class Tree extends THREE.Group {
+  constructor() {
+    super();
+    this.add(new Branch());
+  }
 }`,
       {
-        "./branch.glts": `import Leaf from "./leaf.glts";
+        "./parts/branch.glts": `import { Group } from "three";
+import Leaf from "./leaf.glts";
 
-export default class {
-  leaf = new Leaf();
+export default class extends Group {
+  constructor() {
+    super();
+    this.add(new Leaf());
+  }
 }`,
-        "./leaf.glts": `export default class Leaf {
+        "./parts/leaf.glts": `import { Group } from "three";
+
+export default class Leaf extends Group {
   value: number = 42;
 }`
       }
     );
-    const compiled = compileTypeScript(bundled);
-    const url = `data:text/javascript,${encodeURIComponent(compiled)}`;
-    const module = await import(url);
-    const tree = new module.default();
+    const module = await execute(bundled);
+    const Tree = module.default;
+    if (typeof Tree !== "function") {
+      throw new Error("Expected the inline entry class");
+    }
 
-    expect(tree.branch.leaf.value).toBe(42);
+    const tree = Reflect.construct(Tree, []);
+    const branchWrapper = tree.children[0];
+    const branch = branchWrapper.children[0];
+    const leafWrapper = branch.children[0];
+    const leaf = leafWrapper.children[0];
+
+    expect(tree.children).toHaveLength(1);
+    expect(branchWrapper.name).toBe(
+      "https://example.test/assets/parts/branch.glts"
+    );
+    expect(branchWrapper.children).toHaveLength(1);
+    expect(branch.children).toHaveLength(1);
+    expect(leafWrapper.name).toBe("https://example.test/assets/parts/leaf.glts");
+    expect(leafWrapper.children).toHaveLength(1);
+    expect(leaf.value).toBe(42);
   });
 
   it("keeps TypeScript syntax and rewrites dependency import.meta.url", () => {

@@ -147,9 +147,10 @@ const source = inline(treeSource, {
 ```
 
 The entry module's external imports, body, and exports stay in place. Local
-`.glts` imports become bindings to isolated dependency scopes. External imports
-used by those scopes are added to the entry module and deduplicated by their
-local binding, so namespace and named imports can coexist:
+`.glts` imports become `THREE.Group` wrapper constructors around isolated
+dependency scopes, preserving the same nesting as loader-managed imports.
+External imports used by those scopes are added to the entry module and
+deduplicated by their local binding, so namespace and named imports can coexist:
 
 ```ts
 import * as THREE from "three"
@@ -174,6 +175,9 @@ Tree wrapper
         └── Branch wrapper
               └── current Branch instance
 ```
+
+Each wrapper starts with its canonical source URL as its Three.js `name`,
+including wrappers for imported and inlined `.glts` dependencies.
 
 Reloading `branch.glts` constructs all replacement branches off-scene. Only
 after every constructor succeeds does GLTS swap them into their existing

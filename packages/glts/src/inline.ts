@@ -457,7 +457,11 @@ function renderImport(value: ExternalImport): string {
   return `import${type} { ${specifier} } from ${JSON.stringify(value.source)};`;
 }
 
-function collectImports(root: File, files: readonly File[]): string {
+function collectImports(
+  root: File,
+  files: readonly File[],
+  wrapperGroup: string
+): string {
   const bindings = new Map<string, Extract<ExternalImport, { kind: "binding" }>>();
   const runtimeSources = new Set<string>();
   const added: ExternalImport[] = [];
@@ -505,6 +509,14 @@ function collectImports(root: File, files: readonly File[]): string {
       collect(value, false);
     }
   }
+  collect({
+    kind: "binding",
+    imported: "Group",
+    local: wrapperGroup,
+    path: "<inline wrappers>",
+    source: "three",
+    typeOnly: false
+  }, false);
 
   return added.map(renderImport).join("\n");
 }
@@ -516,7 +528,16 @@ function indent(source: string): string {
     .join("\n");
 }
 
-function renderFile(file: File, name: string, names: ReadonlyMap<string, string>): string {
+function sourceURL(metaURL: string): string {
+  return `new URL(${JSON.stringify(metaURL)}, import.meta.url).href`;
+}
+
+function renderFile(
+  file: File,
+  name: string,
+  names: ReadonlyMap<string, string>,
+  wrapperGroup: string
+): string {
   const exported = file.defaultClass;
   if (!exported) {
     fail("Inlined dependency has no default class", file.path, "transform");
@@ -530,7 +551,7 @@ function renderFile(file: File, name: string, names: ReadonlyMap<string, string>
     rewritten.overwrite(
       metaURL.start,
       metaURL.end,
-      `new URL(${JSON.stringify(file.metaURL)}, import.meta.url).href`
+      sourceURL(file.metaURL)
     );
   }
 
@@ -552,7 +573,14 @@ function renderFile(file: File, name: string, names: ReadonlyMap<string, string>
     return `const ${value.local} = ${target};`;
   });
   const body = rewritten.toString().trim();
-  const content = [...aliases, body, `return ${local};`].filter((part) => part.length > 0);
+  const wrapper = `return class extends ${wrapperGroup} {
+  constructor() {
+    super();
+    this.name = ${sourceURL(file.metaURL)};
+    this.add(new ${local}());
+  }
+};`;
+  const content = [...aliases, body, wrapper].filter((part) => part.length > 0);
   return `const ${name} = (() => {\n${indent(content.join("\n\n"))}\n})();`;
 }
 
@@ -628,14 +656,15 @@ export function inline(
   ordered.forEach((file, index) => {
     names.set(file.url.href, `${generatedPrefix}${index}`);
   });
+  const wrapperGroup = `${generatedPrefix}Group`;
 
-  const imports = collectImports(root, ordered);
+  const imports = collectImports(root, ordered, wrapperGroup);
   const modules = ordered.map((file) => {
     const name = names.get(file.url.href);
     if (!name) {
       fail(`Missing generated name for ${file.path}`, file.path, "transform");
     }
-    return renderFile(file, name, names);
+    return renderFile(file, name, names, wrapperGroup);
   }).join("\n\n");
   const aliases = root.imports.map((value) => {
     const name = names.get(value.url.href);

@@ -29,6 +29,7 @@ describe("WrapperRuntime", () => {
 
     runtime.setAssetClass(url, FirstTree);
     const wrapper = runtime.createRoot(url);
+    expect(wrapper.name).toBe(url);
     const first = wrapper.children[0];
     if (!(first instanceof FirstTree)) {
       throw new Error("Expected the first tree instance");
@@ -62,6 +63,7 @@ describe("WrapperRuntime", () => {
 
     runtime.setAssetClass(parentURL, Tree);
     const rootWrapper = runtime.createRoot(parentURL);
+    expect(rootWrapper.name).toBe(parentURL);
     const tree = rootWrapper.children[0];
     if (!(tree instanceof THREE.Group)) {
       throw new Error("Expected a tree instance");
@@ -70,6 +72,7 @@ describe("WrapperRuntime", () => {
     if (!(branchWrapper instanceof THREE.Group)) {
       throw new Error("Expected a branch wrapper");
     }
+    expect(branchWrapper.name).toBe(childURL);
 
     runtime.replace(childURL, SecondBranch);
 
