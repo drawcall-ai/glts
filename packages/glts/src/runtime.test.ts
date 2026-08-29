@@ -223,6 +223,31 @@ describe("WrapperRuntime", () => {
     expect(disposals).toBe(1);
   });
 
+  it("rejects a pending root when the runtime is disposed", async () => {
+    const moduleURLs = new ModuleURLStore();
+    const activeRuntime = new WrapperRuntime(moduleURLs);
+    runtime = activeRuntime;
+    const url = "https://example.test/tree.glts";
+    const resourceURL = "https://example.test/slow.png";
+
+    class Tree extends THREE.Group {
+      constructor() {
+        super();
+        activeRuntime.loadingManager.itemStart(resourceURL);
+      }
+    }
+
+    activeRuntime.setAssetClass(url, Tree);
+    const loading = activeRuntime.loadRoot(url);
+    activeRuntime.dispose();
+    activeRuntime.loadingManager.itemEnd(resourceURL);
+
+    await expect(loading).rejects.toMatchObject({
+      phase: "resolve",
+      url: "glts://runtime"
+    });
+  });
+
   it("keeps nested construction and replacement synchronous", () => {
     const moduleURLs = new ModuleURLStore();
     const activeRuntime = new WrapperRuntime(moduleURLs);

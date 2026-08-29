@@ -132,6 +132,7 @@ export class WrapperRuntime {
 
     try {
       await loading.waitForIdle();
+      this.#assertActive();
       return wrapper;
     } catch (error) {
       try {

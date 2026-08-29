@@ -22,6 +22,7 @@ export class RuntimeLoading {
   readonly manager = new LoadingManager();
   readonly #boundaries = new Set<LoadingBoundaryState>();
   readonly #completions = new Map<LoadingBoundaryState, LoadingCompletion>();
+  readonly #activeFailures: string[] = [];
   #pending = 0;
 
   constructor() {
@@ -30,10 +31,14 @@ export class RuntimeLoading {
     const itemError = this.manager.itemError.bind(this.manager);
 
     this.manager.itemStart = (url): void => {
+      if (this.#pending === 0) {
+        this.#activeFailures.length = 0;
+      }
       this.#pending += 1;
       itemStart(url);
     };
     this.manager.itemError = (url): void => {
+      this.#activeFailures.push(url);
       for (const boundary of this.#boundaries) {
         boundary.failures.push(url);
       }
@@ -49,13 +54,16 @@ export class RuntimeLoading {
       } finally {
         this.#pending -= 1;
         this.#settleIdleBoundaries();
+        if (this.#pending === 0) {
+          this.#activeFailures.length = 0;
+        }
       }
     };
   }
 
   begin(rootURL: string): LoadingBoundary {
     const state: LoadingBoundaryState = {
-      failures: [],
+      failures: this.#pending > 0 ? [...this.#activeFailures] : [],
       rootURL,
       status: "open"
     };

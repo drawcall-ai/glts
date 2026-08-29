@@ -50,6 +50,25 @@ describe("RuntimeLoading", () => {
     await expect(boundary.waitForIdle()).rejects.toBeInstanceOf(GLTSError);
   });
 
+  it("shares an active failure with boundaries that join before idle", async () => {
+    const loading = new RuntimeLoading();
+    const resourceURL = "https://example.test/missing.png";
+    const first = loading.begin("https://example.test/first.glts");
+    loading.manager.itemStart(resourceURL);
+    loading.manager.itemError(resourceURL);
+    const second = loading.begin("https://example.test/second.glts");
+    const firstCompletion = first.waitForIdle();
+    const secondCompletion = second.waitForIdle();
+
+    loading.manager.itemEnd(resourceURL);
+
+    await expect(firstCompletion).rejects.toThrow(resourceURL);
+    await expect(secondCompletion).rejects.toThrow(resourceURL);
+    await expect(
+      loading.begin("https://example.test/next.glts").waitForIdle()
+    ).resolves.toBeUndefined();
+  });
+
   it("keeps separate runtimes independent", async () => {
     const first = new RuntimeLoading();
     const second = new RuntimeLoading();

@@ -344,6 +344,60 @@ test("does not turn reload into a resource completion boundary", async ({ page }
   });
 });
 
+test("rejects a pending root when its loader is disposed", async ({ page }) => {
+  await page.route("**/assets/disposed-loading.glts", (route) => route.fulfill({
+    body: `
+      import * as THREE from "three"
+      import { loadingManager } from "@drawcall/glts/asset"
+
+      export default class DisposedLoading extends THREE.Group {
+        constructor() {
+          super()
+          new THREE.FileLoader(loadingManager).load(
+            new URL("./disposed-slow.bin", import.meta.url).href,
+          )
+        }
+      }
+    `,
+    contentType: "text/plain"
+  }));
+  const requested = deferred();
+  const release = deferred();
+  await page.route("**/assets/disposed-slow.bin", async (route) => {
+    requested.resolve();
+    await release.promise;
+    await route.fulfill({ body: "done", contentType: "application/octet-stream" });
+  });
+
+  await page.goto("/test-harness.html");
+  await page.evaluate(() => {
+    const loader = new window.GLTSLoader();
+    Reflect.set(globalThis, "__gltsDisposedLoader", loader);
+    Reflect.set(globalThis, "__gltsDisposedOutcome", { status: "pending" });
+    void loader.loadAsync("/assets/disposed-loading.glts").then(
+      () => Reflect.set(globalThis, "__gltsDisposedOutcome", { status: "resolved" }),
+      (error) => Reflect.set(globalThis, "__gltsDisposedOutcome", {
+        phase: typeof error === "object" && error !== null
+          ? Reflect.get(error, "phase")
+          : undefined,
+        status: "rejected"
+      })
+    );
+  });
+  await requested.promise;
+  await page.evaluate(() => {
+    Reflect.get(globalThis, "__gltsDisposedLoader").dispose();
+  });
+  release.resolve();
+  await page.waitForFunction(() =>
+    Reflect.get(globalThis, "__gltsDisposedOutcome").status !== "pending"
+  );
+
+  expect(await page.evaluate(() =>
+    Reflect.get(globalThis, "__gltsDisposedOutcome")
+  )).toEqual({ phase: "resolve", status: "rejected" });
+});
+
 test("reports only assets reachable from live roots after a root reload", async ({ page }) => {
   const rootSources = [
     assetSource("first root", "./reachable-child.glts"),
