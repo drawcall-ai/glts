@@ -5,6 +5,7 @@ import {
 } from "three";
 import * as THREE from "three";
 
+import type { PreviewState } from "./asset-exports.js";
 import { GLTSError } from "./errors.js";
 import {
   canonicalGLTSURL,
@@ -20,7 +21,6 @@ import type {
   GLTSFetch,
   GLTSLoadCallback,
   GLTSLoaderOptions,
-  GLTSPreviewExports,
   GLTSProgressCallback
 } from "./types.js";
 
@@ -52,7 +52,7 @@ class GLTSAssetHandle implements GLTSAsset {
   constructor(
     scene: THREE.Group,
     url: string,
-    preview: GLTSPreviewExports,
+    preview: PreviewState,
     reloadAsset: () => Promise<void>,
     disposeAsset: () => void
   ) {
@@ -72,7 +72,7 @@ class GLTSAssetHandle implements GLTSAsset {
     return this.#previewLighting;
   }
 
-  updatePreview(preview: GLTSPreviewExports): void {
+  updatePreview(preview: PreviewState): void {
     this.#previewCamera = preview.previewCamera;
     this.#previewLighting = preview.previewLighting;
   }

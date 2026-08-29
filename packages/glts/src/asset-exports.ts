@@ -1,14 +1,23 @@
 import * as THREE from "three";
 
 import { GLTSError } from "./errors.js";
-import type { GLTSPreviewExports } from "./types.js";
+import type { GLTSAssetClass } from "./types.js";
 
-interface ModuleContext {
+export interface PreviewState {
+  readonly previewCamera: THREE.Camera | undefined;
+  readonly previewLighting: THREE.Object3D | undefined;
+}
+
+export interface AssetExports extends PreviewState {
+  readonly assetClass: GLTSAssetClass;
+}
+
+interface AssetModuleContext {
   readonly url: string;
   readonly importChain: readonly string[];
 }
 
-const absent = Symbol("absent preview export");
+const absent = Symbol("absent asset export");
 
 function moduleExport(namespace: unknown, name: string): unknown | typeof absent {
   if (
@@ -34,7 +43,38 @@ function receivedType(value: unknown): string {
   return typeof value;
 }
 
-function readCamera(namespace: unknown, context: ModuleContext): THREE.Camera | undefined {
+function isConstructor(value: unknown): value is GLTSAssetClass {
+  if (typeof value !== "function") {
+    return false;
+  }
+
+  try {
+    Reflect.construct(Object, [], value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readAssetClass(
+  namespace: unknown,
+  context: AssetModuleContext
+): GLTSAssetClass {
+  const value = moduleExport(namespace, "default");
+  if (isConstructor(value)) {
+    return value;
+  }
+
+  throw new GLTSError("Module must default-export a constructible Three.js class", {
+    ...context,
+    phase: "evaluate"
+  });
+}
+
+function readCamera(
+  namespace: unknown,
+  context: AssetModuleContext
+): THREE.Camera | undefined {
   const value = moduleExport(namespace, "previewCamera");
   if (value === absent) {
     return undefined;
@@ -62,7 +102,7 @@ function containsLight(object: THREE.Object3D): boolean {
 
 function readLighting(
   namespace: unknown,
-  context: ModuleContext
+  context: AssetModuleContext
 ): THREE.Object3D | undefined {
   const value = moduleExport(namespace, "previewLighting");
   if (value === absent) {
@@ -86,11 +126,12 @@ function readLighting(
   return value;
 }
 
-export function readPreviewExports(
+export function readAssetExports(
   namespace: unknown,
-  context: ModuleContext
-): GLTSPreviewExports {
+  context: AssetModuleContext
+): AssetExports {
   return {
+    assetClass: readAssetClass(namespace, context),
     previewCamera: readCamera(namespace, context),
     previewLighting: readLighting(namespace, context)
   };
