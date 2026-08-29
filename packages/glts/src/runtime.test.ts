@@ -157,4 +157,120 @@ describe("WrapperRuntime", () => {
     expect(childDisposals).toBe(1);
     expect(parentDisposals).toBe(1);
   });
+
+  it("constructs a root synchronously and waits for its resources", async () => {
+    const moduleURLs = new ModuleURLStore();
+    const activeRuntime = new WrapperRuntime(moduleURLs);
+    runtime = activeRuntime;
+    const url = "https://example.test/tree.glts";
+    let finish: (() => void) | undefined;
+    let constructions = 0;
+
+    class Tree extends THREE.Group {
+      constructor() {
+        super();
+        constructions += 1;
+        activeRuntime.loadingManager.itemStart("https://example.test/bark.png");
+        finish = () => activeRuntime.loadingManager.itemEnd("https://example.test/bark.png");
+      }
+    }
+
+    activeRuntime.setAssetClass(url, Tree);
+    const loading = activeRuntime.loadRoot(url);
+    expect(constructions).toBe(1);
+
+    let settled = false;
+    void loading.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    if (!finish) {
+      throw new Error("Expected the resource completion callback");
+    }
+
+    finish();
+    const wrapper = await loading;
+    expect(wrapper.children[0]).toBeInstanceOf(Tree);
+  });
+
+  it("disposes a constructed root when its resource load fails", async () => {
+    const moduleURLs = new ModuleURLStore();
+    const activeRuntime = new WrapperRuntime(moduleURLs);
+    runtime = activeRuntime;
+    const url = "https://example.test/tree.glts";
+    const resourceURL = "https://example.test/missing.png";
+    let disposals = 0;
+
+    class Tree extends THREE.Group {
+      constructor() {
+        super();
+        activeRuntime.loadingManager.itemStart(resourceURL);
+        activeRuntime.loadingManager.itemError(resourceURL);
+        activeRuntime.loadingManager.itemEnd(resourceURL);
+      }
+
+      dispose(): void {
+        disposals += 1;
+      }
+    }
+
+    activeRuntime.setAssetClass(url, Tree);
+    await expect(activeRuntime.loadRoot(url)).rejects.toMatchObject({
+      phase: "resource",
+      url
+    });
+    expect(disposals).toBe(1);
+  });
+
+  it("keeps nested construction and replacement synchronous", () => {
+    const moduleURLs = new ModuleURLStore();
+    const activeRuntime = new WrapperRuntime(moduleURLs);
+    runtime = activeRuntime;
+    const parentURL = "https://example.test/tree.glts";
+    const childURL = "https://example.test/branch.glts";
+    let finish: (() => void) | undefined;
+
+    class FirstBranch extends THREE.Group {}
+    class SecondBranch extends THREE.Group {
+      constructor() {
+        super();
+        activeRuntime.loadingManager.itemStart("https://example.test/leaf.png");
+        finish = () => activeRuntime.loadingManager.itemEnd("https://example.test/leaf.png");
+      }
+    }
+
+    activeRuntime.setAssetClass(childURL, FirstBranch);
+    const Branch = activeRuntime.getWrapperConstructor(childURL);
+    class Tree extends THREE.Group {
+      constructor() {
+        super();
+        this.add(new Branch());
+      }
+    }
+
+    activeRuntime.setAssetClass(parentURL, Tree);
+    const root = activeRuntime.createRoot(parentURL);
+    const branch = root.children[0]?.children[0];
+    activeRuntime.replace(childURL, SecondBranch);
+
+    expect(root.children[0]?.children[0]).toBe(branch);
+    expect(branch?.children[0]).toBeInstanceOf(SecondBranch);
+    if (!finish) {
+      throw new Error("Expected replacement to start its resource");
+    }
+    finish();
+  });
+
+  it("gives each wrapper runtime its own loading manager", () => {
+    const first = new WrapperRuntime(new ModuleURLStore());
+    const second = new WrapperRuntime(new ModuleURLStore());
+
+    try {
+      expect(first.loadingManager).not.toBe(second.loadingManager);
+    } finally {
+      first.dispose();
+      second.dispose();
+    }
+  });
 });

@@ -1,4 +1,5 @@
 import * as THREE from "three"
+import { loadingManager } from "@drawcall/glts/asset"
 
 export default class Branch extends THREE.Group {
   private readonly geometry: THREE.BufferGeometry[] = []
@@ -9,7 +10,7 @@ export default class Branch extends THREE.Group {
     super()
     this.name = "Procedural branch"
 
-    this.leafTexture = new THREE.TextureLoader().load(
+    this.leafTexture = new THREE.TextureLoader(loadingManager).load(
       new URL("./leaf.svg", import.meta.url).href,
     )
     this.leafTexture.colorSpace = THREE.SRGBColorSpace
