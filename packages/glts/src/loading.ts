@@ -13,6 +13,34 @@ interface LoadingCompletion {
   readonly resolve: () => void;
 }
 
+function scopedURL(url: string, runtimeKey: string): string {
+  // Three.js coalesces requests globally by the raw manager-resolved URL. A
+  // removable path segment isolates runtimes without changing the fetched URL.
+  const segment = `.__glts_runtime_${encodeURIComponent(runtimeKey)}`;
+  const absolute = /^(https?:\/\/[^/?#]+|file:\/\/[^/?#]*)(.*)$/i.exec(url);
+  if (absolute) {
+    const [, origin, suffix] = absolute;
+    if (origin !== undefined && suffix !== undefined) {
+      return `${origin}/${segment}/..${suffix}`;
+    }
+  }
+
+  if (url.startsWith("/")) {
+    return `/${segment}/..${url}`;
+  }
+
+  const relativePath = !/^[A-Za-z][A-Za-z\d+.-]*:/.test(url)
+    && !url.startsWith("?")
+    && !url.startsWith("#");
+  if (relativePath) {
+    return `./${segment}/../${url}`;
+  }
+
+  // Opaque URLs do not normalize path segments, but fetch ignores fragments.
+  const separator = url.includes("#") ? "&" : "#";
+  return `${url}${separator}__glts_runtime=${encodeURIComponent(runtimeKey)}`;
+}
+
 export interface LoadingBoundary {
   cancel(): void;
   waitForIdle(): Promise<void>;
@@ -23,42 +51,78 @@ export class RuntimeLoading {
   readonly #boundaries = new Set<LoadingBoundaryState>();
   readonly #completions = new Map<LoadingBoundaryState, LoadingCompletion>();
   readonly #activeFailures: string[] = [];
+  readonly #sourceURLs = new Map<string, string>();
+  readonly #urlLoads = new Map<string, number>();
   #pending = 0;
 
-  constructor() {
+  constructor(runtimeKey: string) {
     const itemStart = this.manager.itemStart.bind(this.manager);
     const itemEnd = this.manager.itemEnd.bind(this.manager);
     const itemError = this.manager.itemError.bind(this.manager);
+    const resolveURL = this.manager.resolveURL.bind(this.manager);
+
+    this.manager.resolveURL = (url): string => {
+      const sourceURL = resolveURL(url);
+      const isolatedURL = scopedURL(sourceURL, runtimeKey);
+      this.#sourceURLs.set(isolatedURL, sourceURL);
+      return isolatedURL;
+    };
 
     this.manager.itemStart = (url): void => {
+      const sourceURL = this.#sourceURL(url);
+      if (this.#sourceURLs.has(url)) {
+        this.#urlLoads.set(url, (this.#urlLoads.get(url) ?? 0) + 1);
+      }
       if (this.#pending === 0) {
         this.#activeFailures.length = 0;
       }
       this.#pending += 1;
-      itemStart(url);
+      itemStart(sourceURL);
     };
     this.manager.itemError = (url): void => {
-      this.#activeFailures.push(url);
+      const sourceURL = this.#sourceURL(url);
+      this.#activeFailures.push(sourceURL);
       for (const boundary of this.#boundaries) {
-        boundary.failures.push(url);
+        boundary.failures.push(sourceURL);
       }
-      itemError(url);
+      itemError(sourceURL);
     };
     this.manager.itemEnd = (url): void => {
+      const sourceURL = this.#sourceURL(url);
       if (this.#pending === 0) {
-        throw new Error(`Loading manager ended an untracked resource: ${url}`);
+        throw new Error(`Loading manager ended an untracked resource: ${sourceURL}`);
       }
 
       try {
-        itemEnd(url);
+        itemEnd(sourceURL);
       } finally {
         this.#pending -= 1;
         this.#settleIdleBoundaries();
         if (this.#pending === 0) {
           this.#activeFailures.length = 0;
         }
+        this.#releaseURL(url);
       }
     };
+  }
+
+  #sourceURL(url: string): string {
+    return this.#sourceURLs.get(url) ?? url;
+  }
+
+  #releaseURL(url: string): void {
+    const loads = this.#urlLoads.get(url);
+    if (loads === undefined) {
+      return;
+    }
+
+    if (loads > 1) {
+      this.#urlLoads.set(url, loads - 1);
+      return;
+    }
+
+    this.#urlLoads.delete(url);
+    this.#sourceURLs.delete(url);
   }
 
   begin(rootURL: string): LoadingBoundary {

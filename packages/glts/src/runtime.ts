@@ -43,7 +43,7 @@ function callDispose(value: object): void {
 export class WrapperRuntime {
   readonly #runtimeKey = nextRuntimeKey();
   readonly #moduleURLs: ModuleURLStore;
-  readonly #loading = new RuntimeLoading();
+  readonly #loading = new RuntimeLoading(this.#runtimeKey);
   readonly #assetClasses = new Map<string, GLTSAssetClass>();
   readonly #wrapperClasses = new Map<string, WrapperClass>();
   readonly #wrapperModuleURLs = new Map<string, string>();
