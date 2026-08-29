@@ -13,7 +13,12 @@ export interface GLTSLoaderOptions {
   fetch?: GLTSFetch;
 }
 
-export interface GLTSAsset {
+export interface GLTSPreviewExports {
+  readonly previewCamera?: THREE.Camera | undefined;
+  readonly previewLighting?: THREE.Object3D | undefined;
+}
+
+export interface GLTSAsset extends GLTSPreviewExports {
   readonly scene: THREE.Group;
   readonly url: string;
   reload(): Promise<void>;

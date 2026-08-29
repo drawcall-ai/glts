@@ -6,7 +6,12 @@ import {
 import * as THREE from "three";
 
 import { GLTSError } from "./errors.js";
-import { canonicalGLTSURL, ModuleGraph, threeRevision } from "./module-graph.js";
+import {
+  canonicalGLTSURL,
+  ModuleGraph,
+  type PreparedAsset,
+  threeRevision
+} from "./module-graph.js";
 import { ModuleURLStore } from "./module-url-store.js";
 import { WrapperRuntime } from "./runtime.js";
 import type {
@@ -15,6 +20,7 @@ import type {
   GLTSFetch,
   GLTSLoadCallback,
   GLTSLoaderOptions,
+  GLTSPreviewExports,
   GLTSProgressCallback
 } from "./types.js";
 
@@ -39,18 +45,36 @@ class GLTSAssetHandle implements GLTSAsset {
   readonly url: string;
   readonly #reloadAsset: () => Promise<void>;
   readonly #disposeAsset: () => void;
+  #previewCamera: THREE.Camera | undefined;
+  #previewLighting: THREE.Object3D | undefined;
   #disposed = false;
 
   constructor(
     scene: THREE.Group,
     url: string,
+    preview: GLTSPreviewExports,
     reloadAsset: () => Promise<void>,
     disposeAsset: () => void
   ) {
     this.scene = scene;
     this.url = url;
+    this.#previewCamera = preview.previewCamera;
+    this.#previewLighting = preview.previewLighting;
     this.#reloadAsset = reloadAsset;
     this.#disposeAsset = disposeAsset;
+  }
+
+  get previewCamera(): THREE.Camera | undefined {
+    return this.#previewCamera;
+  }
+
+  get previewLighting(): THREE.Object3D | undefined {
+    return this.#previewLighting;
+  }
+
+  updatePreview(preview: GLTSPreviewExports): void {
+    this.#previewCamera = preview.previewCamera;
+    this.#previewLighting = preview.previewLighting;
   }
 
   async reload(): Promise<void> {
@@ -137,6 +161,7 @@ export class GLTSLoader extends Loader {
         handle = new GLTSAssetHandle(
           scene,
           prepared.url,
+          prepared,
           () => this.reload(prepared.url),
           () => {
             try {
@@ -175,11 +200,11 @@ export class GLTSLoader extends Loader {
           } catch (error) {
             if (error instanceof GLTSError && error.phase === "dispose") {
               // Disposal begins only after WrapperRuntime commits the replacement.
-              this.#graph.activateAsset(prepared);
+              this.#activateAsset(prepared);
             }
             throw error;
           }
-          this.#graph.activateAsset(prepared);
+          this.#activateAsset(prepared);
         } finally {
           this.#graph.settleReachability();
         }
@@ -242,6 +267,15 @@ export class GLTSLoader extends Loader {
   #resolveURL(url: string): string {
     const managedURL = this.manager.resolveURL(`${this.path}${url}`);
     return canonicalGLTSURL(managedURL, this.#baseURL);
+  }
+
+  #activateAsset(prepared: PreparedAsset): void {
+    this.#graph.activateAsset(prepared);
+    for (const asset of this.#assets) {
+      if (asset.url === prepared.url) {
+        asset.updatePreview(prepared);
+      }
+    }
   }
 
   #fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

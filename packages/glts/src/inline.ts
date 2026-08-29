@@ -55,6 +55,7 @@ type DefaultClass =
 interface File {
   readonly defaultClass?: DefaultClass;
   readonly externals: readonly ExternalImport[];
+  readonly exportEdits: readonly Range[];
   readonly importRanges: readonly Range[];
   readonly imports: readonly LocalImport[];
   readonly insertAt: number;
@@ -64,6 +65,8 @@ interface File {
   readonly source: string;
   readonly url: URL;
 }
+
+const previewExportNames = new Set(["previewCamera", "previewLighting"]);
 
 function fail(
   message: string,
@@ -338,6 +341,65 @@ function defaultClass(
   };
 }
 
+function previewExportEdit(
+  node: Extract<Node, { type: "ExportNamedDeclaration" }>,
+  path: string
+): Range {
+  if (node.source || node.exportKind === "type") {
+    fail(
+      "Inlined dependencies may only have a default export or named preview exports",
+      path,
+      "transform"
+    );
+  }
+
+  const nodeRange = range(node, path);
+  if (node.declaration) {
+    if (node.declaration.type !== "VariableDeclaration") {
+      fail(
+        "Inlined preview exports must be variable declarations",
+        path,
+        "transform"
+      );
+    }
+
+    const names = node.declaration.declarations.map((declaration) => {
+      if (declaration.id.type !== "Identifier") {
+        fail("Inlined preview exports must use identifier bindings", path, "transform");
+      }
+      return declaration.id.name;
+    });
+    if (names.length === 0 || names.some((name) => !previewExportNames.has(name))) {
+      fail(
+        "Inlined dependencies may only have a default export or named preview exports",
+        path,
+        "transform"
+      );
+    }
+
+    const declarationRange = range(node.declaration, path);
+    return { start: nodeRange.start, end: declarationRange.start };
+  }
+
+  const names = node.specifiers.map((specifier) => {
+    if (specifier.type !== "ExportSpecifier" || specifier.exportKind === "type") {
+      fail("Inlined preview exports must be runtime value exports", path, "transform");
+    }
+    return specifier.exported.type === "Identifier"
+      ? specifier.exported.name
+      : specifier.exported.value;
+  });
+  if (names.length === 0 || names.some((name) => !previewExportNames.has(name))) {
+    fail(
+      "Inlined dependencies may only have a default export or named preview exports",
+      path,
+      "transform"
+    );
+  }
+
+  return nodeRange;
+}
+
 function readFile(
   source: string,
   url: URL,
@@ -349,6 +411,7 @@ function readFile(
   const ast = parseModule(source, path);
   const imports: LocalImport[] = [];
   const externals: ExternalImport[] = [];
+  const exportEdits: Range[] = [];
   const importRanges: Range[] = [];
   let exported: DefaultClass | undefined;
   const firstNode = ast.program.body[0];
@@ -400,8 +463,12 @@ function readFile(
       continue;
     }
 
+    if (node.type === "ExportNamedDeclaration") {
+      exportEdits.push(previewExportEdit(node, path));
+      continue;
+    }
+
     if (
-      node.type === "ExportNamedDeclaration" ||
       node.type === "ExportAllDeclaration" ||
       node.type === "TSExportAssignment" ||
       node.type === "TSNamespaceExportDeclaration"
@@ -417,6 +484,7 @@ function readFile(
   return {
     ...(exported ? { defaultClass: exported } : {}),
     externals,
+    exportEdits,
     importRanges,
     imports,
     insertAt,
@@ -546,6 +614,9 @@ function renderFile(
   const rewritten = new MagicString(file.source);
   for (const importRange of file.importRanges) {
     rewritten.remove(importRange.start, importRange.end);
+  }
+  for (const exportEdit of file.exportEdits) {
+    rewritten.remove(exportEdit.start, exportEdit.end);
   }
   for (const metaURL of file.metaURLs) {
     rewritten.overwrite(

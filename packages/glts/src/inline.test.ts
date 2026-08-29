@@ -15,6 +15,9 @@ export class Group {
     return this;
   }
 }
+
+export class PerspectiveCamera {}
+export class AmbientLight {}
 `)}`;
 
 async function execute(source: string): Promise<Record<string, unknown>> {
@@ -169,6 +172,44 @@ export default class Leaf extends Group {
     expect(leafWrapper.name).toBe("https://example.test/assets/parts/leaf.glts");
     expect(leafWrapper.children).toHaveLength(1);
     expect(leaf.value).toBe(42);
+  });
+
+  it("keeps dependency preview exports out of the composable wrapper", async () => {
+    const bundled = inline(
+      `import { Group } from "three";
+import Branch from "./branch.glts";
+
+export default class Tree extends Group {
+  constructor() {
+    super();
+    this.add(new Branch());
+  }
+}`,
+      {
+        "./branch.glts": `import { AmbientLight, Group, PerspectiveCamera } from "three";
+
+export const previewCamera = new PerspectiveCamera();
+const previewLighting = new Group();
+previewLighting.add(new AmbientLight());
+export { previewLighting };
+
+export default class Branch extends Group {}`
+      }
+    );
+
+    expect(bundled).not.toContain("export const previewCamera");
+    expect(bundled).not.toContain("export { previewLighting }");
+
+    const module = await execute(bundled);
+    const Tree = module.default;
+    if (typeof Tree !== "function") {
+      throw new Error("Expected the inline entry class");
+    }
+    const tree = Reflect.construct(Tree, []);
+    const branchWrapper = tree.children[0];
+    const branch = branchWrapper.children[0];
+
+    expect(branch.children).toEqual([]);
   });
 
   it("keeps TypeScript syntax and rewrites dependency import.meta.url", () => {

@@ -3,11 +3,16 @@ import type * as THREE from "three";
 import { compileTypeScript } from "./compiler.js";
 import { GLTSError, toGLTSError } from "./errors.js";
 import { ModuleURLStore } from "./module-url-store.js";
+import { readPreviewExports } from "./preview-exports.js";
 import { rewriteModule } from "./rewrite-module.js";
 import type { WrapperRuntime } from "./runtime.js";
-import type { GLTSAssetClass, GLTSFetch } from "./types.js";
+import type {
+  GLTSAssetClass,
+  GLTSFetch,
+  GLTSPreviewExports
+} from "./types.js";
 
-interface PreparedAsset {
+export interface PreparedAsset extends GLTSPreviewExports {
   readonly assetClass: GLTSAssetClass;
   readonly dependencies: ReadonlySet<string>;
   readonly moduleURL: string;
@@ -268,10 +273,13 @@ export class ModuleGraph {
       });
     }
 
+    const preview = readPreviewExports(namespace, { url, importChain });
+
     const prepared: PreparedAsset = {
       assetClass,
       dependencies,
       moduleURL,
+      ...preview,
       source: fetched.source,
       url
     };
