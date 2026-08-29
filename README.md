@@ -161,6 +161,15 @@ reload replacement stay synchronous and do not wait for resources they start.
 Arbitrary asynchronous work outside a Three.js loader using `loadingManager`
 is not tracked.
 
+Treat `loadingManager.resolveURL()` output as loader-internal. GLTS gives
+hierarchical resource URLs an equivalent runtime-specific alias so Three.js
+cannot merge requests belonging to separate managers; progress and error
+callbacks still receive the pre-alias URL, including any custom URL modifier's
+result. Opaque `data:` and `blob:` URLs stay unchanged to preserve their exact
+bytes and fragment semantics. As a result, Three.js may still merge identical
+opaque URLs loaded concurrently by separate runtimes; use HTTP(S) resources
+when strict runtime isolation is required.
+
 Dynamic imports, import attributes, local helper `.ts` modules, cyclic module
 graphs, cross-asset inheritance, and custom-method contracts across a `.glts`
 boundary are intentionally outside V1.

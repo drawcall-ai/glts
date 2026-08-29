@@ -105,6 +105,83 @@ describe("RuntimeLoading", () => {
     expect(new URL(secondURL).href).toBe(resourceURL);
   });
 
+  it.each([
+    [
+      "protocol-relative",
+      "//cdn.example.test/model.glb#scene",
+      "https://cdn.example.test/model.glb#scene"
+    ],
+    ["empty", "", "https://app.example.test/assets/tree.glts?version=1"],
+    [
+      "query-only",
+      "?version=2",
+      "https://app.example.test/assets/tree.glts?version=2"
+    ],
+    [
+      "hash-only",
+      "#branch",
+      "https://app.example.test/assets/tree.glts?version=1#branch"
+    ],
+    [
+      "existing fragment",
+      "leaf.svg#icon",
+      "https://app.example.test/assets/leaf.svg#icon"
+    ]
+  ])("preserves the %s resource target", (_name, sourceURL, targetURL) => {
+    const loading = new RuntimeLoading(
+      "tree-runtime",
+      "https://app.example.test/assets/tree.glts?version=1#old"
+    );
+    const managedURL = loading.manager.resolveURL(sourceURL);
+
+    expect(managedURL).not.toBe(targetURL);
+    expect(new URL(managedURL).href).toBe(targetURL);
+  });
+
+  it("applies a custom URL modifier before runtime isolation", () => {
+    const loading = new RuntimeLoading(
+      "tree-runtime",
+      "https://app.example.test/assets/tree.glts"
+    );
+    const modified: string[] = [];
+    loading.manager.setURLModifier((url) => {
+      modified.push(url);
+      return "../secured/model.glb?token=one#scene";
+    });
+
+    const managedURL = loading.manager.resolveURL("../models/model.glb#scene");
+
+    expect(modified).toEqual(["../models/model.glb#scene"]);
+    expect(new URL(managedURL).href).toBe(
+      "https://app.example.test/secured/model.glb?token=one#scene"
+    );
+  });
+
+  it.each([
+    [
+      "file authority",
+      "file://assets.example.test/models/tree.glb?version=1#scene"
+    ],
+    [
+      "HTTP credentials",
+      "https://author:secret@example.test/models/tree.glb?version=1#scene"
+    ]
+  ])("preserves the %s", (_name, resourceURL) => {
+    const loading = new RuntimeLoading("tree-runtime");
+    const managedURL = loading.manager.resolveURL(resourceURL);
+
+    expect(managedURL).not.toBe(resourceURL);
+    expect(new URL(managedURL).href).toBe(resourceURL);
+  });
+
+  it.each(["", "//cdn.example.test/model.glb", "?version=2", "#scene"])(
+    "leaves %j unchanged when no environment base exists",
+    (sourceURL) => {
+      const loading = new RuntimeLoading("server-runtime");
+      expect(loading.manager.resolveURL(sourceURL)).toBe(sourceURL);
+    }
+  );
+
   it("keeps runtime URL aliases out of loading callbacks and failures", async () => {
     const loading = new RuntimeLoading("tree-runtime");
     const rootURL = "https://example.test/tree.glts";
@@ -129,16 +206,40 @@ describe("RuntimeLoading", () => {
     ]);
   });
 
+  it("translates callbacks without retaining resolve-only URLs", () => {
+    const loading = new RuntimeLoading("tree-runtime");
+    const unresolvedURLs = Array.from(
+      { length: 1_000 },
+      (_, index) => `https://example.test/resources/${index}.bin`
+    );
+    for (const resourceURL of unresolvedURLs) {
+      loading.manager.resolveURL(resourceURL);
+    }
+
+    const resourceURL = "https://example.test/active.bin#payload";
+    const managedURL = loading.manager.resolveURL(resourceURL);
+    const events: string[] = [];
+    loading.manager.onStart = (url) => events.push(url);
+    loading.manager.itemStart(managedURL);
+    loading.manager.itemEnd(managedURL);
+
+    expect(events).toEqual([resourceURL]);
+  });
+
   it("preserves data and blob resource identity", async () => {
     const loading = new RuntimeLoading("asset-runtime");
     const dataURL = "data:text/plain,leaf#source";
     const blobURL = URL.createObjectURL(new Blob(["branch"]));
 
     try {
+      const managedDataURL = loading.manager.resolveURL(dataURL);
+      const managedBlobURL = loading.manager.resolveURL(blobURL);
       const [data, blob] = await Promise.all([
-        fetch(loading.manager.resolveURL(dataURL)).then((response) => response.text()),
-        fetch(loading.manager.resolveURL(blobURL)).then((response) => response.text())
+        fetch(managedDataURL).then((response) => response.text()),
+        fetch(managedBlobURL).then((response) => response.text())
       ]);
+      expect(managedDataURL).toBe(dataURL);
+      expect(managedBlobURL).toBe(blobURL);
       expect({ blob, data }).toEqual({ blob: "branch", data: "leaf" });
     } finally {
       URL.revokeObjectURL(blobURL);

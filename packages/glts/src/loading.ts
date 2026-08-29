@@ -13,32 +13,79 @@ interface LoadingCompletion {
   readonly resolve: () => void;
 }
 
-function scopedURL(url: string, runtimeKey: string): string {
+function environmentBaseURL(): string | undefined {
+  if (typeof document !== "undefined") {
+    return document.baseURI;
+  }
+
+  if (typeof location !== "undefined") {
+    return location.href;
+  }
+
+  return undefined;
+}
+
+function scopePrefix(runtimeKey: string): string {
+  return `.__glts_runtime_${encodeURIComponent(runtimeKey)}_source_`;
+}
+
+function authority(target: URL): string {
+  if (target.protocol === "file:") {
+    return `file://${target.host}`;
+  }
+
+  const password = target.password ? `:${target.password}` : "";
+  const credentials = target.username || target.password
+    ? `${target.username}${password}@`
+    : "";
+  return `${target.protocol}//${credentials}${target.host}`;
+}
+
+function scopedURL(
+  url: string,
+  runtimeKey: string,
+  baseURL: string | undefined
+): string {
+  let target: URL;
+  try {
+    target = baseURL ? new URL(url, baseURL) : new URL(url);
+  } catch {
+    return url;
+  }
+
+  const hierarchical = target.protocol === "http:"
+    || target.protocol === "https:"
+    || target.protocol === "file:";
+  if (!hierarchical) {
+    return url;
+  }
+
   // Three.js coalesces requests globally by the raw manager-resolved URL. A
   // removable path segment isolates runtimes without changing the fetched URL.
-  const segment = `.__glts_runtime_${encodeURIComponent(runtimeKey)}`;
-  const absolute = /^(https?:\/\/[^/?#]+|file:\/\/[^/?#]*)(.*)$/i.exec(url);
-  if (absolute) {
-    const [, origin, suffix] = absolute;
-    if (origin !== undefined && suffix !== undefined) {
-      return `${origin}/${segment}/..${suffix}`;
-    }
+  // Encoding the source in that segment also makes callback translation
+  // stateless: resolve-only consumers cannot leave bookkeeping behind.
+  const segment = `${scopePrefix(runtimeKey)}${encodeURIComponent(url)}`;
+  return `${authority(target)}/${segment}/..${target.pathname}${target.search}${target.hash}`;
+}
+
+function recoverSourceURL(url: string, runtimeKey: string): string {
+  const marker = `/${scopePrefix(runtimeKey)}`;
+  const markerIndex = url.indexOf(marker);
+  if (markerIndex === -1) {
+    return url;
   }
 
-  if (url.startsWith("/")) {
-    return `/${segment}/..${url}`;
+  const sourceStart = markerIndex + marker.length;
+  const sourceEnd = url.indexOf("/..", sourceStart);
+  if (sourceEnd === -1) {
+    return url;
   }
 
-  const relativePath = !/^[A-Za-z][A-Za-z\d+.-]*:/.test(url)
-    && !url.startsWith("?")
-    && !url.startsWith("#");
-  if (relativePath) {
-    return `./${segment}/../${url}`;
+  try {
+    return decodeURIComponent(url.slice(sourceStart, sourceEnd));
+  } catch {
+    return url;
   }
-
-  // Opaque URLs do not normalize path segments, but fetch ignores fragments.
-  const separator = url.includes("#") ? "&" : "#";
-  return `${url}${separator}__glts_runtime=${encodeURIComponent(runtimeKey)}`;
 }
 
 export interface LoadingBoundary {
@@ -51,78 +98,58 @@ export class RuntimeLoading {
   readonly #boundaries = new Set<LoadingBoundaryState>();
   readonly #completions = new Map<LoadingBoundaryState, LoadingCompletion>();
   readonly #activeFailures: string[] = [];
-  readonly #sourceURLs = new Map<string, string>();
-  readonly #urlLoads = new Map<string, number>();
   #pending = 0;
 
-  constructor(runtimeKey: string) {
+  constructor(runtimeKey: string, baseURL?: string) {
     const itemStart = this.manager.itemStart.bind(this.manager);
     const itemEnd = this.manager.itemEnd.bind(this.manager);
     const itemError = this.manager.itemError.bind(this.manager);
     const resolveURL = this.manager.resolveURL.bind(this.manager);
 
     this.manager.resolveURL = (url): string => {
-      const sourceURL = resolveURL(url);
-      const isolatedURL = scopedURL(sourceURL, runtimeKey);
-      this.#sourceURLs.set(isolatedURL, sourceURL);
+      const resolvedURL = resolveURL(url);
+      const isolatedURL = scopedURL(
+        resolvedURL,
+        runtimeKey,
+        baseURL ?? environmentBaseURL()
+      );
       return isolatedURL;
     };
 
     this.manager.itemStart = (url): void => {
-      const sourceURL = this.#sourceURL(url);
-      if (this.#sourceURLs.has(url)) {
-        this.#urlLoads.set(url, (this.#urlLoads.get(url) ?? 0) + 1);
-      }
+      const resourceURL = recoverSourceURL(url, runtimeKey);
       if (this.#pending === 0) {
         this.#activeFailures.length = 0;
       }
       this.#pending += 1;
-      itemStart(sourceURL);
+      itemStart(resourceURL);
     };
     this.manager.itemError = (url): void => {
-      const sourceURL = this.#sourceURL(url);
-      this.#activeFailures.push(sourceURL);
+      const resourceURL = recoverSourceURL(url, runtimeKey);
+      this.#activeFailures.push(resourceURL);
       for (const boundary of this.#boundaries) {
-        boundary.failures.push(sourceURL);
+        boundary.failures.push(resourceURL);
       }
-      itemError(sourceURL);
+      itemError(resourceURL);
     };
     this.manager.itemEnd = (url): void => {
-      const sourceURL = this.#sourceURL(url);
+      const resourceURL = recoverSourceURL(url, runtimeKey);
       if (this.#pending === 0) {
-        throw new Error(`Loading manager ended an untracked resource: ${sourceURL}`);
+        throw new Error(
+          `Loading manager ended an untracked resource: ${resourceURL}`
+        );
       }
 
       try {
-        itemEnd(sourceURL);
+        itemEnd(resourceURL);
       } finally {
         this.#pending -= 1;
         this.#settleIdleBoundaries();
         if (this.#pending === 0) {
           this.#activeFailures.length = 0;
         }
-        this.#releaseURL(url);
       }
     };
-  }
-
-  #sourceURL(url: string): string {
-    return this.#sourceURLs.get(url) ?? url;
-  }
-
-  #releaseURL(url: string): void {
-    const loads = this.#urlLoads.get(url);
-    if (loads === undefined) {
-      return;
-    }
-
-    if (loads > 1) {
-      this.#urlLoads.set(url, loads - 1);
-      return;
-    }
-
-    this.#urlLoads.delete(url);
-    this.#sourceURLs.delete(url);
   }
 
   begin(rootURL: string): LoadingBoundary {
