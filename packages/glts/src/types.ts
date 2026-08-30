@@ -1,6 +1,6 @@
 import type * as THREE from "three";
 
-export type GLTSAssetClass = new () => unknown;
+export type RawAssetConstructor = new () => unknown;
 
 export type GLTSFetch = (
   input: RequestInfo | URL,

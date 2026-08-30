@@ -4,7 +4,7 @@ import { GLTSError } from "./errors.js";
 import { RuntimeLoading } from "./loading.js";
 import { ModuleURLStore } from "./module-url-store.js";
 import { trackRoot, type RuntimeRoot } from "./root.js";
-import type { GLTSAssetClass } from "./types.js";
+import type { RawAssetConstructor } from "./types.js";
 
 interface WrapperRecord {
   readonly url: string;
@@ -45,7 +45,7 @@ export class WrapperRuntime {
   readonly #runtimeKey = nextRuntimeKey();
   readonly #moduleURLs: ModuleURLStore;
   readonly #loading = new RuntimeLoading();
-  readonly #assetClasses = new Map<string, GLTSAssetClass>();
+  readonly #assetClasses = new Map<string, RawAssetConstructor>();
   readonly #wrapperClasses = new Map<string, WrapperClass>();
   readonly #wrapperModuleURLs = new Map<string, string>();
   readonly #records = new WeakMap<THREE.Group, WrapperRecord>();
@@ -107,7 +107,7 @@ export class WrapperRuntime {
     return moduleURL;
   }
 
-  setAssetClass(url: string, assetClass: GLTSAssetClass): void {
+  setAssetClass(url: string, assetClass: RawAssetConstructor): void {
     this.#assertActive();
     this.#assetClasses.set(url, assetClass);
   }
@@ -128,7 +128,7 @@ export class WrapperRuntime {
     });
   }
 
-  replace(url: string, nextClass: GLTSAssetClass): void {
+  replace(url: string, nextClass: RawAssetConstructor): void {
     this.#assertActive();
     const wrappers = [...(this.#liveWrappers.get(url) ?? [])];
     const staged: StagedReplacement[] = [];
@@ -277,7 +277,7 @@ export class WrapperRuntime {
     });
   }
 
-  #constructRaw(url: string, assetClass: GLTSAssetClass): THREE.Object3D {
+  #constructRaw(url: string, assetClass: RawAssetConstructor): THREE.Object3D {
     let value: unknown;
 
     try {

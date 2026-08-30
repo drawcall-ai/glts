@@ -6,10 +6,10 @@ import { GLTSError, toGLTSError } from "./errors.js";
 import { ModuleURLStore } from "./module-url-store.js";
 import { rewriteModule } from "./rewrite-module.js";
 import type { WrapperRuntime } from "./runtime.js";
-import type { GLTSAssetClass, GLTSFetch } from "./types.js";
+import type { GLTSFetch, RawAssetConstructor } from "./types.js";
 
 export interface PreparedAsset extends PreviewState {
-  readonly assetClass: GLTSAssetClass;
+  readonly assetClass: RawAssetConstructor;
   readonly dependencies: ReadonlySet<string>;
   readonly moduleURL: string;
   readonly source: string;

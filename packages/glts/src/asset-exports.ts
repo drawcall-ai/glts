@@ -1,12 +1,12 @@
 import * as THREE from "three";
 
 import { GLTSError } from "./errors.js";
-import type { GLTSAssetClass, GLTSPreviewExports } from "./types.js";
+import type { GLTSPreviewExports, RawAssetConstructor } from "./types.js";
 
 export type PreviewState = Required<GLTSPreviewExports>;
 
 export interface AssetExports extends PreviewState {
-  readonly assetClass: GLTSAssetClass;
+  readonly assetClass: RawAssetConstructor;
 }
 
 interface AssetModuleContext {
@@ -40,7 +40,7 @@ function receivedType(value: unknown): string {
   return typeof value;
 }
 
-function isConstructor(value: unknown): value is GLTSAssetClass {
+function isConstructor(value: unknown): value is RawAssetConstructor {
   if (typeof value !== "function") {
     return false;
   }
@@ -56,7 +56,7 @@ function isConstructor(value: unknown): value is GLTSAssetClass {
 function readAssetClass(
   namespace: unknown,
   context: AssetModuleContext
-): GLTSAssetClass {
+): RawAssetConstructor {
   const value = moduleExport(namespace, "default");
   if (isConstructor(value)) {
     return value;
