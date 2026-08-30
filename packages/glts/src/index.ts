@@ -7,5 +7,6 @@ export type {
   GLTSFetch,
   GLTSLoadCallback,
   GLTSLoaderOptions,
+  GLTSPreviewExports,
   GLTSProgressCallback
 } from "./types.js";

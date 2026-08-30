@@ -115,6 +115,26 @@ export default class Rock extends THREE.Mesh {
 }
 ```
 
+A root module may also export preview-only camera and lighting metadata:
+
+```ts
+export const previewCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100)
+
+export const previewLighting = new THREE.Group()
+previewLighting.add(new THREE.AmbientLight(0xffffff, 0.5))
+
+export default class Tree extends THREE.Group {
+  // Reusable scene content only.
+}
+```
+
+`previewCamera` must be a `THREE.Camera`. `previewLighting` must be a
+`THREE.Object3D` containing at least one `THREE.Light`. The loader exposes them
+as `asset.previewCamera` and `asset.previewLighting`; neither is added to
+`asset.scene`. Both properties are `undefined` when omitted and update after a
+successful reload. When a `.glts` module is imported by another asset, only its
+default scene export is composed into the parent.
+
 Supported static imports:
 
 | Import | Resolution |
@@ -160,10 +180,13 @@ import { Group } from "three"
 Paths in the source record are relative to the entry module unless they start
 at `/` or are absolute URLs. Each dependency must default-export a class and
 may only use default imports for other local `.glts` files. Dependency named
-exports, dynamic imports, import attributes, local helper modules, conflicting
-external bindings, and cycles fail with a `GLTSError`. Dependency
+exports other than `previewCamera` and `previewLighting`, dynamic imports,
+import attributes, local helper modules, conflicting external bindings, and
+cycles fail with a `GLTSError`. Dependency
 `import.meta.url` expressions still resolve to the original source path. Local
-GLTS imports are constructor values rather than TypeScript type imports.
+GLTS imports are constructor values rather than TypeScript type imports. The
+two preview exports are permitted in inlined dependencies but remain local to
+their source.
 
 ## Reload behavior
 

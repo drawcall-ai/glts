@@ -1,5 +1,6 @@
 import type * as THREE from "three";
 
+import { readAssetExports, type PreviewState } from "./asset-exports.js";
 import { compileTypeScript } from "./compiler.js";
 import { GLTSError, toGLTSError } from "./errors.js";
 import { ModuleURLStore } from "./module-url-store.js";
@@ -7,7 +8,7 @@ import { rewriteModule } from "./rewrite-module.js";
 import type { WrapperRuntime } from "./runtime.js";
 import type { GLTSAssetClass, GLTSFetch } from "./types.js";
 
-interface PreparedAsset {
+export interface PreparedAsset extends PreviewState {
   readonly assetClass: GLTSAssetClass;
   readonly dependencies: ReadonlySet<string>;
   readonly moduleURL: string;
@@ -26,18 +27,6 @@ interface ModuleGraphOptions {
   readonly moduleURLs: ModuleURLStore;
   readonly runtime: WrapperRuntime;
   readonly threeRevision: string;
-}
-
-function isAssetClass(value: unknown): value is GLTSAssetClass {
-  return typeof value === "function";
-}
-
-function moduleDefault(namespace: unknown): unknown {
-  if ((typeof namespace !== "object" && typeof namespace !== "function") || namespace === null) {
-    return undefined;
-  }
-
-  return Reflect.get(namespace, "default");
 }
 
 function hasScheme(specifier: string): boolean {
@@ -259,19 +248,12 @@ export class ModuleGraph {
       });
     }
 
-    const assetClass = moduleDefault(namespace);
-    if (!isAssetClass(assetClass)) {
-      throw new GLTSError("Module must default-export a constructible Three.js class", {
-        url,
-        phase: "evaluate",
-        importChain
-      });
-    }
+    const assetExports = readAssetExports(namespace, { url, importChain });
 
     const prepared: PreparedAsset = {
-      assetClass,
       dependencies,
       moduleURL,
+      ...assetExports,
       source: fetched.source,
       url
     };
