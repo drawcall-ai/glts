@@ -23,49 +23,32 @@ function cleanupFailure(url: string, error: unknown, cleanupError: unknown): GLT
 
 export function trackRoot(options: RuntimeRootOptions): RuntimeRoot {
   let state: "pending" | "ready" | "disposed" = "pending";
-  let resolveReady = (): void => {
-    throw new Error("Root readiness was not initialized");
-  };
-  let rejectReady = (_reason: unknown): void => {
-    throw new Error("Root readiness was not initialized");
-  };
-  const ready = new Promise<void>((resolve, reject) => {
-    resolveReady = resolve;
-    rejectReady = reject;
-  });
-
-  const fail = (error: unknown): void => {
-    if (state !== "pending") {
-      return;
-    }
-
-    state = "disposed";
+  let rejection: unknown;
+  const isDisposed = (): boolean => state === "disposed";
+  const ready = (async (): Promise<void> => {
     try {
-      options.dispose();
-      rejectReady(error);
-    } catch (cleanupError) {
-      rejectReady(cleanupFailure(options.url, error, cleanupError));
-    }
-  };
-
-  void options.boundary.waitForIdle().then(
-    () => {
-      if (state !== "pending") {
-        return;
+      await options.boundary.waitForIdle();
+      if (isDisposed()) {
+        throw rejection;
       }
 
-      try {
-        options.assertActive();
-      } catch (error) {
-        fail(error);
-        return;
-      }
-
+      options.assertActive();
       state = "ready";
-      resolveReady();
-    },
-    fail
-  );
+    } catch (error) {
+      if (isDisposed()) {
+        throw rejection;
+      }
+
+      state = "disposed";
+      try {
+        options.dispose();
+      } catch (cleanupError) {
+        throw cleanupFailure(options.url, error, cleanupError);
+      }
+
+      throw error;
+    }
+  })();
 
   return {
     ready,
@@ -76,24 +59,21 @@ export function trackRoot(options: RuntimeRootOptions): RuntimeRoot {
 
       const wasPending = state === "pending";
       state = "disposed";
+      rejection = reason ?? new GLTSError(
+        "Root was disposed before its resources finished loading",
+        { url: options.url, phase: "dispose" }
+      );
       if (wasPending) {
-        options.boundary.cancel(reason);
+        options.boundary.cancel(rejection);
       }
 
       try {
         options.dispose();
       } catch (cleanupError) {
         if (wasPending) {
-          rejectReady(cleanupFailure(options.url, reason, cleanupError));
+          rejection = cleanupFailure(options.url, rejection, cleanupError);
         }
         throw cleanupError;
-      }
-
-      if (wasPending) {
-        rejectReady(reason ?? new GLTSError(
-          "Root was disposed before its resources finished loading",
-          { url: options.url, phase: "dispose" }
-        ));
       }
     }
   };

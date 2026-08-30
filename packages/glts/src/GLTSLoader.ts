@@ -44,27 +44,27 @@ function resolvedOptionURL(value: string | URL | undefined, fallback: string, ba
 }
 
 class GLTSAssetHandle implements GLTSAsset {
-  readonly scene: THREE.Group;
+  readonly scene: GLTSInstance;
   readonly url: string;
-  readonly #reloadAsset: () => Promise<void>;
-  readonly #disposeAsset: () => void;
+  readonly #assets: Set<GLTSAssetHandle>;
+  readonly #loader: GLTSLoader;
   #previewCamera: THREE.Camera | undefined;
   #previewLighting: THREE.Object3D | undefined;
   #disposed = false;
 
   constructor(
-    scene: THREE.Group,
+    scene: GLTSInstance,
     url: string,
     preview: PreviewState,
-    reloadAsset: () => Promise<void>,
-    disposeAsset: () => void
+    loader: GLTSLoader,
+    assets: Set<GLTSAssetHandle>
   ) {
     this.scene = scene;
     this.url = url;
     this.#previewCamera = preview.previewCamera;
     this.#previewLighting = preview.previewLighting;
-    this.#reloadAsset = reloadAsset;
-    this.#disposeAsset = disposeAsset;
+    this.#loader = loader;
+    this.#assets = assets;
   }
 
   get previewCamera(): THREE.Camera | undefined {
@@ -88,7 +88,7 @@ class GLTSAssetHandle implements GLTSAsset {
       });
     }
 
-    await this.#reloadAsset();
+    await this.#loader.reload(this.url);
   }
 
   dispose(): void {
@@ -97,7 +97,11 @@ class GLTSAssetHandle implements GLTSAsset {
     }
 
     this.#disposed = true;
-    this.#disposeAsset();
+    try {
+      this.scene.dispose();
+    } finally {
+      this.#assets.delete(this);
+    }
   }
 }
 
@@ -159,19 +163,12 @@ export class GLTSLoader extends Loader {
     return this.#withConstructor(url, async (prepared) => {
       const instance = new prepared.Constructor();
       await instance.ready;
-      let handle: GLTSAssetHandle;
-      handle = new GLTSAssetHandle(
+      const handle = new GLTSAssetHandle(
         instance,
         prepared.url,
         prepared,
-        () => this.reload(prepared.url),
-        () => {
-          try {
-            instance.dispose();
-          } finally {
-            this.#assets.delete(handle);
-          }
-        }
+        this,
+        this.#assets
       );
       this.#assets.add(handle);
       return handle;
@@ -241,6 +238,7 @@ export class GLTSLoader extends Loader {
         errors.push(error);
       }
     }
+    this.#assets.clear();
 
     try {
       this.#runtime.dispose();
@@ -297,10 +295,7 @@ export class GLTSLoader extends Loader {
       }
 
       dispose(): void {
-        this.#ownership.dispose(new GLTSError(
-          "Instance was disposed before it became ready",
-          { url: prepared.url, phase: "dispose" }
-        ));
+        this.#ownership.dispose();
       }
     }
 

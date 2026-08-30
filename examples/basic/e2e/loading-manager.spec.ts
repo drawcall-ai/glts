@@ -1,10 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { GLTSAsset } from "@drawcall/glts";
 
-interface Deferred {
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
-}
+import { deferred } from "./deferred.js";
 
 function assetSource(name: string, child?: string): string {
   const childImport = child ? `import Child from ${JSON.stringify(child)}` : "";
@@ -21,16 +18,6 @@ function assetSource(name: string, child?: string): string {
       }
     }
   `;
-}
-
-function deferred(): Deferred {
-  let release = (): void => {
-    throw new Error("Deferred promise was not initialized");
-  };
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { promise, resolve: () => release() };
 }
 
 function isolatedResourceURL(assetURL: string): string | undefined {

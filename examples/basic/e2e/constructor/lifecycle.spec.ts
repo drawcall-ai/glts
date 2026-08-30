@@ -1,19 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-interface Deferred {
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
-}
-
-function deferred(): Deferred {
-  let release = (): void => {
-    throw new Error("Deferred promise was not initialized");
-  };
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { promise, resolve: () => release() };
-}
+import { deferred } from "../deferred.js";
 
 test("cleans up failed, early-disposed, and loader-disposed instances", async ({ page }) => {
   await page.route("**/assets/failed-constructor-resource.glts", (route) => route.fulfill({

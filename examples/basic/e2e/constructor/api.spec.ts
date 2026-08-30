@@ -1,19 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-interface Deferred {
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
-}
-
-function deferred(): Deferred {
-  let release = (): void => {
-    throw new Error("Deferred promise was not initialized");
-  };
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { promise, resolve: () => release() };
-}
+import { deferred } from "../deferred.js";
 
 test("returns one managed constructor and shares instance resource loading", async ({
   page

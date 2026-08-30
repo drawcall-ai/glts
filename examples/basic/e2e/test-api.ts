@@ -9,23 +9,8 @@ declare global {
   }
 }
 
-Object.defineProperty(window, "GLTSLoader", {
-  configurable: false,
-  enumerable: false,
-  value: GLTSLoader,
-  writable: false
-});
-
-Object.defineProperty(window, "Group", {
-  configurable: false,
-  enumerable: false,
-  value: Group,
-  writable: false
-});
-
-Object.defineProperty(window, "LoadingManager", {
-  configurable: false,
-  enumerable: false,
-  value: LoadingManager,
-  writable: false
+Object.defineProperties(window, {
+  GLTSLoader: { value: GLTSLoader },
+  Group: { value: Group },
+  LoadingManager: { value: LoadingManager }
 });
