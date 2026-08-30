@@ -194,6 +194,41 @@ describe("WrapperRuntime", () => {
     expect(wrapper.children[0]).toBeInstanceOf(Tree);
   });
 
+  it("waits when a concurrent root starts a resource after an idle root", async () => {
+    const activeRuntime = new WrapperRuntime(new ModuleURLStore());
+    runtime = activeRuntime;
+    const url = "https://example.test/tree.glts";
+    const resourceURL = "https://example.test/bark.png";
+    let constructions = 0;
+    let finish: (() => void) | undefined;
+
+    class Tree extends THREE.Group {
+      constructor() {
+        super();
+        constructions += 1;
+        if (constructions === 2) {
+          activeRuntime.loadingManager.itemStart(resourceURL);
+          finish = () => activeRuntime.loadingManager.itemEnd(resourceURL);
+        }
+      }
+    }
+
+    activeRuntime.setAssetClass(url, Tree);
+    let firstSettled = false;
+    const first = activeRuntime.loadRoot(url).then(() => {
+      firstSettled = true;
+    });
+    const second = activeRuntime.loadRoot(url);
+    await Promise.resolve();
+    expect(firstSettled).toBe(false);
+
+    if (!finish) {
+      throw new Error("Expected the second root to start its resource");
+    }
+    finish();
+    await Promise.all([first, second]);
+  });
+
   it("disposes a constructed root when its resource load fails", async () => {
     const moduleURLs = new ModuleURLStore();
     const activeRuntime = new WrapperRuntime(moduleURLs);

@@ -5,7 +5,7 @@ import { GLTSError } from "./errors.js";
 interface LoadingBoundaryState {
   readonly failures: string[];
   readonly rootURL: string;
-  status: "open" | "waiting" | "settled";
+  completion?: LoadingCompletion;
 }
 
 interface LoadingCompletion {
@@ -21,7 +21,6 @@ export interface LoadingBoundary {
 export class RuntimeLoading {
   readonly manager = new LoadingManager();
   readonly #boundaries = new Set<LoadingBoundaryState>();
-  readonly #completions = new Map<LoadingBoundaryState, LoadingCompletion>();
   readonly #activeFailures: string[] = [];
   #pending = 0;
 
@@ -64,40 +63,39 @@ export class RuntimeLoading {
   begin(rootURL: string): LoadingBoundary {
     const state: LoadingBoundaryState = {
       failures: this.#pending > 0 ? [...this.#activeFailures] : [],
-      rootURL,
-      status: "open"
+      rootURL
     };
     this.#boundaries.add(state);
+    let consumed = false;
 
     return {
-      cancel: () => this.#cancel(state),
-      waitForIdle: () => this.#waitForIdle(state)
+      cancel: () => {
+        if (consumed || !this.#boundaries.delete(state)) {
+          throw new Error("Only an open loading boundary can be cancelled");
+        }
+        consumed = true;
+      },
+      waitForIdle: () => {
+        if (consumed) {
+          return Promise.reject(new Error("Loading boundary has already been consumed"));
+        }
+        consumed = true;
+
+        // Coalesced roots construct in adjacent promise reactions.
+        return Promise.resolve().then(() => this.#waitForIdle(state));
+      }
     };
-  }
-
-  #cancel(state: LoadingBoundaryState): void {
-    if (state.status !== "open") {
-      throw new Error("Only an open loading boundary can be cancelled");
-    }
-
-    state.status = "settled";
-    this.#boundaries.delete(state);
   }
 
   #waitForIdle(state: LoadingBoundaryState): Promise<void> {
-    if (state.status !== "open") {
-      return Promise.reject(new Error("Loading boundary has already been consumed"));
-    }
-
     if (this.#pending === 0) {
-      state.status = "settled";
       this.#boundaries.delete(state);
-      return this.#result(state);
+      const error = this.#resourceError(state);
+      return error ? Promise.reject(error) : Promise.resolve();
     }
 
-    state.status = "waiting";
     return new Promise<void>((resolve, reject) => {
-      this.#completions.set(state, { reject, resolve });
+      state.completion = { reject, resolve };
     });
   }
 
@@ -106,10 +104,13 @@ export class RuntimeLoading {
       return;
     }
 
-    for (const [state, completion] of this.#completions) {
-      state.status = "settled";
+    for (const state of this.#boundaries) {
+      const completion = state.completion;
+      if (!completion) {
+        continue;
+      }
+
       this.#boundaries.delete(state);
-      this.#completions.delete(state);
 
       const error = this.#resourceError(state);
       if (error) {
@@ -118,11 +119,6 @@ export class RuntimeLoading {
         completion.resolve();
       }
     }
-  }
-
-  #result(state: LoadingBoundaryState): Promise<void> {
-    const error = this.#resourceError(state);
-    return error ? Promise.reject(error) : Promise.resolve();
   }
 
   #resourceError(state: LoadingBoundaryState): GLTSError | undefined {
