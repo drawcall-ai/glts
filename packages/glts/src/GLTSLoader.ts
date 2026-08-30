@@ -14,11 +14,14 @@ import {
   threeRevision
 } from "./module-graph.js";
 import { ModuleURLStore } from "./module-url-store.js";
+import { RootOwnership } from "./root.js";
 import { WrapperRuntime } from "./runtime.js";
 import type {
   GLTSAsset,
+  GLTSConstructor,
   GLTSErrorCallback,
   GLTSFetch,
+  GLTSInstance,
   GLTSLoadCallback,
   GLTSLoaderOptions,
   GLTSProgressCallback
@@ -41,27 +44,27 @@ function resolvedOptionURL(value: string | URL | undefined, fallback: string, ba
 }
 
 class GLTSAssetHandle implements GLTSAsset {
-  readonly scene: THREE.Group;
+  readonly scene: GLTSInstance;
   readonly url: string;
-  readonly #reloadAsset: () => Promise<void>;
-  readonly #disposeAsset: () => void;
+  readonly #assets: Set<GLTSAssetHandle>;
+  readonly #loader: GLTSLoader;
   #previewCamera: THREE.Camera | undefined;
   #previewLighting: THREE.Object3D | undefined;
   #disposed = false;
 
   constructor(
-    scene: THREE.Group,
+    scene: GLTSInstance,
     url: string,
     preview: PreviewState,
-    reloadAsset: () => Promise<void>,
-    disposeAsset: () => void
+    loader: GLTSLoader,
+    assets: Set<GLTSAssetHandle>
   ) {
     this.scene = scene;
     this.url = url;
     this.#previewCamera = preview.previewCamera;
     this.#previewLighting = preview.previewLighting;
-    this.#reloadAsset = reloadAsset;
-    this.#disposeAsset = disposeAsset;
+    this.#loader = loader;
+    this.#assets = assets;
   }
 
   get previewCamera(): THREE.Camera | undefined {
@@ -85,7 +88,7 @@ class GLTSAssetHandle implements GLTSAsset {
       });
     }
 
-    await this.#reloadAsset();
+    await this.#loader.reload(this.url);
   }
 
   dispose(): void {
@@ -94,8 +97,17 @@ class GLTSAssetHandle implements GLTSAsset {
     }
 
     this.#disposed = true;
-    this.#disposeAsset();
+    try {
+      this.scene.dispose();
+    } finally {
+      this.#assets.delete(this);
+    }
   }
+}
+
+interface PreparedConstructor extends PreviewState {
+  readonly Constructor: GLTSConstructor;
+  readonly url: string;
 }
 
 export class GLTSLoader extends Loader {
@@ -104,6 +116,8 @@ export class GLTSLoader extends Loader {
   readonly #runtime: WrapperRuntime;
   readonly #graph: ModuleGraph;
   readonly #assets = new Set<GLTSAssetHandle>();
+  readonly #constructors = new Map<string, GLTSConstructor>();
+  readonly #roots = new Set<RootOwnership>();
   readonly #reloadQueues = new Map<string, Promise<void>>();
   #disposed = false;
 
@@ -145,39 +159,24 @@ export class GLTSLoader extends Loader {
   }
 
   override async loadAsync(url: string, onProgress?: GLTSProgressCallback): Promise<GLTSAsset> {
-    this.#assertActive(url);
     void onProgress;
-    const resolvedURL = this.#resolveURL(url);
-
-    return this.#trackLoading(resolvedURL, async () => {
-      try {
-        const prepared = await this.#graph.prepareAsset(
-          resolvedURL,
-          { activate: true, force: false }
-        );
-        const scene = await this.#runtime.loadRoot(prepared.url);
-        this.#graph.retainRoot(prepared.url);
-        let handle: GLTSAssetHandle;
-        handle = new GLTSAssetHandle(
-          scene,
-          prepared.url,
-          prepared,
-          () => this.reload(prepared.url),
-          () => {
-            try {
-              this.#runtime.disposeWrapper(scene);
-            } finally {
-              this.#graph.releaseRoot(prepared.url);
-              this.#assets.delete(handle);
-            }
-          }
-        );
-        this.#assets.add(handle);
-        return handle;
-      } finally {
-        this.#graph.settleReachability();
-      }
+    return this.#withConstructor(url, async (prepared) => {
+      const instance = new prepared.Constructor();
+      await instance.ready;
+      const handle = new GLTSAssetHandle(
+        instance,
+        prepared.url,
+        prepared,
+        this,
+        this.#assets
+      );
+      this.#assets.add(handle);
+      return handle;
     });
+  }
+
+  loadAsyncConstructor(url: string): Promise<GLTSConstructor> {
+    return this.#withConstructor(url, (prepared) => prepared.Constructor);
   }
 
   has(url: string): boolean {
@@ -226,14 +225,20 @@ export class GLTSLoader extends Loader {
       return;
     }
 
+    this.#disposed = true;
+    const reason = new GLTSError("Loader was disposed before the instance became ready", {
+      url: "glts://loader",
+      phase: "dispose"
+    });
     const errors: unknown[] = [];
-    for (const asset of [...this.#assets]) {
+    for (const root of [...this.#roots]) {
       try {
-        asset.dispose();
+        root.dispose(reason);
       } catch (error) {
         errors.push(error);
       }
     }
+    this.#assets.clear();
 
     try {
       this.#runtime.dispose();
@@ -241,7 +246,6 @@ export class GLTSLoader extends Loader {
       errors.push(error);
     }
 
-    this.#disposed = true;
     if (errors.length > 0) {
       throw new GLTSError(
         "Loader disposal failed",
@@ -249,6 +253,75 @@ export class GLTSLoader extends Loader {
         new AggregateError(errors)
       );
     }
+  }
+
+  async #withConstructor<T>(
+    url: string,
+    use: (prepared: PreparedConstructor) => T | Promise<T>
+  ): Promise<T> {
+    this.#assertActive(url);
+    const resolvedURL = this.#resolveURL(url);
+
+    return this.#trackLoading(resolvedURL, async () => {
+      try {
+        const prepared = await this.#prepareConstructor(resolvedURL);
+        return await use(prepared);
+      } finally {
+        this.#graph.settleReachability();
+      }
+    });
+  }
+
+  async #prepareConstructor(url: string): Promise<PreparedConstructor> {
+    const prepared = await this.#graph.prepareAsset(
+      url,
+      { activate: true, force: false }
+    );
+    this.#assertActive(prepared.url);
+    const existing = this.#constructors.get(prepared.url);
+    if (existing) {
+      return { Constructor: existing, ...prepared };
+    }
+
+    const loader = this;
+    class ManagedGLTSInstance extends THREE.Group implements GLTSInstance {
+      readonly ready: Promise<void>;
+      readonly #ownership: RootOwnership;
+
+      constructor() {
+        super();
+        this.#ownership = loader.#mountInstance(this, prepared.url);
+        this.ready = this.#ownership.ready;
+      }
+
+      dispose(): void {
+        this.#ownership.dispose();
+      }
+    }
+
+    this.#constructors.set(prepared.url, ManagedGLTSInstance);
+    return { Constructor: ManagedGLTSInstance, ...prepared };
+  }
+
+  #mountInstance(instance: THREE.Group, url: string): RootOwnership {
+    this.#assertActive(url);
+    const root = this.#runtime.mountRoot(instance, url);
+    try {
+      this.#graph.retainRoot(url);
+    } catch (error) {
+      root.dispose(error);
+      throw error;
+    }
+
+    const ownership = new RootOwnership(root, url, (released) => {
+      try {
+        this.#graph.releaseRoot(url);
+      } finally {
+        this.#roots.delete(released);
+      }
+    });
+    this.#roots.add(ownership);
+    return ownership;
   }
 
   async #trackLoading<T>(url: string, operation: () => Promise<T>): Promise<T> {

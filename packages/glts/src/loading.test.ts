@@ -82,4 +82,20 @@ describe("RuntimeLoading", () => {
     first.manager.itemEnd("https://example.test/slow.png");
     await expect(firstCompletion).resolves.toBeUndefined();
   });
+
+  it("cancels one waiting boundary without changing shared resource state", async () => {
+    const loading = new RuntimeLoading();
+    const cancelled = loading.begin("https://example.test/cancelled.glts");
+    const remaining = loading.begin("https://example.test/remaining.glts");
+    const reason = new Error("root disposed");
+    loading.manager.itemStart("https://example.test/slow.png");
+    const cancelledCompletion = cancelled.waitForIdle();
+    const remainingCompletion = remaining.waitForIdle();
+
+    cancelled.cancel(reason);
+    await expect(cancelledCompletion).rejects.toBe(reason);
+
+    loading.manager.itemEnd("https://example.test/slow.png");
+    await expect(remainingCompletion).resolves.toBeUndefined();
+  });
 });
