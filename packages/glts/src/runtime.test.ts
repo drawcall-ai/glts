@@ -176,7 +176,8 @@ describe("WrapperRuntime", () => {
     }
 
     activeRuntime.setAssetClass(url, Tree);
-    const loading = activeRuntime.loadRoot(url);
+    const wrapper = new THREE.Group();
+    const loading = activeRuntime.mountRoot(wrapper, url).ready;
     expect(constructions).toBe(1);
 
     let settled = false;
@@ -190,7 +191,7 @@ describe("WrapperRuntime", () => {
     }
 
     finish();
-    const wrapper = await loading;
+    await loading;
     expect(wrapper.children[0]).toBeInstanceOf(Tree);
   });
 
@@ -215,10 +216,10 @@ describe("WrapperRuntime", () => {
 
     activeRuntime.setAssetClass(url, Tree);
     let firstSettled = false;
-    const first = activeRuntime.loadRoot(url).then(() => {
+    const first = activeRuntime.mountRoot(new THREE.Group(), url).ready.then(() => {
       firstSettled = true;
     });
-    const second = activeRuntime.loadRoot(url);
+    const second = activeRuntime.mountRoot(new THREE.Group(), url).ready;
     await Promise.resolve();
     expect(firstSettled).toBe(false);
 
@@ -251,7 +252,8 @@ describe("WrapperRuntime", () => {
     }
 
     activeRuntime.setAssetClass(url, Tree);
-    await expect(activeRuntime.loadRoot(url)).rejects.toMatchObject({
+    const loading = activeRuntime.mountRoot(new THREE.Group(), url);
+    await expect(loading.ready).rejects.toMatchObject({
       phase: "resource",
       url
     });
@@ -273,7 +275,7 @@ describe("WrapperRuntime", () => {
     }
 
     activeRuntime.setAssetClass(url, Tree);
-    const loading = activeRuntime.loadRoot(url);
+    const loading = activeRuntime.mountRoot(new THREE.Group(), url).ready;
     activeRuntime.dispose();
     activeRuntime.loadingManager.itemEnd(resourceURL);
 
@@ -320,6 +322,31 @@ describe("WrapperRuntime", () => {
       throw new Error("Expected replacement to start its resource");
     }
     finish();
+  });
+
+  it("rolls back a root when disposal reenters its constructor", () => {
+    const moduleURLs = new ModuleURLStore();
+    const activeRuntime = new WrapperRuntime(moduleURLs);
+    runtime = activeRuntime;
+    const url = "https://example.test/reentrant.glts";
+    let disposals = 0;
+
+    class Reentrant extends THREE.Group {
+      constructor() {
+        super();
+        activeRuntime.dispose();
+      }
+
+      dispose(): void {
+        disposals += 1;
+      }
+    }
+
+    activeRuntime.setAssetClass(url, Reentrant);
+    expect(() => activeRuntime.mountRoot(new THREE.Group(), url)).toThrow(
+      "Loader has been disposed"
+    );
+    expect(disposals).toBe(1);
   });
 
   it("gives each wrapper runtime its own loading manager", () => {

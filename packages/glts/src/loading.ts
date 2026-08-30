@@ -3,6 +3,7 @@ import { LoadingManager } from "three";
 import { GLTSError } from "./errors.js";
 
 interface LoadingBoundaryState {
+  cancellation?: { readonly reason: unknown };
   readonly failures: string[];
   readonly rootURL: string;
   completion?: LoadingCompletion;
@@ -14,7 +15,7 @@ interface LoadingCompletion {
 }
 
 export interface LoadingBoundary {
-  cancel(): void;
+  cancel(reason?: unknown): void;
   waitForIdle(): Promise<void>;
 }
 
@@ -69,11 +70,16 @@ export class RuntimeLoading {
     let consumed = false;
 
     return {
-      cancel: () => {
-        if (consumed || !this.#boundaries.delete(state)) {
-          throw new Error("Only an open loading boundary can be cancelled");
+      cancel: (reason) => {
+        if (!this.#boundaries.delete(state)) {
+          return;
         }
-        consumed = true;
+
+        state.cancellation = {
+          reason: reason ?? new Error("Loading boundary was cancelled")
+        };
+        state.completion?.reject(state.cancellation.reason);
+        delete state.completion;
       },
       waitForIdle: () => {
         if (consumed) {
@@ -88,6 +94,10 @@ export class RuntimeLoading {
   }
 
   #waitForIdle(state: LoadingBoundaryState): Promise<void> {
+    if (state.cancellation) {
+      return Promise.reject(state.cancellation.reason);
+    }
+
     if (this.#pending === 0) {
       this.#boundaries.delete(state);
       const error = this.#resourceError(state);
@@ -111,6 +121,7 @@ export class RuntimeLoading {
       }
 
       this.#boundaries.delete(state);
+      delete state.completion;
 
       const error = this.#resourceError(state);
       if (error) {

@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { GLTSError } from "./errors.js";
 import { RuntimeLoading } from "./loading.js";
 import { ModuleURLStore } from "./module-url-store.js";
+import { trackRoot, type RuntimeRoot } from "./root.js";
 import type { GLTSAssetClass } from "./types.js";
 
 interface WrapperRecord {
@@ -119,34 +120,12 @@ export class WrapperRuntime {
     });
   }
 
-  async loadRoot(url: string): Promise<THREE.Group> {
-    const loading = this.#loading.begin(url);
-    let wrapper: THREE.Group;
-
-    try {
-      wrapper = this.createRoot(url);
-    } catch (error) {
-      loading.cancel();
-      throw error;
-    }
-
-    try {
-      await loading.waitForIdle();
-      this.#assertActive();
+  mountRoot(wrapper: THREE.Group, url: string): RuntimeRoot {
+    return this.#startRoot(url, () => {
+      wrapper.name = url;
+      this.#mountWrapper(wrapper, url);
       return wrapper;
-    } catch (error) {
-      try {
-        this.disposeWrapper(wrapper);
-      } catch (cleanupError) {
-        throw new GLTSError(
-          "Resource loading and root cleanup both failed",
-          { url, phase: "resource" },
-          new AggregateError([error, cleanupError])
-        );
-      }
-
-      throw error;
-    }
+    });
   }
 
   replace(url: string, nextClass: GLTSAssetClass): void {
@@ -227,6 +206,7 @@ export class WrapperRuntime {
       return;
     }
 
+    this.#disposed = true;
     const wrappers = [...this.#liveWrappers.values()].flatMap((group) => [...group]);
     const errors: unknown[] = [];
 
@@ -238,7 +218,6 @@ export class WrapperRuntime {
       }
     }
 
-    this.#disposed = true;
     Reflect.deleteProperty(globalThis, this.#runtimeKey);
     this.#moduleURLs.dispose();
 
@@ -252,6 +231,7 @@ export class WrapperRuntime {
   }
 
   #mountWrapper(wrapper: THREE.Group, url: string): void {
+    this.#assertActive();
     const mount = (): void => {
       const assetClass = this.#assetClasses.get(url);
       if (!assetClass) {
@@ -277,6 +257,26 @@ export class WrapperRuntime {
     this.#withConstructionTransaction(mount);
   }
 
+  #startRoot(url: string, construct: () => THREE.Group): RuntimeRoot {
+    this.#assertActive();
+    const boundary = this.#loading.begin(url);
+    let scene: THREE.Group;
+
+    try {
+      scene = construct();
+    } catch (error) {
+      boundary.cancel();
+      throw error;
+    }
+
+    return trackRoot({
+      assertActive: () => this.#assertActive(),
+      boundary,
+      dispose: () => this.disposeWrapper(scene),
+      url
+    });
+  }
+
   #constructRaw(url: string, assetClass: GLTSAssetClass): THREE.Object3D {
     let value: unknown;
 
@@ -290,6 +290,22 @@ export class WrapperRuntime {
     }
 
     if (value instanceof THREE.Object3D) {
+      try {
+        this.#assertActive();
+      } catch (error) {
+        try {
+          this.#disposeRaw(value);
+        } catch (cleanupError) {
+          throw new GLTSError(
+            "Construction was invalidated and cleanup failed",
+            { url, phase: "dispose" },
+            new AggregateError([error, cleanupError])
+          );
+        }
+
+        throw error;
+      }
+
       return value;
     }
 

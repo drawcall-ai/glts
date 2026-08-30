@@ -3,8 +3,10 @@ export { GLTSLoader } from "./GLTSLoader.js";
 export { inline } from "./inline.js";
 export type {
   GLTSAsset,
+  GLTSConstructor,
   GLTSErrorCallback,
   GLTSFetch,
+  GLTSInstance,
   GLTSLoadCallback,
   GLTSLoaderOptions,
   GLTSPreviewExports,

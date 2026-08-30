@@ -49,6 +49,19 @@ Use one `GLTSLoader` for concurrent roots that request the same resolved
 resource URL. Three.js may globally coalesce identical URLs without notifying
 every manager, so that pattern is unsupported across loader instances.
 
+## Managed constructors
+
+Applications can prepare a reusable root constructor with
+`loader.loadAsyncConstructor(url)`. Each synchronous `new Constructor()`
+returns a distinct managed `THREE.Group`; its `ready` promise covers resources
+started through `loadingManager`. These instances remain loader-owned until
+their idempotent `dispose()` method or `loader.dispose()` releases them.
+
+The application receives the managed wrapper constructor, never this file's
+default-exported class. Do not design custom methods or properties on the raw
+class as an application-facing API. Reload replaces that raw child while
+preserving each managed wrapper and the reusable constructor.
+
 ## Composition and ownership
 
 Import a nested asset with a relative `.glts` specifier and instantiate its

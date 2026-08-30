@@ -64,7 +64,8 @@ pnpm add @drawcall/glts three
 ```ts
 import { GLTSLoader } from "@drawcall/glts"
 
-const tree = await new GLTSLoader().loadAsync("/assets/tree.glts")
+const loader = new GLTSLoader()
+const tree = await loader.loadAsync("/assets/tree.glts")
 
 scene.add(tree.scene)
 
@@ -87,6 +88,34 @@ loader.load(
   (error) => console.error(error)
 )
 ```
+
+### Create several managed instances
+
+Load the reusable managed constructor when one prepared asset needs several
+instances:
+
+```ts
+const Tree = await loader.loadAsyncConstructor("/assets/tree.glts")
+
+const first = new Tree()
+const second = new Tree()
+await Promise.all([first.ready, second.ready])
+
+scene.add(first, second)
+first.dispose()
+```
+
+`new Tree()` is synchronous and returns a stable `THREE.Group` wrapper. Its
+`ready` promise settles when constructor-started Three.js resources have
+finished. Each live instance participates in `reload()`, `has()`, and loader
+ownership; `loader.dispose()` disposes any instances that remain. Repeated
+constructor retrieval for the same URL returns the same constructor, while
+each construction creates a distinct raw asset.
+
+This constructor is GLTS's managed wrapper, not the class default-exported by
+the asset. Authored methods and properties stay on the raw child and are not
+part of the managed API. Use `loadAsync()` when one already-ready `GLTSAsset`
+is more convenient.
 
 ## Asset contract
 

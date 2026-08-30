@@ -107,6 +107,7 @@ export class ModuleGraph {
 
   retainRoot(url: string): void {
     this.#rootReferences.set(url, (this.#rootReferences.get(url) ?? 0) + 1);
+    this.settleReachability();
   }
 
   releaseRoot(url: string): void {

@@ -25,6 +25,13 @@ export interface GLTSAsset extends GLTSPreviewExports {
   dispose(): void;
 }
 
+export interface GLTSInstance extends THREE.Group {
+  readonly ready: Promise<void>;
+  dispose(): void;
+}
+
+export type GLTSConstructor = new () => GLTSInstance;
+
 export type GLTSLoadCallback = (asset: GLTSAsset) => void;
 export type GLTSProgressCallback = (event: ProgressEvent<EventTarget>) => void;
 export type GLTSErrorCallback = (error: unknown) => void;

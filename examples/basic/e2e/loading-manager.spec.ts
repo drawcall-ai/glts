@@ -481,5 +481,5 @@ test("rejects a pending root when its loader is disposed", async ({ page }) => {
 
   expect(await page.evaluate(() =>
     Reflect.get(globalThis, "__gltsDisposedOutcome")
-  )).toEqual({ phase: "resolve", status: "rejected" });
+  )).toEqual({ phase: "dispose", status: "rejected" });
 });
