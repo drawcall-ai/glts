@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  analyzeDependencyModule,
-  type PreviewExportSyntax
-} from "./inline-analysis.js";
+import { analyzeDependencyModule } from "./inline-analysis.js";
 
 const url = new URL("https://example.test/branch.glts");
 
@@ -17,16 +14,10 @@ function analyze(source: string): ReturnType<typeof analyzeDependencyModule> {
   });
 }
 
-function removedSource(source: string, previewExport: PreviewExportSyntax): string {
-  const range = previewExport.kind === "declaration"
-    ? previewExport.exportPrefix
-    : previewExport.exportStatement;
-  return source.slice(range.start, range.end);
-}
-
 describe("analyzeDependencyModule", () => {
-  it("models declaration and list preview exports as distinct source removals", () => {
-    const source = `export const previewCamera = camera;
+  it("returns every source range removed from an inlined dependency", () => {
+    const source = `import { BoxGeometry } from "three";
+export const previewCamera = camera;
 const previewLighting = lighting;
 export { previewLighting };
 export default class Branch {}`;
@@ -34,11 +25,8 @@ export default class Branch {}`;
     const module = analyze(source);
 
     expect(module.defaultClass).toMatchObject({ kind: "named", name: "Branch" });
-    expect(module.previewExports.map((value) => value.kind)).toEqual([
-      "declaration",
-      "list"
-    ]);
-    expect(module.previewExports.map((value) => removedSource(source, value))).toEqual([
+    expect(module.removals.map((range) => source.slice(range.start, range.end))).toEqual([
+      "import { BoxGeometry } from \"three\";",
       "export ",
       "export { previewLighting };"
     ]);

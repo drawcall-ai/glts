@@ -1,5 +1,3 @@
-import type * as THREE from "three";
-
 import { readAssetExports, type PreviewState } from "./asset-exports.js";
 import { compileTypeScript } from "./compiler.js";
 import { GLTSError, toGLTSError } from "./errors.js";
@@ -11,8 +9,6 @@ import type { GLTSFetch, RawAssetConstructor } from "./types.js";
 export interface PreparedAsset extends PreviewState {
   readonly assetClass: RawAssetConstructor;
   readonly dependencies: ReadonlySet<string>;
-  readonly moduleURL: string;
-  readonly source: string;
   readonly url: string;
 }
 
@@ -253,9 +249,7 @@ export class ModuleGraph {
 
     const prepared: PreparedAsset = {
       dependencies,
-      moduleURL,
       ...assetExports,
-      source: fetched.source,
       url
     };
     const nextRevisions = revisions ?? new Map<string, PreparedAsset>();
@@ -475,8 +469,4 @@ export class ModuleGraph {
 
 export function canonicalGLTSURL(input: string | URL, baseURL: URL): string {
   return canonicalize(new URL(input, baseURL));
-}
-
-export function threeRevision(three: typeof THREE): string {
-  return three.REVISION;
 }

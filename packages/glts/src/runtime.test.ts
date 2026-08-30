@@ -4,6 +4,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ModuleURLStore } from "./module-url-store.js";
 import { WrapperRuntime } from "./runtime.js";
 
+function createWrapper(runtime: WrapperRuntime, url: string): THREE.Group {
+  const Wrapper = runtime.getWrapperConstructor(url);
+  return new Wrapper();
+}
+
 describe("WrapperRuntime", () => {
   let runtime: WrapperRuntime | undefined;
 
@@ -13,8 +18,7 @@ describe("WrapperRuntime", () => {
   });
 
   it("replaces the raw instance without replacing its wrapper", () => {
-    const moduleURLs = new ModuleURLStore();
-    runtime = new WrapperRuntime(moduleURLs);
+    runtime = new WrapperRuntime(new ModuleURLStore());
     const url = "https://example.test/tree.glts";
 
     class FirstTree extends THREE.Group {
@@ -28,7 +32,7 @@ describe("WrapperRuntime", () => {
     class SecondTree extends THREE.Group {}
 
     runtime.setAssetClass(url, FirstTree);
-    const wrapper = runtime.createRoot(url);
+    const wrapper = createWrapper(runtime, url);
     expect(wrapper.name).toBe(url);
     const first = wrapper.children[0];
     if (!(first instanceof FirstTree)) {
@@ -43,8 +47,7 @@ describe("WrapperRuntime", () => {
   });
 
   it("reloads nested assets inside their existing component wrapper", () => {
-    const moduleURLs = new ModuleURLStore();
-    runtime = new WrapperRuntime(moduleURLs);
+    runtime = new WrapperRuntime(new ModuleURLStore());
     const parentURL = "https://example.test/tree.glts";
     const childURL = "https://example.test/branch.glts";
 
@@ -62,7 +65,7 @@ describe("WrapperRuntime", () => {
     }
 
     runtime.setAssetClass(parentURL, Tree);
-    const rootWrapper = runtime.createRoot(parentURL);
+    const rootWrapper = createWrapper(runtime, parentURL);
     expect(rootWrapper.name).toBe(parentURL);
     const tree = rootWrapper.children[0];
     if (!(tree instanceof THREE.Group)) {
@@ -82,8 +85,7 @@ describe("WrapperRuntime", () => {
   });
 
   it("keeps every old instance mounted after a failed replacement", () => {
-    const moduleURLs = new ModuleURLStore();
-    runtime = new WrapperRuntime(moduleURLs);
+    runtime = new WrapperRuntime(new ModuleURLStore());
     const url = "https://example.test/tree.glts";
 
     class WorkingTree extends THREE.Group {
@@ -102,8 +104,8 @@ describe("WrapperRuntime", () => {
     }
 
     runtime.setAssetClass(url, WorkingTree);
-    const firstWrapper = runtime.createRoot(url);
-    const secondWrapper = runtime.createRoot(url);
+    const firstWrapper = createWrapper(runtime, url);
+    const secondWrapper = createWrapper(runtime, url);
     const first = firstWrapper.children[0];
     const second = secondWrapper.children[0];
     if (!(first instanceof WorkingTree) || !(second instanceof WorkingTree)) {
@@ -118,13 +120,12 @@ describe("WrapperRuntime", () => {
     expect(first.disposed).toBe(false);
     expect(second.disposed).toBe(false);
 
-    const thirdWrapper = runtime.createRoot(url);
+    const thirdWrapper = createWrapper(runtime, url);
     expect(thirdWrapper.children[0]).toBeInstanceOf(WorkingTree);
   });
 
-  it("recursively disposes nested GLTS wrappers", () => {
-    const moduleURLs = new ModuleURLStore();
-    runtime = new WrapperRuntime(moduleURLs);
+  it("recursively disposes nested GLTS wrappers", async () => {
+    runtime = new WrapperRuntime(new ModuleURLStore());
     const parentURL = "https://example.test/tree.glts";
     const childURL = "https://example.test/branch.glts";
     let childDisposals = 0;
@@ -151,16 +152,16 @@ describe("WrapperRuntime", () => {
     }
 
     runtime.setAssetClass(parentURL, Tree);
-    const wrapper = runtime.createRoot(parentURL);
-    runtime.disposeWrapper(wrapper);
+    const root = runtime.mountRoot(new THREE.Group(), parentURL);
+    await root.ready;
+    root.dispose();
 
     expect(childDisposals).toBe(1);
     expect(parentDisposals).toBe(1);
   });
 
   it("constructs a root synchronously and waits for its resources", async () => {
-    const moduleURLs = new ModuleURLStore();
-    const activeRuntime = new WrapperRuntime(moduleURLs);
+    const activeRuntime = new WrapperRuntime(new ModuleURLStore());
     runtime = activeRuntime;
     const url = "https://example.test/tree.glts";
     let finish: (() => void) | undefined;
@@ -231,8 +232,7 @@ describe("WrapperRuntime", () => {
   });
 
   it("disposes a constructed root when its resource load fails", async () => {
-    const moduleURLs = new ModuleURLStore();
-    const activeRuntime = new WrapperRuntime(moduleURLs);
+    const activeRuntime = new WrapperRuntime(new ModuleURLStore());
     runtime = activeRuntime;
     const url = "https://example.test/tree.glts";
     const resourceURL = "https://example.test/missing.png";
@@ -261,8 +261,7 @@ describe("WrapperRuntime", () => {
   });
 
   it("rejects a pending root when the runtime is disposed", async () => {
-    const moduleURLs = new ModuleURLStore();
-    const activeRuntime = new WrapperRuntime(moduleURLs);
+    const activeRuntime = new WrapperRuntime(new ModuleURLStore());
     runtime = activeRuntime;
     const url = "https://example.test/tree.glts";
     const resourceURL = "https://example.test/slow.png";
@@ -286,8 +285,7 @@ describe("WrapperRuntime", () => {
   });
 
   it("keeps nested construction and replacement synchronous", () => {
-    const moduleURLs = new ModuleURLStore();
-    const activeRuntime = new WrapperRuntime(moduleURLs);
+    const activeRuntime = new WrapperRuntime(new ModuleURLStore());
     runtime = activeRuntime;
     const parentURL = "https://example.test/tree.glts";
     const childURL = "https://example.test/branch.glts";
@@ -312,7 +310,7 @@ describe("WrapperRuntime", () => {
     }
 
     activeRuntime.setAssetClass(parentURL, Tree);
-    const root = activeRuntime.createRoot(parentURL);
+    const root = createWrapper(activeRuntime, parentURL);
     const branch = root.children[0]?.children[0];
     activeRuntime.replace(childURL, SecondBranch);
 
@@ -325,8 +323,7 @@ describe("WrapperRuntime", () => {
   });
 
   it("rolls back a root when disposal reenters its constructor", () => {
-    const moduleURLs = new ModuleURLStore();
-    const activeRuntime = new WrapperRuntime(moduleURLs);
+    const activeRuntime = new WrapperRuntime(new ModuleURLStore());
     runtime = activeRuntime;
     const url = "https://example.test/reentrant.glts";
     let disposals = 0;
@@ -347,17 +344,5 @@ describe("WrapperRuntime", () => {
       "Loader has been disposed"
     );
     expect(disposals).toBe(1);
-  });
-
-  it("gives each wrapper runtime its own loading manager", () => {
-    const first = new WrapperRuntime(new ModuleURLStore());
-    const second = new WrapperRuntime(new ModuleURLStore());
-
-    try {
-      expect(first.loadingManager).not.toBe(second.loadingManager);
-    } finally {
-      first.dispose();
-      second.dispose();
-    }
   });
 });

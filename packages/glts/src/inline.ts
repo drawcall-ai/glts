@@ -7,8 +7,7 @@ import {
   validateInlineSyntax,
   type DependencyModule,
   type EntryModule,
-  type ExternalImport,
-  type PreviewExportSyntax
+  type ExternalImport
 } from "./inline-analysis.js";
 
 const entryURL = new URL("glts://inline/entry.glts");
@@ -222,11 +221,8 @@ function renderFile(
   const exported = file.defaultClass;
 
   const rewritten = new MagicString(file.source);
-  for (const importRange of file.importRanges) {
-    rewritten.remove(importRange.start, importRange.end);
-  }
-  for (const previewExport of file.previewExports) {
-    removePreviewExport(rewritten, previewExport);
+  for (const removal of file.removals) {
+    rewritten.remove(removal.start, removal.end);
   }
   for (const metaURL of file.metaURLs) {
     rewritten.overwrite(
@@ -263,16 +259,6 @@ function renderFile(
 };`;
   const content = [...aliases, body, wrapper].filter((part) => part.length > 0);
   return `const ${name} = (() => {\n${indent(content.join("\n\n"))}\n})();`;
-}
-
-function removePreviewExport(
-  source: MagicString,
-  previewExport: PreviewExportSyntax
-): void {
-  const range = previewExport.kind === "declaration"
-    ? previewExport.exportPrefix
-    : previewExport.exportStatement;
-  source.remove(range.start, range.end);
 }
 
 function prefix(files: readonly { readonly source: string }[]): string {

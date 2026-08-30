@@ -1,15 +1,15 @@
 import { expect, test } from "@playwright/test";
 
 import { deferred } from "../deferred.js";
+import { routeGLTS, routeGLTSRevisions } from "../routes.js";
 
 test("returns one managed constructor and shares instance resource loading", async ({
   page
 }) => {
-  let sourceRequests = 0;
-  await page.route("**/assets/managed-tree.glts", (route) => {
-    sourceRequests += 1;
-    return route.fulfill({
-      body: `
+  const sourceRevisions = await routeGLTSRevisions(
+    page,
+    "**/assets/managed-tree.glts",
+    [`
         import * as THREE from "three"
         import { loadingManager } from "@drawcall/glts/asset"
 
@@ -28,10 +28,8 @@ test("returns one managed constructor and shares instance resource loading", asy
             )
           }
         }
-      `,
-      contentType: "text/plain"
-    });
-  });
+      `]
+  );
   const requested = deferred();
   const release = deferred();
   let resourceRequests = 0;
@@ -107,7 +105,7 @@ test("returns one managed constructor and shares instance resource loading", asy
     managedNotAuthored: true,
     reachable: true
   });
-  expect({ resourceRequests, sourceRequests }).toEqual({
+  expect({ resourceRequests, sourceRequests: sourceRevisions.requests }).toEqual({
     resourceRequests: 1,
     sourceRequests: 1
   });
@@ -150,8 +148,7 @@ test("returns one managed constructor and shares instance resource loading", asy
 });
 
 test("loadAsync uses one constructor-loading lifecycle", async ({ page }) => {
-  await page.route("**/assets/ordinary-load.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/ordinary-load.glts", `
       import * as THREE from "three"
       export default class Ordinary extends THREE.Group {
         constructor() {
@@ -163,9 +160,7 @@ test("loadAsync uses one constructor-loading lifecycle", async ({ page }) => {
           )
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
+    `);
 
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
@@ -208,17 +203,7 @@ test("loadAsync uses one constructor-loading lifecycle", async ({ page }) => {
 test("reloads live managed instances without changing wrapper or constructor", async ({
   page
 }) => {
-  const sources = ["before", "after"];
-  let sourceIndex = 0;
-  await page.route("**/assets/reloadable-constructor.glts", (route) => {
-    const name = sources[sourceIndex];
-    sourceIndex += 1;
-    if (!name) {
-      throw new Error("Reloadable source was requested too many times");
-    }
-
-    return route.fulfill({
-      body: `
+  const sources = ["before", "after"].map((name) => `
         import * as THREE from "three"
         export default class Revision extends THREE.Group {
           constructor() {
@@ -231,10 +216,12 @@ test("reloads live managed instances without changing wrapper or constructor", a
             Reflect.set(globalThis, key, (Reflect.get(globalThis, key) ?? 0) + 1)
           }
         }
-      `,
-      contentType: "text/plain"
-    });
-  });
+      `);
+  await routeGLTSRevisions(
+    page,
+    "**/assets/reloadable-constructor.glts",
+    sources
+  );
 
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {

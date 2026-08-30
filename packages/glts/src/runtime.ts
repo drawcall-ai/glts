@@ -112,19 +112,23 @@ export class WrapperRuntime {
     this.#assetClasses.set(url, assetClass);
   }
 
-  createRoot(url: string): THREE.Group {
-    this.#assertActive();
-    return this.#withConstructionTransaction(() => {
-      const Wrapper = this.getWrapperConstructor(url);
-      return new Wrapper();
-    });
-  }
-
   mountRoot(wrapper: THREE.Group, url: string): RuntimeRoot {
-    return this.#startRoot(url, () => {
+    this.#assertActive();
+    const boundary = this.#loading.begin(url);
+
+    try {
       wrapper.name = url;
       this.#mountWrapper(wrapper, url);
-      return wrapper;
+    } catch (error) {
+      boundary.cancel();
+      throw error;
+    }
+
+    return trackRoot({
+      assertActive: () => this.#assertActive(),
+      boundary,
+      dispose: () => this.#disposeWrapper(wrapper),
+      url
     });
   }
 
@@ -188,7 +192,7 @@ export class WrapperRuntime {
     }
   }
 
-  disposeWrapper(wrapper: THREE.Group): void {
+  #disposeWrapper(wrapper: THREE.Group): void {
     const record = this.#records.get(wrapper);
     if (!record || record.disposed) {
       return;
@@ -212,7 +216,7 @@ export class WrapperRuntime {
 
     for (const wrapper of wrappers) {
       try {
-        this.disposeWrapper(wrapper);
+        this.#disposeWrapper(wrapper);
       } catch (error) {
         errors.push(error);
       }
@@ -255,26 +259,6 @@ export class WrapperRuntime {
     }
 
     this.#withConstructionTransaction(mount);
-  }
-
-  #startRoot(url: string, construct: () => THREE.Group): RuntimeRoot {
-    this.#assertActive();
-    const boundary = this.#loading.begin(url);
-    let scene: THREE.Group;
-
-    try {
-      scene = construct();
-    } catch (error) {
-      boundary.cancel();
-      throw error;
-    }
-
-    return trackRoot({
-      assertActive: () => this.#assertActive(),
-      boundary,
-      dispose: () => this.disposeWrapper(scene),
-      url
-    });
   }
 
   #constructRaw(url: string, assetClass: RawAssetConstructor): THREE.Object3D {
@@ -347,7 +331,7 @@ export class WrapperRuntime {
 
     for (const wrapper of wrappers) {
       try {
-        this.disposeWrapper(wrapper);
+        this.#disposeWrapper(wrapper);
       } catch (error) {
         errors.push(error);
       }
@@ -380,7 +364,7 @@ export class WrapperRuntime {
     });
 
     for (const wrapper of nestedWrappers) {
-      this.disposeWrapper(wrapper);
+      this.#disposeWrapper(wrapper);
     }
 
     callDispose(raw);
