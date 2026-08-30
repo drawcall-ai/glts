@@ -33,7 +33,6 @@ export function trackRoot(options: RuntimeRootOptions): RuntimeRoot {
     resolveReady = resolve;
     rejectReady = reject;
   });
-  void ready.catch(() => undefined);
 
   const fail = (error: unknown): void => {
     if (state !== "pending") {
@@ -136,7 +135,6 @@ export class RootOwnership {
         throw error;
       }
     );
-    void this.ready.catch(() => undefined);
   }
 
   dispose(reason?: unknown): void {
