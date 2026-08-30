@@ -155,7 +155,7 @@ export class GLTSLoader extends Loader {
           resolvedURL,
           { activate: true, force: false }
         );
-        const scene = this.#runtime.createRoot(prepared.url);
+        const scene = await this.#runtime.loadRoot(prepared.url);
         this.#graph.retainRoot(prepared.url);
         let handle: GLTSAssetHandle;
         handle = new GLTSAssetHandle(

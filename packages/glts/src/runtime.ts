@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import { GLTSError } from "./errors.js";
+import { RuntimeLoading } from "./loading.js";
 import { ModuleURLStore } from "./module-url-store.js";
 import type { GLTSAssetClass } from "./types.js";
 
@@ -42,6 +43,7 @@ function callDispose(value: object): void {
 export class WrapperRuntime {
   readonly #runtimeKey = nextRuntimeKey();
   readonly #moduleURLs: ModuleURLStore;
+  readonly #loading = new RuntimeLoading();
   readonly #assetClasses = new Map<string, GLTSAssetClass>();
   readonly #wrapperClasses = new Map<string, WrapperClass>();
   readonly #wrapperModuleURLs = new Map<string, string>();
@@ -51,11 +53,17 @@ export class WrapperRuntime {
   #disposed = false;
 
   readonly threeModuleURL: string;
+  readonly assetModuleURL: string;
+
+  get loadingManager(): THREE.LoadingManager {
+    return this.#loading.manager;
+  }
 
   constructor(moduleURLs: ModuleURLStore) {
     this.#moduleURLs = moduleURLs;
     Reflect.set(globalThis, this.#runtimeKey, this);
     this.threeModuleURL = moduleURLs.create(this.#createThreeBridgeSource());
+    this.assetModuleURL = moduleURLs.create(this.#createAssetBridgeSource());
   }
 
   getThreeExport(name: string): unknown {
@@ -109,6 +117,36 @@ export class WrapperRuntime {
       const Wrapper = this.getWrapperConstructor(url);
       return new Wrapper();
     });
+  }
+
+  async loadRoot(url: string): Promise<THREE.Group> {
+    const loading = this.#loading.begin(url);
+    let wrapper: THREE.Group;
+
+    try {
+      wrapper = this.createRoot(url);
+    } catch (error) {
+      loading.cancel();
+      throw error;
+    }
+
+    try {
+      await loading.waitForIdle();
+      this.#assertActive();
+      return wrapper;
+    } catch (error) {
+      try {
+        this.disposeWrapper(wrapper);
+      } catch (cleanupError) {
+        throw new GLTSError(
+          "Resource loading and root cleanup both failed",
+          { url, phase: "resource" },
+          new AggregateError([error, cleanupError])
+        );
+      }
+
+      throw error;
+    }
   }
 
   replace(url: string, nextClass: GLTSAssetClass): void {
@@ -371,6 +409,15 @@ export class WrapperRuntime {
 
     lines.push(`export { ${exports.join(", ")} };`);
     return lines.join("\n");
+  }
+
+  #createAssetBridgeSource(): string {
+    return [
+      `const runtime = globalThis[${JSON.stringify(this.#runtimeKey)}];`,
+      "if (!runtime) throw new Error('GLTS runtime is unavailable');",
+      "const loadingManager = runtime.loadingManager;",
+      "export { loadingManager };"
+    ].join("\n");
   }
 
   #assertActive(): void {

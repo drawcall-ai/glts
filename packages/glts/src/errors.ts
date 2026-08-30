@@ -4,6 +4,7 @@ export type GLTSPhase =
   | "transform"
   | "evaluate"
   | "construct"
+  | "resource"
   | "reload"
   | "dispose";
 
