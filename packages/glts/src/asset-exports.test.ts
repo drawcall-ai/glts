@@ -55,13 +55,18 @@ describe("readAssetExports", () => {
 
   it("rejects an invalid default export before reading preview metadata", () => {
     expect(() => read({ default: 42, previewCamera: new THREE.Group() }))
-      .toThrow("Module must default-export a THREE.Object3D class");
+      .toThrow("Module must default-export a constructible class");
   });
 
-  it("rejects a constructible default export that is not an Object3D class", () => {
-    class NotAnAsset {}
-    expect(() => read({ default: NotAnAsset }))
-      .toThrow("Module must default-export a THREE.Object3D class");
+  it("accepts a class that returns an Object3D without extending it", () => {
+    class AssetFactory {
+      constructor() {
+        return new THREE.Group();
+      }
+    }
+
+    const assetClass = read({ default: AssetFactory }).assetClass;
+    expect(new assetClass()).toBeInstanceOf(THREE.Group);
   });
 
   it("does not treat an exported undefined value as an omitted export", () => {

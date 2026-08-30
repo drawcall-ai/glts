@@ -40,11 +40,17 @@ function receivedType(value: unknown): string {
   return typeof value;
 }
 
-function isAssetClass(value: unknown): value is GLTSAssetClass {
-  return (
-    typeof value === "function" &&
-    Reflect.get(value, "prototype") instanceof THREE.Object3D
-  );
+function isConstructor(value: unknown): value is GLTSAssetClass {
+  if (typeof value !== "function") {
+    return false;
+  }
+
+  try {
+    Reflect.construct(Object, [], value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function readAssetClass(
@@ -52,11 +58,11 @@ function readAssetClass(
   context: AssetModuleContext
 ): GLTSAssetClass {
   const value = moduleExport(namespace, "default");
-  if (isAssetClass(value)) {
+  if (isConstructor(value)) {
     return value;
   }
 
-  throw new GLTSError("Module must default-export a THREE.Object3D class", {
+  throw new GLTSError("Module must default-export a constructible class", {
     ...context,
     phase: "evaluate"
   });
