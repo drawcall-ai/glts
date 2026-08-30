@@ -99,6 +99,7 @@ test("updates reachability when replacement commits before old disposal fails", 
     `
       import * as THREE from "three"
       import Child from "./failed-disposal-child.glts"
+      export const previewCamera = new THREE.PerspectiveCamera()
       export default class Asset extends THREE.Group {
         constructor() {
           super()
@@ -110,7 +111,16 @@ test("updates reachability when replacement commits before old disposal fails", 
         }
       }
     `,
-    assetSource("new")
+    `
+      import * as THREE from "three"
+      export const previewCamera = new THREE.OrthographicCamera()
+      export default class Asset extends THREE.Group {
+        constructor() {
+          super()
+          this.name = "new"
+        }
+      }
+    `
   ];
   let rootRequests = 0;
   await page.route("**/assets/failed-disposal-root.glts", (route) => {
@@ -143,6 +153,7 @@ test("updates reachability when replacement commits before old disposal fails", 
       child: loader.has("/assets/failed-disposal-child.glts"),
       errorPhase,
       name: asset.scene.children.at(0)?.name,
+      previewCamera: asset.previewCamera?.type,
       root: loader.has("/assets/failed-disposal-root.glts")
     };
     loader.dispose();
@@ -154,6 +165,7 @@ test("updates reachability when replacement commits before old disposal fails", 
     child: false,
     errorPhase: "dispose",
     name: "new",
+    previewCamera: "PerspectiveCamera",
     root: true
   });
 });

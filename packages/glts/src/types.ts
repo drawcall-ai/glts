@@ -1,6 +1,6 @@
 import type * as THREE from "three";
 
-export type GLTSAssetClass = new () => unknown;
+export type GLTSAssetClass = new () => THREE.Object3D;
 
 export type GLTSFetch = (
   input: RequestInfo | URL,

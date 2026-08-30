@@ -1,12 +1,9 @@
 import * as THREE from "three";
 
 import { GLTSError } from "./errors.js";
-import type { GLTSAssetClass } from "./types.js";
+import type { GLTSAssetClass, GLTSPreviewExports } from "./types.js";
 
-export interface PreviewState {
-  readonly previewCamera: THREE.Camera | undefined;
-  readonly previewLighting: THREE.Object3D | undefined;
-}
+export type PreviewState = Required<GLTSPreviewExports>;
 
 export interface AssetExports extends PreviewState {
   readonly assetClass: GLTSAssetClass;
@@ -43,17 +40,11 @@ function receivedType(value: unknown): string {
   return typeof value;
 }
 
-function isConstructor(value: unknown): value is GLTSAssetClass {
-  if (typeof value !== "function") {
-    return false;
-  }
-
-  try {
-    Reflect.construct(Object, [], value);
-    return true;
-  } catch {
-    return false;
-  }
+function isAssetClass(value: unknown): value is GLTSAssetClass {
+  return (
+    typeof value === "function" &&
+    Reflect.get(value, "prototype") instanceof THREE.Object3D
+  );
 }
 
 function readAssetClass(
@@ -61,11 +52,11 @@ function readAssetClass(
   context: AssetModuleContext
 ): GLTSAssetClass {
   const value = moduleExport(namespace, "default");
-  if (isConstructor(value)) {
+  if (isAssetClass(value)) {
     return value;
   }
 
-  throw new GLTSError("Module must default-export a constructible Three.js class", {
+  throw new GLTSError("Module must default-export a THREE.Object3D class", {
     ...context,
     phase: "evaluate"
   });

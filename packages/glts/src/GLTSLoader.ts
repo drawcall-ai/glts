@@ -200,7 +200,7 @@ export class GLTSLoader extends Loader {
           } catch (error) {
             if (error instanceof GLTSError && error.phase === "dispose") {
               // Disposal begins only after WrapperRuntime commits the replacement.
-              this.#activateAsset(prepared);
+              this.#graph.activateAsset(prepared);
             }
             throw error;
           }

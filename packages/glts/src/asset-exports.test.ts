@@ -16,6 +16,10 @@ function moduleWith(namedExports: Readonly<Record<string, unknown>> = {}): objec
   return { default: Asset, ...namedExports };
 }
 
+function read(namespace: unknown): ReturnType<typeof readAssetExports> {
+  return readAssetExports(namespace, context);
+}
+
 describe("readAssetExports", () => {
   it("keeps preview properties optional for existing asset consumers", () => {
     const asset: GLTSAsset = {
@@ -34,7 +38,7 @@ describe("readAssetExports", () => {
     const previewLighting = new THREE.Group();
     previewLighting.add(new THREE.AmbientLight());
 
-    expect(readAssetExports(moduleWith({ previewCamera, previewLighting }), context)).toEqual({
+    expect(read(moduleWith({ previewCamera, previewLighting }))).toEqual({
       assetClass: Asset,
       previewCamera,
       previewLighting
@@ -42,7 +46,7 @@ describe("readAssetExports", () => {
   });
 
   it("supports modules without preview exports", () => {
-    expect(readAssetExports(moduleWith(), context)).toEqual({
+    expect(read(moduleWith())).toEqual({
       assetClass: Asset,
       previewCamera: undefined,
       previewLighting: undefined
@@ -50,59 +54,46 @@ describe("readAssetExports", () => {
   });
 
   it("rejects an invalid default export before reading preview metadata", () => {
-    const read = (): void => {
-      readAssetExports({ default: 42, previewCamera: new THREE.Group() }, context);
-    };
-
-    expect(read).toThrow("Module must default-export a constructible Three.js class");
+    expect(() => read({ default: 42, previewCamera: new THREE.Group() }))
+      .toThrow("Module must default-export a THREE.Object3D class");
   });
 
-  it("rejects a callable default export that is not constructible", () => {
-    const read = (): void => {
-      readAssetExports({ default: () => new THREE.Group() }, context);
-    };
-
-    expect(read).toThrow("Module must default-export a constructible Three.js class");
+  it("rejects a constructible default export that is not an Object3D class", () => {
+    class NotAnAsset {}
+    expect(() => read({ default: NotAnAsset }))
+      .toThrow("Module must default-export a THREE.Object3D class");
   });
 
   it("does not treat an exported undefined value as an omitted export", () => {
-    const read = (): void => {
-      readAssetExports(moduleWith({ previewCamera: undefined }), context);
-    };
-
-    expect(read).toThrow(
+    expect(() => read(moduleWith({ previewCamera: undefined }))).toThrow(
       'Named export "previewCamera" must be a THREE.Camera; received undefined'
     );
   });
 
   it("rejects a non-camera previewCamera with its received Three.js type", () => {
-    const read = (): void => {
-      readAssetExports(moduleWith({ previewCamera: new THREE.Group() }), context);
+    const invalid = (): void => {
+      read(moduleWith({ previewCamera: new THREE.Group() }));
     };
 
-    expect(read).toThrow(GLTSError);
-    expect(read).toThrow(
+    expect(invalid).toThrow(GLTSError);
+    expect(invalid).toThrow(
       'Named export "previewCamera" must be a THREE.Camera; received THREE.Group'
     );
   });
 
   it("rejects previewLighting without a light", () => {
-    const read = (): void => {
-      readAssetExports(moduleWith({ previewLighting: new THREE.Group() }), context);
+    const invalid = (): void => {
+      read(moduleWith({ previewLighting: new THREE.Group() }));
     };
 
-    expect(read).toThrow(GLTSError);
-    expect(read).toThrow(
+    expect(invalid).toThrow(GLTSError);
+    expect(invalid).toThrow(
       'Named export "previewLighting" must contain at least one THREE.Light; received THREE.Group with no lights'
     );
   });
 
   it("rejects previewLighting that is not a Three.js object", () => {
-    const read = (): void => {
-      readAssetExports(moduleWith({ previewLighting: 42 }), context);
-    };
-
-    expect(read).toThrow(
+    expect(() => read(moduleWith({ previewLighting: 42 }))).toThrow(
       'Named export "previewLighting" must be a THREE.Object3D containing at least one THREE.Light; received number'
     );
   });
