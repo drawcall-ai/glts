@@ -45,11 +45,9 @@ reload replacement stay synchronous. Arbitrary promises, timers, workers, and
 other asynchronous work outside a Three.js loader using `loadingManager` are
 not tracked.
 
-Prefer HTTP(S) resource URLs when separate loader runtimes must be strictly
-isolated. Three.js can globally merge concurrent requests for the same opaque
-`data:` or `blob:` URL, which cannot be safely aliased without changing bytes
-or fragment semantics. Treat `loadingManager.resolveURL()` output as internal;
-pass the manager to loaders instead of using its resolved URL directly.
+Use one `GLTSLoader` for concurrent roots that request the same resolved
+resource URL. Three.js may globally coalesce identical URLs without notifying
+every manager, so that pattern is unsupported across loader instances.
 
 ## Composition and ownership
 

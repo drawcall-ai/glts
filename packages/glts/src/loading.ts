@@ -13,81 +13,6 @@ interface LoadingCompletion {
   readonly resolve: () => void;
 }
 
-function environmentBaseURL(): string | undefined {
-  if (typeof document !== "undefined") {
-    return document.baseURI;
-  }
-
-  if (typeof location !== "undefined") {
-    return location.href;
-  }
-
-  return undefined;
-}
-
-function scopePrefix(runtimeKey: string): string {
-  return `.__glts_runtime_${encodeURIComponent(runtimeKey)}_source_`;
-}
-
-function authority(target: URL): string {
-  if (target.protocol === "file:") {
-    return `file://${target.host}`;
-  }
-
-  const password = target.password ? `:${target.password}` : "";
-  const credentials = target.username || target.password
-    ? `${target.username}${password}@`
-    : "";
-  return `${target.protocol}//${credentials}${target.host}`;
-}
-
-function scopedURL(
-  url: string,
-  runtimeKey: string,
-  baseURL: string | undefined
-): string {
-  let target: URL;
-  try {
-    target = baseURL ? new URL(url, baseURL) : new URL(url);
-  } catch {
-    return url;
-  }
-
-  const hierarchical = target.protocol === "http:"
-    || target.protocol === "https:"
-    || target.protocol === "file:";
-  if (!hierarchical) {
-    return url;
-  }
-
-  // Three.js coalesces requests globally by the raw manager-resolved URL. A
-  // removable path segment isolates runtimes without changing the fetched URL.
-  // Encoding the source in that segment also makes callback translation
-  // stateless: resolve-only consumers cannot leave bookkeeping behind.
-  const segment = `${scopePrefix(runtimeKey)}${encodeURIComponent(url)}`;
-  return `${authority(target)}/${segment}/..${target.pathname}${target.search}${target.hash}`;
-}
-
-function recoverSourceURL(url: string, runtimeKey: string): string {
-  const marker = `/${scopePrefix(runtimeKey)}`;
-  const markerIndex = url.indexOf(marker);
-  if (markerIndex === -1) {
-    return url;
-  }
-
-  const sourceStart = markerIndex + marker.length;
-  const sourceEnd = url.indexOf("/..", sourceStart);
-  if (sourceEnd === -1) {
-    return url;
-  }
-
-  try {
-    return decodeURIComponent(url.slice(sourceStart, sourceEnd));
-  } catch {
-    return url;
-  }
-}
-
 export interface LoadingBoundary {
   cancel(): void;
   waitForIdle(): Promise<void>;
@@ -100,48 +25,32 @@ export class RuntimeLoading {
   readonly #activeFailures: string[] = [];
   #pending = 0;
 
-  constructor(runtimeKey: string, baseURL?: string) {
+  constructor() {
     const itemStart = this.manager.itemStart.bind(this.manager);
     const itemEnd = this.manager.itemEnd.bind(this.manager);
     const itemError = this.manager.itemError.bind(this.manager);
-    const resolveURL = this.manager.resolveURL.bind(this.manager);
-
-    this.manager.resolveURL = (url): string => {
-      const resolvedURL = resolveURL(url);
-      const isolatedURL = scopedURL(
-        resolvedURL,
-        runtimeKey,
-        baseURL ?? environmentBaseURL()
-      );
-      return isolatedURL;
-    };
 
     this.manager.itemStart = (url): void => {
-      const resourceURL = recoverSourceURL(url, runtimeKey);
       if (this.#pending === 0) {
         this.#activeFailures.length = 0;
       }
       this.#pending += 1;
-      itemStart(resourceURL);
+      itemStart(url);
     };
     this.manager.itemError = (url): void => {
-      const resourceURL = recoverSourceURL(url, runtimeKey);
-      this.#activeFailures.push(resourceURL);
+      this.#activeFailures.push(url);
       for (const boundary of this.#boundaries) {
-        boundary.failures.push(resourceURL);
+        boundary.failures.push(url);
       }
-      itemError(resourceURL);
+      itemError(url);
     };
     this.manager.itemEnd = (url): void => {
-      const resourceURL = recoverSourceURL(url, runtimeKey);
       if (this.#pending === 0) {
-        throw new Error(
-          `Loading manager ended an untracked resource: ${resourceURL}`
-        );
+        throw new Error(`Loading manager ended an untracked resource: ${url}`);
       }
 
       try {
-        itemEnd(resourceURL);
+        itemEnd(url);
       } finally {
         this.#pending -= 1;
         this.#settleIdleBoundaries();

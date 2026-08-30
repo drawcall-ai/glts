@@ -155,20 +155,13 @@ synchronous GLTS construction and the runtime manager becoming idle. Resource
 failures reject the promise or reach the error callback at that boundary.
 
 Nested `.glts` constructors need no special handling: they automatically use
-the enclosing runtime. Roots loaded through one `GLTSLoader` share its manager,
-while separate loader instances remain isolated. Nested construction and
+the enclosing runtime. Each `GLTSLoader` owns one manager, shared by all of its
+roots. Use one loader for concurrent roots that request the same resolved
+resource URL; Three.js may globally coalesce that URL without notifying every
+manager, so doing this across loaders is unsupported. Nested construction and
 reload replacement stay synchronous and do not wait for resources they start.
 Arbitrary asynchronous work outside a Three.js loader using `loadingManager`
 is not tracked.
-
-Treat `loadingManager.resolveURL()` output as loader-internal. GLTS gives
-hierarchical resource URLs an equivalent runtime-specific alias so Three.js
-cannot merge requests belonging to separate managers; progress and error
-callbacks still receive the pre-alias URL, including any custom URL modifier's
-result. Opaque `data:` and `blob:` URLs stay unchanged to preserve their exact
-bytes and fragment semantics. As a result, Three.js may still merge identical
-opaque URLs loaded concurrently by separate runtimes; use HTTP(S) resources
-when strict runtime isolation is required.
 
 Dynamic imports, import attributes, local helper `.ts` modules, cyclic module
 graphs, cross-asset inheritance, and custom-method contracts across a `.glts`

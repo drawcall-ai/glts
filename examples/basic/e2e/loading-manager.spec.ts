@@ -33,6 +33,18 @@ function deferred(): Deferred {
   return { promise, resolve: () => release() };
 }
 
+function isolatedResourceURL(assetURL: string): string | undefined {
+  if (assetURL.includes("first")) {
+    return "./isolated-slow.bin";
+  }
+
+  if (assetURL.includes("second")) {
+    return "./isolated-fast.bin";
+  }
+
+  return undefined;
+}
+
 test("waits for resources started by a nested GLTS constructor", async ({ page }) => {
   await page.route("**/assets/tracked-root.glts", (route) => route.fulfill({
     body: `
@@ -166,11 +178,11 @@ test("reports constructor-started resource failures to promise and callback load
   expect(result).toEqual({ callback: "resource", promisePhase: "resource" });
 });
 
-test("shares constructor resource state within a loader and isolates runtimes", async ({
+test("shares resource state within a loader and isolates distinct runtime resources", async ({
   page
 }) => {
   await page.route(/.*\/assets\/isolated-(?:first|shared|second)\.glts/, (route) => {
-    const first = route.request().url().includes("first");
+    const resourceURL = isolatedResourceURL(route.request().url());
     return route.fulfill({
       body: `
         import * as THREE from "three"
@@ -182,8 +194,8 @@ test("shares constructor resource state within a loader and isolates runtimes", 
             const managers = Reflect.get(globalThis, "__gltsRuntimeManagers") ?? []
             managers.push(loadingManager)
             Reflect.set(globalThis, "__gltsRuntimeManagers", managers)
-            ${first ? `new THREE.FileLoader(loadingManager).load(
-              new URL("./isolated-slow.bin", import.meta.url).href,
+            ${resourceURL ? `new THREE.FileLoader(loadingManager).load(
+              new URL(${JSON.stringify(resourceURL)}, import.meta.url).href,
             )` : ""}
           }
         }
@@ -198,6 +210,10 @@ test("shares constructor resource state within a loader and isolates runtimes", 
     await release.promise;
     await route.fulfill({ body: "done", contentType: "application/octet-stream" });
   });
+  await page.route("**/assets/isolated-fast.bin", (route) => route.fulfill({
+    body: "done",
+    contentType: "application/octet-stream"
+  }));
 
   await page.goto("/test-harness.html");
   await page.evaluate(() => {
@@ -256,109 +272,100 @@ test("shares constructor resource state within a loader and isolates runtimes", 
   });
 });
 
-test("tracks the same FileLoader URL independently across runtimes", async ({ page }) => {
-  await page.route("**/assets/shared-file-root.glts", (route) => route.fulfill({
-    body: `
-      import * as THREE from "three"
-      import { loadingManager } from "@drawcall/glts/asset"
+test("coalesces concurrent loads of one GLTS URL without resolving early", async ({
+  page
+}) => {
+  let sourceRequests = 0;
+  await page.route("**/assets/shared-file-root.glts", (route) => {
+    sourceRequests += 1;
+    return route.fulfill({
+      body: `
+        import * as THREE from "three"
+        import { loadingManager } from "@drawcall/glts/asset"
 
-      export default class SharedFile extends THREE.Group {
-        constructor() {
-          super()
-          Reflect.set(
-            globalThis,
-            "__gltsSameConstructions",
-            (Reflect.get(globalThis, "__gltsSameConstructions") ?? 0) + 1,
-          )
-          new THREE.FileLoader(loadingManager).load(
-            new URL("./same-runtime-file.bin#payload", import.meta.url).href,
-          )
+        export default class SharedFile extends THREE.Group {
+          constructor() {
+            super()
+            Reflect.set(
+              globalThis,
+              "__gltsSameConstructions",
+              (Reflect.get(globalThis, "__gltsSameConstructions") ?? 0) + 1,
+            )
+            new THREE.FileLoader(loadingManager).load(
+              new URL("./same-runtime-file.bin", import.meta.url).href,
+            )
+          }
         }
-      }
-    `,
-    contentType: "text/plain"
-  }));
-  const requested: [Deferred, Deferred] = [deferred(), deferred()];
-  const release: [Deferred, Deferred] = [deferred(), deferred()];
+      `,
+      contentType: "text/plain"
+    });
+  });
+  const requested = deferred();
+  const release = deferred();
   let resourceRequests = 0;
   await page.route("**/assets/same-runtime-file.bin*", async (route) => {
-    const request = requested[resourceRequests];
-    const completion = release[resourceRequests];
     resourceRequests += 1;
-    if (!request || !completion) {
-      throw new Error("Shared file was requested more than twice");
+    if (resourceRequests > 1) {
+      throw new Error("Shared file was requested more than once");
     }
 
-    request.resolve();
-    await completion.promise;
+    requested.resolve();
+    await release.promise;
     await route.fulfill({ body: "done", contentType: "application/octet-stream" });
   });
 
   await page.goto("/test-harness.html");
   await page.evaluate(() => {
     const loader = new window.GLTSLoader();
-    Reflect.set(globalThis, "__gltsSameFirstLoader", loader);
-    Reflect.set(globalThis, "__gltsSameFirstStatus", "pending");
-    void loader.loadAsync("/assets/shared-file-root.glts").then((asset) => {
-      Reflect.set(globalThis, "__gltsSameFirstAsset", asset);
-      Reflect.set(globalThis, "__gltsSameFirstStatus", "resolved");
-    });
-  });
-  await requested[0].promise;
+    const statuses = ["pending", "pending"];
+    const assets: GLTSAsset[] = [];
+    Reflect.set(globalThis, "__gltsSameLoader", loader);
+    Reflect.set(globalThis, "__gltsSameStatuses", statuses);
+    Reflect.set(globalThis, "__gltsSameAssets", assets);
 
-  await page.evaluate(() => {
-    const loader = Reflect.get(globalThis, "__gltsSameFirstLoader");
-    Reflect.set(globalThis, "__gltsSameSharedStatus", "pending");
-    void loader.loadAsync("/assets/shared-file-root.glts").then((asset: GLTSAsset) => {
-      Reflect.set(globalThis, "__gltsSameSharedAsset", asset);
-      Reflect.set(globalThis, "__gltsSameSharedStatus", "resolved");
-    });
+    for (let index = 0; index < statuses.length; index += 1) {
+      void loader.loadAsync("/assets/shared-file-root.glts").then((asset) => {
+        assets.push(asset);
+        statuses[index] = "resolved";
+      });
+    }
   });
+  await requested.promise;
   await page.waitForFunction(() =>
     Reflect.get(globalThis, "__gltsSameConstructions") === 2
   );
 
-  await page.evaluate(() => {
-    const loader = new window.GLTSLoader();
-    Reflect.set(globalThis, "__gltsSameSecondLoader", loader);
-    Reflect.set(globalThis, "__gltsSameSecondStatus", "pending");
-    void loader.loadAsync("/assets/shared-file-root.glts").then((asset) => {
-      Reflect.set(globalThis, "__gltsSameSecondAsset", asset);
-      Reflect.set(globalThis, "__gltsSameSecondStatus", "resolved");
-    });
-  });
-  await requested[1].promise;
-
   expect(await page.evaluate(() => ({
-    first: Reflect.get(globalThis, "__gltsSameFirstStatus"),
-    shared: Reflect.get(globalThis, "__gltsSameSharedStatus"),
-    second: Reflect.get(globalThis, "__gltsSameSecondStatus")
-  }))).toEqual({ first: "pending", second: "pending", shared: "pending" });
-
-  release[1].resolve();
-  await page.waitForFunction(() =>
-    Reflect.get(globalThis, "__gltsSameSecondStatus") === "resolved"
-  );
-  expect(await page.evaluate(() =>
-    [
-      Reflect.get(globalThis, "__gltsSameFirstStatus"),
-      Reflect.get(globalThis, "__gltsSameSharedStatus")
-    ]
-  )).toEqual(["pending", "pending"]);
-
-  release[0].resolve();
-  await page.waitForFunction(() =>
-    Reflect.get(globalThis, "__gltsSameFirstStatus") === "resolved"
-    && Reflect.get(globalThis, "__gltsSameSharedStatus") === "resolved"
-  );
-  await page.evaluate(() => {
-    Reflect.get(globalThis, "__gltsSameFirstAsset").dispose();
-    Reflect.get(globalThis, "__gltsSameSharedAsset").dispose();
-    Reflect.get(globalThis, "__gltsSameSecondAsset").dispose();
-    Reflect.get(globalThis, "__gltsSameFirstLoader").dispose();
-    Reflect.get(globalThis, "__gltsSameSecondLoader").dispose();
+    statuses: Reflect.get(globalThis, "__gltsSameStatuses")
+  }))).toEqual({ statuses: ["pending", "pending"] });
+  expect({ resourceRequests, sourceRequests }).toEqual({
+    resourceRequests: 1,
+    sourceRequests: 1
   });
-  expect(resourceRequests).toBe(2);
+
+  release.resolve();
+  await page.waitForFunction(() =>
+    Reflect.get(globalThis, "__gltsSameStatuses").every(
+      (status: string) => status === "resolved"
+    )
+  );
+  const distinctScenes = await page.evaluate(() => {
+    const assets = Reflect.get(globalThis, "__gltsSameAssets");
+    const first = assets[0];
+    const second = assets[1];
+    if (!first || !second) {
+      throw new Error("Expected two loaded assets");
+    }
+
+    const distinct = first.scene !== second.scene;
+    for (const asset of assets) {
+      asset.dispose();
+    }
+    Reflect.get(globalThis, "__gltsSameLoader").dispose();
+    return distinct;
+  });
+
+  expect(distinctScenes).toBe(true);
 });
 
 test("does not turn reload into a resource completion boundary", async ({ page }) => {
