@@ -42,16 +42,6 @@ export type DefaultClass =
       readonly exportStart: number;
     };
 
-export type PreviewExportSyntax =
-  | {
-      readonly kind: "declaration";
-      readonly exportPrefix: SourceRange;
-    }
-  | {
-      readonly kind: "list";
-      readonly exportStatement: SourceRange;
-    };
-
 export interface EntryModule {
   readonly externals: readonly ExternalImport[];
   readonly imports: readonly LocalImport[];
@@ -62,12 +52,11 @@ export interface EntryModule {
 export interface DependencyModule {
   readonly defaultClass: DefaultClass;
   readonly externals: readonly ExternalImport[];
-  readonly importRanges: readonly SourceRange[];
   readonly imports: readonly LocalImport[];
   readonly metaURLs: readonly SourceRange[];
   readonly metaURL: string;
   readonly path: string;
-  readonly previewExports: readonly PreviewExportSyntax[];
+  readonly removals: readonly SourceRange[];
   readonly source: string;
   readonly url: URL;
 }
@@ -346,7 +335,7 @@ function validatePreviewNames(names: readonly string[], path: string): void {
 function readPreviewExport(
   node: Extract<Node, { type: "ExportNamedDeclaration" }>,
   path: string
-): PreviewExportSyntax {
+): SourceRange {
   if (node.source || node.exportKind === "type") {
     failInline(
       "Inlined dependencies may only have a default export or named preview exports",
@@ -379,8 +368,8 @@ function readPreviewExport(
 
     const declarationRange = sourceRange(node.declaration, path);
     return {
-      kind: "declaration",
-      exportPrefix: { start: exportRange.start, end: declarationRange.start }
+      start: exportRange.start,
+      end: declarationRange.start
     };
   }
 
@@ -394,7 +383,7 @@ function readPreviewExport(
   });
   validatePreviewNames(names, path);
 
-  return { kind: "list", exportStatement: exportRange };
+  return exportRange;
 }
 
 export function analyzeEntryModule(options: ModuleOptions): EntryModule {
@@ -421,7 +410,7 @@ export function analyzeDependencyModule(
   options: DependencyModuleOptions
 ): DependencyModule {
   const parsed = parseImports(options, "validate");
-  const previewExports: PreviewExportSyntax[] = [];
+  const previewRemovals: SourceRange[] = [];
   let defaultClass: DefaultClass | undefined;
 
   for (const node of parsed.ast.program.body) {
@@ -451,7 +440,7 @@ export function analyzeDependencyModule(
     }
 
     if (node.type === "ExportNamedDeclaration") {
-      previewExports.push(readPreviewExport(node, options.path));
+      previewRemovals.push(readPreviewExport(node, options.path));
       continue;
     }
 
@@ -475,12 +464,11 @@ export function analyzeDependencyModule(
   return {
     defaultClass,
     externals: parsed.externals,
-    importRanges: parsed.importRanges,
     imports: parsed.imports,
     metaURLs: metaURLRanges(parsed.ast, options.path),
     metaURL: options.metaURL,
     path: options.path,
-    previewExports,
+    removals: [...parsed.importRanges, ...previewRemovals],
     source: options.source,
     url: options.url
   };

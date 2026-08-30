@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 import { deferred } from "../deferred.js";
+import { routeGLTS } from "../routes.js";
 
 test("cleans up failed, early-disposed, and loader-disposed instances", async ({ page }) => {
-  await page.route("**/assets/failed-constructor-resource.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/failed-constructor-resource.glts", `
       import * as THREE from "three"
       import { loadingManager } from "@drawcall/glts/asset"
       export default class Failed extends THREE.Group {
@@ -19,12 +19,9 @@ test("cleans up failed, early-disposed, and loader-disposed instances", async ({
           Reflect.set(globalThis, "__failedDisposed", true)
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
+    `);
   await page.route("**/assets/missing-managed.bin", (route) => route.abort("failed"));
-  await page.route("**/assets/pending-constructor.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/pending-constructor.glts", `
       import * as THREE from "three"
       import { loadingManager } from "@drawcall/glts/asset"
       export default class Pending extends THREE.Group {
@@ -43,9 +40,7 @@ test("cleans up failed, early-disposed, and loader-disposed instances", async ({
           )
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
+    `);
   const requested = deferred();
   const release = deferred();
   await page.route("**/assets/pending-managed.bin", async (route) => {
@@ -65,9 +60,7 @@ test("cleans up failed, early-disposed, and loader-disposed instances", async ({
     try {
       await instance.ready;
     } catch (error) {
-      phase = typeof error === "object" && error !== null
-        ? Reflect.get(error, "phase")
-        : undefined;
+      phase = window.readErrorField(error, "phase");
     }
     const outcome = {
       disposed: Reflect.get(globalThis, "__failedDisposed"),
@@ -106,9 +99,7 @@ test("cleans up failed, early-disposed, and loader-disposed instances", async ({
     try {
       await first.ready;
     } catch (error) {
-      earlyPhase = typeof error === "object" && error !== null
-        ? Reflect.get(error, "phase")
-        : undefined;
+      earlyPhase = window.readErrorField(error, "phase");
     }
 
     loader.dispose();
@@ -116,18 +107,14 @@ test("cleans up failed, early-disposed, and loader-disposed instances", async ({
     try {
       await second.ready;
     } catch (error) {
-      loaderPhase = typeof error === "object" && error !== null
-        ? Reflect.get(error, "phase")
-        : undefined;
+      loaderPhase = window.readErrorField(error, "phase");
     }
 
     let retainedConstructorPhase: unknown;
     try {
       new Constructor();
     } catch (error) {
-      retainedConstructorPhase = typeof error === "object" && error !== null
-        ? Reflect.get(error, "phase")
-        : undefined;
+      retainedConstructorPhase = window.readErrorField(error, "phase");
     }
 
     return {
@@ -152,8 +139,7 @@ test("cleans up failed, early-disposed, and loader-disposed instances", async ({
 });
 
 test("rejects disposal after runtime idle but before public readiness", async ({ page }) => {
-  await page.route("**/assets/readiness-race.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/readiness-race.glts", `
       import * as THREE from "three"
       import { loadingManager } from "@drawcall/glts/asset"
       export default class ReadinessRace extends THREE.Group {
@@ -165,9 +151,7 @@ test("rejects disposal after runtime idle but before public readiness", async ({
           })
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
+    `);
 
   await page.goto("/test-harness.html");
   const phase = await page.evaluate(async () => {
@@ -181,9 +165,7 @@ test("rejects disposal after runtime idle but before public readiness", async ({
       await instance.ready;
       return "resolved";
     } catch (error) {
-      return typeof error === "object" && error !== null
-        ? Reflect.get(error, "phase")
-        : "unknown";
+      return window.readErrorField(error, "phase") ?? "unknown";
     } finally {
       loader.dispose();
     }
@@ -195,8 +177,7 @@ test("rejects disposal after runtime idle but before public readiness", async ({
 test("owns nested roots and leaks nothing after synchronous construction failure", async ({
   page
 }) => {
-  await page.route("**/assets/managed-parent.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/managed-parent.glts", `
       import * as THREE from "three"
       import Child from "./managed-child.glts"
       export default class Parent extends THREE.Group {
@@ -209,22 +190,16 @@ test("owns nested roots and leaks nothing after synchronous construction failure
           Reflect.set(globalThis, "__managedParentDisposed", true)
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
-  await page.route("**/assets/managed-child.glts", (route) => route.fulfill({
-    body: `
+    `);
+  await routeGLTS(page, "**/assets/managed-child.glts", `
       import * as THREE from "three"
       export default class Child extends THREE.Group {
         dispose() {
           Reflect.set(globalThis, "__managedChildDisposed", true)
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
-  await page.route("**/assets/broken-constructor.glts", (route) => route.fulfill({
-    body: `
+    `);
+  await routeGLTS(page, "**/assets/broken-constructor.glts", `
       import * as THREE from "three"
       import Child from "./rollback-child.glts"
       export default class Broken extends THREE.Group {
@@ -234,11 +209,8 @@ test("owns nested roots and leaks nothing after synchronous construction failure
           throw new Error("broken construction")
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
-  await page.route("**/assets/rollback-child.glts", (route) => route.fulfill({
-    body: `
+    `);
+  await routeGLTS(page, "**/assets/rollback-child.glts", `
       import * as THREE from "three"
       export default class RollbackChild extends THREE.Group {
         dispose() {
@@ -249,9 +221,7 @@ test("owns nested roots and leaks nothing after synchronous construction failure
           )
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
+    `);
 
   await page.goto("/test-harness.html");
   const outcome = await page.evaluate(async () => {
@@ -267,9 +237,7 @@ test("owns nested roots and leaks nothing after synchronous construction failure
     try {
       new Broken();
     } catch (error) {
-      constructionPhase = typeof error === "object" && error !== null
-        ? Reflect.get(error, "phase")
-        : undefined;
+      constructionPhase = window.readErrorField(error, "phase");
     }
 
     const rollbackDisposalsBeforeLoaderDispose = Reflect.get(

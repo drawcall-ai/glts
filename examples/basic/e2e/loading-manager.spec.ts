@@ -2,39 +2,15 @@ import { expect, test } from "@playwright/test";
 import type { GLTSAsset } from "@drawcall/glts";
 
 import { deferred } from "./deferred.js";
-
-function assetSource(name: string, child?: string): string {
-  const childImport = child ? `import Child from ${JSON.stringify(child)}` : "";
-  const childMount = child ? "this.add(new Child())" : "";
-
-  return `
-    import * as THREE from "three"
-    ${childImport}
-    export default class Asset extends THREE.Group {
-      constructor() {
-        super()
-        this.name = ${JSON.stringify(name)}
-        ${childMount}
-      }
-    }
-  `;
-}
-
-function isolatedResourceURL(assetURL: string): string | undefined {
-  if (assetURL.includes("first")) {
-    return "./isolated-slow.bin";
-  }
-
-  if (assetURL.includes("second")) {
-    return "./isolated-fast.bin";
-  }
-
-  return undefined;
-}
+import {
+  assetSource,
+  fulfillGLTS,
+  routeGLTS,
+  routeGLTSRevisions
+} from "./routes.js";
 
 test("waits for resources started by a nested GLTS constructor", async ({ page }) => {
-  await page.route("**/assets/tracked-root.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/tracked-root.glts", `
       import * as THREE from "three"
       import Child from "./tracked-child.glts"
 
@@ -44,11 +20,8 @@ test("waits for resources started by a nested GLTS constructor", async ({ page }
           this.add(new Child())
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
-  await page.route("**/assets/tracked-child.glts", (route) => route.fulfill({
-    body: `
+    `);
+  await routeGLTS(page, "**/assets/tracked-child.glts", `
       import * as THREE from "three"
       import { loadingManager } from "@drawcall/glts/asset"
 
@@ -61,9 +34,7 @@ test("waits for resources started by a nested GLTS constructor", async ({ page }
           )
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
+    `);
   const requested = deferred();
   const release = deferred();
   await page.route("**/assets/tracked-leaf.svg", async (route) => {
@@ -110,8 +81,7 @@ test("reports constructor-started resource failures to promise and callback load
 }) => {
   await page.route(/.*\/assets\/(?:promise|callback)-resource\.glts/, (route) => {
     const kind = route.request().url().includes("promise") ? "promise" : "callback";
-    return route.fulfill({
-      body: `
+    return fulfillGLTS(route, `
         import * as THREE from "three"
         import { loadingManager } from "@drawcall/glts/asset"
 
@@ -123,9 +93,7 @@ test("reports constructor-started resource failures to promise and callback load
             )
           }
         }
-      `,
-      contentType: "text/plain"
-    });
+      `);
   });
   await page.route(/.*\/assets\/missing-(?:promise|callback)\.svg/, (route) =>
     route.abort("failed")
@@ -138,9 +106,7 @@ test("reports constructor-started resource failures to promise and callback load
     try {
       await promiseLoader.loadAsync("/assets/promise-resource.glts");
     } catch (error) {
-      promisePhase = typeof error === "object" && error !== null
-        ? Reflect.get(error, "phase")
-        : undefined;
+      promisePhase = window.readErrorField(error, "phase");
     } finally {
       promiseLoader.dispose();
     }
@@ -151,11 +117,7 @@ test("reports constructor-started resource failures to promise and callback load
         "/assets/callback-resource.glts",
         () => resolve("load"),
         undefined,
-        (error) => resolve(
-          typeof error === "object" && error !== null
-            ? String(Reflect.get(error, "phase"))
-            : "unknown"
-        )
+        (error) => resolve(String(window.readErrorField(error, "phase") ?? "unknown"))
       );
     });
     callbackLoader.dispose();
@@ -169,9 +131,14 @@ test("shares resource state within a loader and isolates distinct runtime resour
   page
 }) => {
   await page.route(/.*\/assets\/isolated-(?:first|shared|second)\.glts/, (route) => {
-    const resourceURL = isolatedResourceURL(route.request().url());
-    return route.fulfill({
-      body: `
+    const assetURL = route.request().url();
+    let resourceURL: string | undefined;
+    if (assetURL.includes("first")) {
+      resourceURL = "./isolated-slow.bin";
+    } else if (assetURL.includes("second")) {
+      resourceURL = "./isolated-fast.bin";
+    }
+    return fulfillGLTS(route, `
         import * as THREE from "three"
         import { loadingManager } from "@drawcall/glts/asset"
 
@@ -186,9 +153,7 @@ test("shares resource state within a loader and isolates distinct runtime resour
             )` : ""}
           }
         }
-      `,
-      contentType: "text/plain"
-    });
+      `);
   });
   const requested = deferred();
   const release = deferred();
@@ -262,11 +227,10 @@ test("shares resource state within a loader and isolates distinct runtime resour
 test("coalesces concurrent loads of one GLTS URL without resolving early", async ({
   page
 }) => {
-  let sourceRequests = 0;
-  await page.route("**/assets/shared-file-root.glts", (route) => {
-    sourceRequests += 1;
-    return route.fulfill({
-      body: `
+  const sourceRevisions = await routeGLTSRevisions(
+    page,
+    "**/assets/shared-file-root.glts",
+    [`
         import * as THREE from "three"
         import { loadingManager } from "@drawcall/glts/asset"
 
@@ -283,10 +247,8 @@ test("coalesces concurrent loads of one GLTS URL without resolving early", async
             )
           }
         }
-      `,
-      contentType: "text/plain"
-    });
-  });
+      `]
+  );
   const requested = deferred();
   const release = deferred();
   let resourceRequests = 0;
@@ -325,7 +287,7 @@ test("coalesces concurrent loads of one GLTS URL without resolving early", async
   expect(await page.evaluate(() => ({
     statuses: Reflect.get(globalThis, "__gltsSameStatuses")
   }))).toEqual({ statuses: ["pending", "pending"] });
-  expect({ resourceRequests, sourceRequests }).toEqual({
+  expect({ resourceRequests, sourceRequests: sourceRevisions.requests }).toEqual({
     resourceRequests: 1,
     sourceRequests: 1
   });
@@ -374,15 +336,11 @@ test("does not turn reload into a resource completion boundary", async ({ page }
       }
     `
   ];
-  let requests = 0;
-  await page.route("**/assets/reload-resource.glts", (route) => {
-    const source = sources[requests];
-    requests += 1;
-    if (!source) {
-      throw new Error("Reload resource asset was fetched more than twice");
-    }
-    return route.fulfill({ body: source, contentType: "text/plain" });
-  });
+  await routeGLTSRevisions(
+    page,
+    "**/assets/reload-resource.glts",
+    sources
+  );
   const requested = deferred();
   const release = deferred();
   await page.route("**/assets/reload-slow.bin", async (route) => {
@@ -418,8 +376,7 @@ test("does not turn reload into a resource completion boundary", async ({ page }
 });
 
 test("rejects a pending root when its loader is disposed", async ({ page }) => {
-  await page.route("**/assets/disposed-loading.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/disposed-loading.glts", `
       import * as THREE from "three"
       import { loadingManager } from "@drawcall/glts/asset"
 
@@ -431,9 +388,7 @@ test("rejects a pending root when its loader is disposed", async ({ page }) => {
           )
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
+    `);
   const requested = deferred();
   const release = deferred();
   await page.route("**/assets/disposed-slow.bin", async (route) => {
@@ -450,9 +405,7 @@ test("rejects a pending root when its loader is disposed", async ({ page }) => {
     void loader.loadAsync("/assets/disposed-loading.glts").then(
       () => Reflect.set(globalThis, "__gltsDisposedOutcome", { status: "resolved" }),
       (error) => Reflect.set(globalThis, "__gltsDisposedOutcome", {
-        phase: typeof error === "object" && error !== null
-          ? Reflect.get(error, "phase")
-          : undefined,
+        phase: window.readErrorField(error, "phase"),
         status: "rejected"
       })
     );

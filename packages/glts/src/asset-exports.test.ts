@@ -69,37 +69,21 @@ describe("readAssetExports", () => {
     expect(new assetClass()).toBeInstanceOf(THREE.Group);
   });
 
-  it("does not treat an exported undefined value as an omitted export", () => {
-    expect(() => read(moduleWith({ previewCamera: undefined }))).toThrow(
-      'Named export "previewCamera" must be a THREE.Camera; received undefined'
-    );
-  });
-
-  it("rejects a non-camera previewCamera with its received Three.js type", () => {
+  it.each([
+    ["an explicitly undefined previewCamera", { previewCamera: undefined },
+      'Named export "previewCamera" must be a THREE.Camera; received undefined'],
+    ["a non-camera previewCamera", { previewCamera: new THREE.Group() },
+      'Named export "previewCamera" must be a THREE.Camera; received THREE.Group'],
+    ["previewLighting without a light", { previewLighting: new THREE.Group() },
+      'Named export "previewLighting" must contain at least one THREE.Light; received THREE.Group with no lights'],
+    ["previewLighting that is not an Object3D", { previewLighting: 42 },
+      'Named export "previewLighting" must be a THREE.Object3D containing at least one THREE.Light; received number']
+  ])("rejects %s", (_name, namedExports, message) => {
     const invalid = (): void => {
-      read(moduleWith({ previewCamera: new THREE.Group() }));
+      read(moduleWith(namedExports));
     };
 
     expect(invalid).toThrow(GLTSError);
-    expect(invalid).toThrow(
-      'Named export "previewCamera" must be a THREE.Camera; received THREE.Group'
-    );
-  });
-
-  it("rejects previewLighting without a light", () => {
-    const invalid = (): void => {
-      read(moduleWith({ previewLighting: new THREE.Group() }));
-    };
-
-    expect(invalid).toThrow(GLTSError);
-    expect(invalid).toThrow(
-      'Named export "previewLighting" must contain at least one THREE.Light; received THREE.Group with no lights'
-    );
-  });
-
-  it("rejects previewLighting that is not a Three.js object", () => {
-    expect(() => read(moduleWith({ previewLighting: 42 }))).toThrow(
-      'Named export "previewLighting" must be a THREE.Object3D containing at least one THREE.Light; received number'
-    );
+    expect(invalid).toThrow(message);
   });
 });

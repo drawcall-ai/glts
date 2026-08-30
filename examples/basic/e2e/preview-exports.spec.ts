@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { routeGLTS, routeGLTSRevisions } from "./routes.js";
+
 function previewSource(
   camera: "PerspectiveCamera" | "OrthographicCamera",
   light: "AmbientLight" | "PointLight",
@@ -27,15 +29,11 @@ test("exposes root preview exports separately and updates them on reload", async
     previewSource("PerspectiveCamera", "AmbientLight", "first"),
     previewSource("OrthographicCamera", "PointLight", "second")
   ];
-  let requests = 0;
-  await page.route("**/assets/preview-root.glts", (route) => {
-    const source = sources[requests];
-    requests += 1;
-    if (!source) {
-      throw new Error("Preview root was fetched more than twice");
-    }
-    return route.fulfill({ body: source, contentType: "text/plain" });
-  });
+  const revisions = await routeGLTSRevisions(
+    page,
+    "**/assets/preview-root.glts",
+    sources
+  );
 
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
@@ -66,7 +64,7 @@ test("exposes root preview exports separately and updates them on reload", async
     return { after, before };
   });
 
-  expect(requests).toBe(2);
+  expect(revisions.requests).toBe(2);
   expect(result).toEqual({
     after: {
       camera: "OrthographicCamera",
@@ -87,13 +85,10 @@ test("exposes root preview exports separately and updates them on reload", async
 });
 
 test("supports absent preview exports", async ({ page }) => {
-  await page.route("**/assets/no-preview.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/no-preview.glts", `
       import * as THREE from "three"
       export default class Asset extends THREE.Group {}
-    `,
-    contentType: "text/plain"
-  }));
+    `);
 
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
@@ -112,22 +107,16 @@ test("supports absent preview exports", async ({ page }) => {
 });
 
 test("reports type-specific diagnostics for invalid preview exports", async ({ page }) => {
-  await page.route("**/assets/invalid-preview-camera.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/invalid-preview-camera.glts", `
       import * as THREE from "three"
       export const previewCamera = new THREE.Group()
       export default class Asset extends THREE.Group {}
-    `,
-    contentType: "text/plain"
-  }));
-  await page.route("**/assets/invalid-preview-lighting.glts", (route) => route.fulfill({
-    body: `
+    `);
+  await routeGLTS(page, "**/assets/invalid-preview-lighting.glts", `
       import * as THREE from "three"
       export const previewLighting = new THREE.Group()
       export default class Asset extends THREE.Group {}
-    `,
-    contentType: "text/plain"
-  }));
+    `);
 
   await page.goto("/test-harness.html");
   const diagnostics = await page.evaluate(async () => {
@@ -144,12 +133,8 @@ test("reports type-specific diagnostics for invalid preview exports", async ({ p
       } catch (error) {
         values.push({
           message: error instanceof Error ? error.message : String(error),
-          phase: typeof error === "object" && error !== null
-            ? Reflect.get(error, "phase")
-            : undefined,
-          url: typeof error === "object" && error !== null
-            ? Reflect.get(error, "url")
-            : undefined
+          phase: window.readErrorField(error, "phase"),
+          url: window.readErrorField(error, "url")
         });
       }
     }
@@ -178,8 +163,7 @@ test("reports type-specific diagnostics for invalid preview exports", async ({ p
 });
 
 test("keeps imported preview metadata out of parent assets", async ({ page }) => {
-  await page.route("**/assets/preview-parent.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/preview-parent.glts", `
       import * as THREE from "three"
       import Child from "./preview-child.glts"
 
@@ -189,13 +173,12 @@ test("keeps imported preview metadata out of parent assets", async ({ page }) =>
           this.add(new Child())
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
-  await page.route("**/assets/preview-child.glts", (route) => route.fulfill({
-    body: previewSource("PerspectiveCamera", "AmbientLight", "child"),
-    contentType: "text/plain"
-  }));
+    `);
+  await routeGLTS(
+    page,
+    "**/assets/preview-child.glts",
+    previewSource("PerspectiveCamera", "AmbientLight", "child")
+  );
 
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {

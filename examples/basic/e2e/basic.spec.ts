@@ -1,25 +1,14 @@
 import { expect, test } from "@playwright/test";
 
-function assetSource(name: string, child?: string): string {
-  const childImport = child ? `import Child from ${JSON.stringify(child)}` : "";
-  const childMount = child ? "this.add(new Child())" : "";
-
-  return `
-    import * as THREE from "three"
-    ${childImport}
-    export default class Asset extends THREE.Group {
-      constructor() {
-        super()
-        this.name = ${JSON.stringify(name)}
-        ${childMount}
-      }
-    }
-  `;
-}
+import {
+  assetSource,
+  fulfillGLTS,
+  routeGLTS,
+  routeGLTSRevisions
+} from "./routes.js";
 
 test("loads TypeScript assets without external network access", async ({ page }) => {
-  await page.route("**/assets/offline.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/offline.glts", `
       import * as THREE from "three"
 
       export default class OfflineAsset extends THREE.Group {
@@ -28,9 +17,7 @@ test("loads TypeScript assets without external network access", async ({ page })
           this.name = "offline"
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
+    `);
   await page.route(/^https?:\/\/(?!127\.0\.0\.1:5173(?:\/|$))/, (route) => {
     return route.abort("internetdisconnected");
   });
@@ -53,19 +40,12 @@ test("reports only assets reachable from live roots after a root reload", async 
     assetSource("first root", "./reachable-child.glts"),
     assetSource("second root")
   ];
-  let rootRequests = 0;
-  await page.route("**/assets/reachable-root.glts", (route) => {
-    const source = rootSources[rootRequests];
-    rootRequests += 1;
-    if (!source) {
-      throw new Error("Reachable root was fetched more than twice");
-    }
-    return route.fulfill({ body: source, contentType: "text/plain" });
-  });
-  await page.route("**/assets/reachable-child.glts", (route) => route.fulfill({
-    body: assetSource("child"),
-    contentType: "text/plain"
-  }));
+  const rootRevisions = await routeGLTSRevisions(
+    page,
+    "**/assets/reachable-root.glts",
+    rootSources
+  );
+  await routeGLTS(page, "**/assets/reachable-child.glts", assetSource("child"));
 
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
@@ -87,7 +67,7 @@ test("reports only assets reachable from live roots after a root reload", async 
     return { afterReload, beforeReload };
   });
 
-  expect(rootRequests).toBe(2);
+  expect(rootRevisions.requests).toBe(2);
   expect(result).toEqual({
     afterReload: { child: false, root: true, stableRoot: true },
     beforeReload: { child: true, root: true }
@@ -122,19 +102,12 @@ test("updates reachability when replacement commits before old disposal fails", 
       }
     `
   ];
-  let rootRequests = 0;
-  await page.route("**/assets/failed-disposal-root.glts", (route) => {
-    const source = rootSources[rootRequests];
-    rootRequests += 1;
-    if (!source) {
-      throw new Error("Failed-disposal root was fetched more than twice");
-    }
-    return route.fulfill({ body: source, contentType: "text/plain" });
-  });
-  await page.route("**/assets/failed-disposal-child.glts", (route) => route.fulfill({
-    body: assetSource("child"),
-    contentType: "text/plain"
-  }));
+  const rootRevisions = await routeGLTSRevisions(
+    page,
+    "**/assets/failed-disposal-root.glts",
+    rootSources
+  );
+  await routeGLTS(page, "**/assets/failed-disposal-child.glts", assetSource("child"));
 
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
@@ -144,9 +117,7 @@ test("updates reachability when replacement commits before old disposal fails", 
     try {
       await loader.reload("/assets/failed-disposal-root.glts");
     } catch (error) {
-      errorPhase = typeof error === "object" && error !== null
-        ? Reflect.get(error, "phase")
-        : undefined;
+      errorPhase = window.readErrorField(error, "phase");
     }
 
     const snapshot = {
@@ -160,7 +131,7 @@ test("updates reachability when replacement commits before old disposal fails", 
     return snapshot;
   });
 
-  expect(rootRequests).toBe(2);
+  expect(rootRevisions.requests).toBe(2);
   expect(result).toEqual({
     child: false,
     errorPhase: "dispose",
@@ -185,17 +156,13 @@ test("keeps old reachability when replacement construction fails", async ({ page
       }
     `
   ];
-  let rootRequests = 0;
-  await page.route("**/assets/rejected-root.glts", (route) => {
-    const source = rootSources[rootRequests];
-    rootRequests += 1;
-    if (!source) {
-      throw new Error("Rejected root was fetched more than twice");
-    }
-    return route.fulfill({ body: source, contentType: "text/plain" });
-  });
+  const rootRevisions = await routeGLTSRevisions(
+    page,
+    "**/assets/rejected-root.glts",
+    rootSources
+  );
   await page.route(/.*\/assets\/(?:preserved|rejected)-child\.glts/, (route) =>
-    route.fulfill({ body: assetSource("child"), contentType: "text/plain" })
+    fulfillGLTS(route, assetSource("child"))
   );
 
   await page.goto("/test-harness.html");
@@ -222,7 +189,7 @@ test("keeps old reachability when replacement construction fails", async ({ page
     return snapshot;
   });
 
-  expect(rootRequests).toBe(2);
+  expect(rootRevisions.requests).toBe(2);
   expect(result).toEqual({
     name: "old root",
     preservedChild: true,
@@ -238,23 +205,17 @@ test("keeps a shared child reachable until its last root releases it", async ({ 
     assetSource("first root", "./shared-child.glts"),
     assetSource("first root reloaded")
   ];
-  let firstRootRequests = 0;
-  await page.route("**/assets/first-root.glts", (route) => {
-    const source = firstRootSources[firstRootRequests];
-    firstRootRequests += 1;
-    if (!source) {
-      throw new Error("First root was fetched more than twice");
-    }
-    return route.fulfill({ body: source, contentType: "text/plain" });
-  });
-  await page.route("**/assets/second-root.glts", (route) => route.fulfill({
-    body: assetSource("second root", "./shared-child.glts"),
-    contentType: "text/plain"
-  }));
-  await page.route("**/assets/shared-child.glts", (route) => route.fulfill({
-    body: assetSource("shared child"),
-    contentType: "text/plain"
-  }));
+  const firstRootRevisions = await routeGLTSRevisions(
+    page,
+    "**/assets/first-root.glts",
+    firstRootSources
+  );
+  await routeGLTS(
+    page,
+    "**/assets/second-root.glts",
+    assetSource("second root", "./shared-child.glts")
+  );
+  await routeGLTS(page, "**/assets/shared-child.glts", assetSource("shared child"));
 
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
@@ -274,7 +235,7 @@ test("keeps a shared child reachable until its last root releases it", async ({ 
     return { afterSecondDispose, initiallyShared, sharedAfterFirstReload };
   });
 
-  expect(firstRootRequests).toBe(2);
+  expect(firstRootRevisions.requests).toBe(2);
   expect(result).toEqual({
     afterSecondDispose: {
       child: false,
@@ -290,21 +251,14 @@ test("refetches an asset graph after its last root was disposed", async ({ page 
   let rootRequests = 0;
   await page.route("**/assets/reentered-root.glts", (route) => {
     rootRequests += 1;
-    return route.fulfill({
-      body: assetSource("root", "./reentered-child.glts"),
-      contentType: "text/plain"
-    });
+    return fulfillGLTS(route, assetSource("root", "./reentered-child.glts"));
   });
   const childSources = [assetSource("old child"), assetSource("new child")];
-  let childRequests = 0;
-  await page.route("**/assets/reentered-child.glts", (route) => {
-    const source = childSources[childRequests];
-    childRequests += 1;
-    if (!source) {
-      throw new Error("Reentered child was fetched more than twice");
-    }
-    return route.fulfill({ body: source, contentType: "text/plain" });
-  });
+  const childRevisions = await routeGLTSRevisions(
+    page,
+    "**/assets/reentered-child.glts",
+    childSources
+  );
 
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
@@ -322,7 +276,7 @@ test("refetches an asset graph after its last root was disposed", async ({ page 
     return { afterDispose, childName };
   });
 
-  expect({ childRequests, rootRequests, ...result }).toEqual({
+  expect({ childRequests: childRevisions.requests, rootRequests, ...result }).toEqual({
     afterDispose: { child: false, root: false },
     childName: "new child",
     childRequests: 2,
@@ -331,31 +285,25 @@ test("refetches an asset graph after its last root was disposed", async ({ page 
 });
 
 test("reactivates descendants when sharing an in-flight reload", async ({ page }) => {
-  await page.route("**/assets/concurrent-root.glts", (route) => route.fulfill({
-    body: assetSource("root", "./concurrent-child.glts"),
-    contentType: "text/plain"
-  }));
+  await routeGLTS(
+    page,
+    "**/assets/concurrent-root.glts",
+    assetSource("root", "./concurrent-child.glts")
+  );
   let childRequests = 0;
   await page.route("**/assets/concurrent-child.glts", async (route) => {
     childRequests += 1;
     if (childRequests === 2) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    await route.fulfill({
-      body: assetSource("child", "./concurrent-descendant.glts"),
-      contentType: "text/plain"
-    });
+    await fulfillGLTS(route, assetSource("child", "./concurrent-descendant.glts"));
   });
   const descendantSources = [assetSource("old descendant"), assetSource("new descendant")];
-  let descendantRequests = 0;
-  await page.route("**/assets/concurrent-descendant.glts", (route) => {
-    const source = descendantSources[descendantRequests];
-    descendantRequests += 1;
-    if (!source) {
-      throw new Error("Concurrent descendant was fetched more than twice");
-    }
-    return route.fulfill({ body: source, contentType: "text/plain" });
-  });
+  const descendantRevisions = await routeGLTSRevisions(
+    page,
+    "**/assets/concurrent-descendant.glts",
+    descendantSources
+  );
 
   await page.goto("/test-harness.html");
   const descendantName = await page.evaluate(async () => {
@@ -372,7 +320,11 @@ test("reactivates descendants when sharing an in-flight reload", async ({ page }
     return name;
   });
 
-  expect({ childRequests, descendantName, descendantRequests }).toEqual({
+  expect({
+    childRequests,
+    descendantName,
+    descendantRequests: descendantRevisions.requests
+  }).toEqual({
     childRequests: 2,
     descendantName: "new descendant",
     descendantRequests: 2
@@ -385,20 +337,13 @@ test("keeps reachability on the latest queued root revision", async ({ page }) =
     assetSource("second", "./queued-second-child.glts"),
     assetSource("third")
   ];
-  let rootRequests = 0;
-  await page.route("**/assets/queued-root.glts", (route) => {
-    const source = rootSources[rootRequests];
-    rootRequests += 1;
-    if (!source) {
-      throw new Error("Queued root was fetched more than three times");
-    }
-    return route.fulfill({ body: source, contentType: "text/plain" });
-  });
+  const rootRevisions = await routeGLTSRevisions(
+    page,
+    "**/assets/queued-root.glts",
+    rootSources
+  );
   await page.route(/.*\/assets\/queued-(?:first|second)-child\.glts/, (route) =>
-    route.fulfill({
-      body: assetSource("queued child"),
-      contentType: "text/plain"
-    })
+    fulfillGLTS(route, assetSource("queued child"))
   );
 
   await page.goto("/test-harness.html");
@@ -423,7 +368,7 @@ test("keeps reachability on the latest queued root revision", async ({ page }) =
     return snapshot;
   });
 
-  expect(rootRequests).toBe(3);
+  expect(rootRevisions.requests).toBe(3);
   expect(result).toEqual({
     firstChild: false,
     latestName: "third",
@@ -434,15 +379,12 @@ test("keeps reachability on the latest queued root revision", async ({ page }) =
 });
 
 test("preserves unused value imports because they can have side effects", async ({ page }) => {
-  await page.route("**/assets/import-semantics.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/import-semantics.glts", `
       import { marker } from "https://fixtures.glts.test/side-effect.js"
       import * as THREE from "three"
 
       export default class ImportSemantics extends THREE.Group {}
-    `,
-    contentType: "text/plain"
-  }));
+    `);
   await page.route("https://fixtures.glts.test/side-effect.js", (route) => route.fulfill({
     body: `
       globalThis.__gltsSideEffect = (globalThis.__gltsSideEffect ?? 0) + 1
@@ -465,8 +407,7 @@ test("preserves unused value imports because they can have side effects", async 
 });
 
 test("executes erased and runtime TypeScript semantics together", async ({ page }) => {
-  await page.route("**/assets/typescript-semantics.glts", (route) => route.fulfill({
-    body: `
+  await routeGLTS(page, "**/assets/typescript-semantics.glts", `
       import * as THREE from "three"
       import type { ColorRepresentation } from "three"
 
@@ -495,9 +436,7 @@ test("executes erased and runtime TypeScript semantics together", async ({ page 
           this.userData.sourceURL = import.meta.url
         }
       }
-    `,
-    contentType: "text/plain"
-  }));
+    `);
 
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
@@ -528,14 +467,15 @@ test("executes erased and runtime TypeScript semantics together", async ({ page 
 });
 
 test("reports the asset URL and source position for TypeScript syntax errors", async ({ page }) => {
-  await page.route("**/assets/broken-typescript.glts", (route) => route.fulfill({
-    body: [
+  await routeGLTS(
+    page,
+    "**/assets/broken-typescript.glts",
+    [
       "import * as THREE from \"three\"",
       "",
       "export default class Broken extends"
-    ].join("\n"),
-    contentType: "text/plain"
-  }));
+    ].join("\n")
+  );
 
   await page.goto("/test-harness.html");
   const diagnostic = await page.evaluate(async () => {
@@ -551,8 +491,8 @@ test("reports the asset URL and source position for TypeScript syntax errors", a
         causeName: cause instanceof Error ? cause.name : undefined,
         location: cause && typeof cause === "object" ? Reflect.get(cause, "loc") : undefined,
         message: error instanceof Error ? error.message : String(error),
-        phase: error && typeof error === "object" ? Reflect.get(error, "phase") : undefined,
-        url: error && typeof error === "object" ? Reflect.get(error, "url") : undefined
+        phase: window.readErrorField(error, "phase"),
+        url: window.readErrorField(error, "url")
       };
     } finally {
       loader.dispose();
@@ -610,11 +550,7 @@ test("keeps the scene visible when a reload fails", async ({ page }) => {
   await expect(page.locator("#status")).toHaveText("Asset loaded");
 
   await page.route("**/assets/branch.glts", async (route) => {
-    await route.fulfill({
-      body: "export default class Broken extends",
-      contentType: "text/plain",
-      status: 200
-    });
+    await fulfillGLTS(route, "export default class Broken extends");
   });
 
   await page.getByRole("button", { name: "Reload branches" }).click();

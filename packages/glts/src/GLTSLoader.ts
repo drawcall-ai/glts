@@ -7,12 +7,7 @@ import * as THREE from "three";
 
 import type { PreviewState } from "./asset-exports.js";
 import { GLTSError } from "./errors.js";
-import {
-  canonicalGLTSURL,
-  ModuleGraph,
-  type PreparedAsset,
-  threeRevision
-} from "./module-graph.js";
+import { canonicalGLTSURL, ModuleGraph, type PreparedAsset } from "./module-graph.js";
 import { ModuleURLStore } from "./module-url-store.js";
 import { RootOwnership } from "./root.js";
 import { WrapperRuntime } from "./runtime.js";
@@ -138,7 +133,7 @@ export class GLTSLoader extends Loader {
       fetch: (input, init) => this.#fetch(input, init),
       moduleURLs,
       runtime: this.#runtime,
-      threeRevision: threeRevision(THREE)
+      threeRevision: THREE.REVISION
     });
   }
 
@@ -203,7 +198,7 @@ export class GLTSLoader extends Loader {
             }
             throw error;
           }
-          this.#activateAsset(prepared);
+          this.#commitReload(prepared);
         } finally {
           this.#graph.settleReachability();
         }
@@ -342,7 +337,7 @@ export class GLTSLoader extends Loader {
     return canonicalGLTSURL(managedURL, this.#baseURL);
   }
 
-  #activateAsset(prepared: PreparedAsset): void {
+  #commitReload(prepared: PreparedAsset): void {
     this.#graph.activateAsset(prepared);
     for (const asset of this.#assets) {
       if (asset.url === prepared.url) {
