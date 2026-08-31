@@ -23,7 +23,7 @@ test("waits for resources started by a nested GLTS constructor", async ({ page }
     `);
   await routeGLTS(page, "**/assets/tracked-child.glts", `
       import * as THREE from "three"
-      import { loadingManager } from "@drawcall/glts/asset"
+      import { loadingManager } from "@drawcall/glts"
 
       export default class Child extends THREE.Group {
         constructor() {
@@ -83,7 +83,7 @@ test("reports constructor-started resource failures to promise and callback load
     const kind = route.request().url().includes("promise") ? "promise" : "callback";
     return fulfillGLTS(route, `
         import * as THREE from "three"
-        import { loadingManager } from "@drawcall/glts/asset"
+        import { loadingManager } from "@drawcall/glts"
 
         export default class BrokenResource extends THREE.Group {
           constructor() {
@@ -140,7 +140,7 @@ test("shares resource state within a loader and isolates distinct runtime resour
     }
     return fulfillGLTS(route, `
         import * as THREE from "three"
-        import { loadingManager } from "@drawcall/glts/asset"
+        import { loadingManager } from "@drawcall/glts"
 
         export default class Isolated extends THREE.Group {
           constructor() {
@@ -232,7 +232,7 @@ test("coalesces concurrent loads of one GLTS URL without resolving early", async
     "**/assets/shared-file-root.glts",
     [`
         import * as THREE from "three"
-        import { loadingManager } from "@drawcall/glts/asset"
+        import { loadingManager } from "@drawcall/glts"
 
         export default class SharedFile extends THREE.Group {
           constructor() {
@@ -322,7 +322,7 @@ test("does not turn reload into a resource completion boundary", async ({ page }
     assetSource("before"),
     `
       import * as THREE from "three"
-      import { loadingManager } from "@drawcall/glts/asset"
+      import { loadingManager } from "@drawcall/glts"
 
       export default class Reloaded extends THREE.Group {
         constructor() {
@@ -378,7 +378,7 @@ test("does not turn reload into a resource completion boundary", async ({ page }
 test("rejects a pending root when its loader is disposed", async ({ page }) => {
   await routeGLTS(page, "**/assets/disposed-loading.glts", `
       import * as THREE from "three"
-      import { loadingManager } from "@drawcall/glts/asset"
+      import { loadingManager } from "@drawcall/glts"
 
       export default class DisposedLoading extends THREE.Group {
         constructor() {

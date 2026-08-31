@@ -17,7 +17,7 @@ completion include those requests.
 
 ```ts
 import * as THREE from "three"
-import { loadingManager } from "@drawcall/glts/asset"
+import { loadingManager } from "@drawcall/glts"
 
 export default class Branch extends THREE.Group {
   readonly leafTexture: THREE.Texture
@@ -74,6 +74,6 @@ recursively disposes nested GLTS wrappers but does not infer geometry,
 material, or texture ownership.
 
 Keep imports within the supported contract: `three`, Three.js addons, nested
-`.glts` modules, bare npm packages, and `@drawcall/glts/asset`. Do not introduce
+`.glts` modules, bare npm packages, and `@drawcall/glts`. Do not introduce
 dynamic imports, import attributes, local helper modules, cyclic GLTS imports,
 or constructor arguments.

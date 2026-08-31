@@ -6,7 +6,7 @@ import { routeGLTS } from "../routes.js";
 test("cleans up failed, early-disposed, and loader-disposed instances", async ({ page }) => {
   await routeGLTS(page, "**/assets/failed-constructor-resource.glts", `
       import * as THREE from "three"
-      import { loadingManager } from "@drawcall/glts/asset"
+      import { loadingManager } from "@drawcall/glts"
       export default class Failed extends THREE.Group {
         constructor() {
           super()
@@ -23,7 +23,7 @@ test("cleans up failed, early-disposed, and loader-disposed instances", async ({
   await page.route("**/assets/missing-managed.bin", (route) => route.abort("failed"));
   await routeGLTS(page, "**/assets/pending-constructor.glts", `
       import * as THREE from "three"
-      import { loadingManager } from "@drawcall/glts/asset"
+      import { loadingManager } from "@drawcall/glts"
       export default class Pending extends THREE.Group {
         constructor() {
           super()
@@ -141,7 +141,7 @@ test("cleans up failed, early-disposed, and loader-disposed instances", async ({
 test("rejects disposal after runtime idle but before public readiness", async ({ page }) => {
   await routeGLTS(page, "**/assets/readiness-race.glts", `
       import * as THREE from "three"
-      import { loadingManager } from "@drawcall/glts/asset"
+      import { loadingManager } from "@drawcall/glts"
       export default class ReadinessRace extends THREE.Group {
         constructor() {
           super()

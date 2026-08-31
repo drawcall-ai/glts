@@ -169,7 +169,7 @@ Supported static imports:
 | Import | Resolution |
 | --- | --- |
 | `three` | The host application's exact Three.js namespace |
-| `@drawcall/glts/asset` | Values belonging to the current loader runtime |
+| `@drawcall/glts` | `loadingManager` for the current loader runtime |
 | `three/addons/...` or `three/examples/...` | Matching Three.js revision through ESM.sh |
 | `./child.glts` | A stable loader-managed wrapper constructor |
 | Bare npm package | An ESM.sh bundle with `three` redirected to the host |
@@ -184,7 +184,7 @@ work in a constructor:
 
 ```ts
 import * as THREE from "three"
-import { loadingManager } from "@drawcall/glts/asset"
+import { loadingManager } from "@drawcall/glts"
 
 export default class Branch extends THREE.Group {
   readonly leafTexture: THREE.Texture
@@ -202,6 +202,10 @@ This applies to `TextureLoader`, `GLTFLoader`, `FileLoader`, and comparable
 loaders. A root `loadAsync()` promise and `load()` callback complete only after
 synchronous GLTS construction and the runtime manager becoming idle. Resource
 failures reject the promise or reach the error callback at that boundary.
+
+The package root remains safe to import in application code. Using its
+`loadingManager` export outside a `.glts` module evaluated by `GLTSLoader`
+throws, because no loader runtime exists there.
 
 Nested `.glts` constructors need no special handling: they automatically use
 the enclosing runtime. Each `GLTSLoader` owns one manager, shared by all of its

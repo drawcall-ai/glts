@@ -11,7 +11,7 @@ test("returns one managed constructor and shares instance resource loading", asy
     "**/assets/managed-tree.glts",
     [`
         import * as THREE from "three"
-        import { loadingManager } from "@drawcall/glts/asset"
+        import { loadingManager } from "@drawcall/glts"
 
         export default class Tree extends THREE.Group {
           constructor() {
