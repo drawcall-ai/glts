@@ -268,8 +268,8 @@ export class ModuleGraph {
       return this.#runtime.threeModuleURL;
     }
 
-    if (specifier === "@drawcall/glts/asset") {
-      return this.#runtime.assetModuleURL;
+    if (specifier === "@drawcall/glts") {
+      return this.#runtime.runtimeModuleURL;
     }
 
     if (isThreeFamilySpecifier(specifier)) {

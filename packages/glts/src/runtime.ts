@@ -54,7 +54,7 @@ export class WrapperRuntime {
   #disposed = false;
 
   readonly threeModuleURL: string;
-  readonly assetModuleURL: string;
+  readonly runtimeModuleURL: string;
 
   get loadingManager(): THREE.LoadingManager {
     return this.#loading.manager;
@@ -64,7 +64,7 @@ export class WrapperRuntime {
     this.#moduleURLs = moduleURLs;
     Reflect.set(globalThis, this.#runtimeKey, this);
     this.threeModuleURL = moduleURLs.create(this.#createThreeBridgeSource());
-    this.assetModuleURL = moduleURLs.create(this.#createAssetBridgeSource());
+    this.runtimeModuleURL = moduleURLs.create(this.#createRuntimeBridgeSource());
   }
 
   getThreeExport(name: string): unknown {
@@ -411,7 +411,7 @@ export class WrapperRuntime {
     return lines.join("\n");
   }
 
-  #createAssetBridgeSource(): string {
+  #createRuntimeBridgeSource(): string {
     return [
       `const runtime = globalThis[${JSON.stringify(this.#runtimeKey)}];`,
       "if (!runtime) throw new Error('GLTS runtime is unavailable');",

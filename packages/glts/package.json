@@ -27,10 +27,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./asset": {
-      "types": "./dist/asset.d.ts",
-      "import": "./dist/asset.js"
     }
   },
   "files": [

@@ -1,5 +1,5 @@
 import * as THREE from "three"
-import { loadingManager } from "@drawcall/glts/asset"
+import { loadingManager } from "@drawcall/glts"
 
 export default class Branch extends THREE.Group {
   private readonly geometry: THREE.BufferGeometry[] = []
