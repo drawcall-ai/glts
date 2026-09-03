@@ -45,13 +45,12 @@
   },
   "dependencies": {
     "@babel/parser": "^8.0.4",
-    "@babel/types": "^8.0.4",
     "es-module-lexer": "^2.0.0",
     "magic-string": "^0.30.21",
     "sucrase": "3.35.1"
   },
   "peerDependencies": {
-    "three": ">=0.160.0"
+    "three": ">=0.185.0"
   },
   "devDependencies": {
     "@types/three": "^0.185.0",

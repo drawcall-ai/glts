@@ -3,19 +3,14 @@ import type { Page, Route } from "@playwright/test";
 type RoutePattern = string | RegExp;
 
 export function assetSource(name: string, child?: string): string {
-  const childImport = child ? `import Child from ${JSON.stringify(child)}` : "";
-  const childMount = child ? "this.add(new Child())" : "";
+  const childLoad = child
+    ? `scene.add(await gltsLoader.loadAsync(new URL(${JSON.stringify(child)}, import.meta.url)))`
+    : "";
 
   return `
-    import * as THREE from "three"
-    ${childImport}
-    export default class Asset extends THREE.Group {
-      constructor() {
-        super()
-        this.name = ${JSON.stringify(name)}
-        ${childMount}
-      }
-    }
+    import { gltsLoader, scene } from "@drawcall/glts"
+    scene.name = ${JSON.stringify(name)}
+    ${childLoad}
   `;
 }
 

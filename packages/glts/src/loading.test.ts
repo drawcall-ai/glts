@@ -1,101 +1,77 @@
-import { describe, expect, it } from "vitest";
+import { FileLoader, LoadingManager } from "three";
+import { describe, expect, it, vi } from "vitest";
 
-import { GLTSError } from "./errors.js";
-import { RuntimeLoading } from "./loading.js";
+import { LoadingScope } from "./loading.js";
 
-describe("RuntimeLoading", () => {
-  it("waits for every tracked resource to finish", async () => {
-    const loading = new RuntimeLoading();
-    const boundary = loading.begin("https://example.test/tree.glts");
-    loading.manager.itemStart("https://example.test/bark.png");
-    loading.manager.itemStart("https://example.test/leaves.png");
+describe("LoadingScope", () => {
+  it("waits only for resources started through its manager", async () => {
+    const host = new LoadingManager();
+    const first = new LoadingScope(host, "first.glts");
+    const second = new LoadingScope(host, "second.glts");
+    first.manager.itemStart("slow.bin");
 
-    let settled = false;
-    const completion = boundary.waitForIdle().then(() => {
-      settled = true;
+    let firstSettled = false;
+    const firstCompletion = first.waitForIdle().then(() => {
+      firstSettled = true;
     });
-    loading.manager.itemEnd("https://example.test/bark.png");
-    await Promise.resolve();
-    expect(settled).toBe(false);
+    await expect(second.waitForIdle()).resolves.toBeUndefined();
+    expect(firstSettled).toBe(false);
 
-    loading.manager.itemEnd("https://example.test/leaves.png");
-    await completion;
-    expect(settled).toBe(true);
+    first.manager.itemEnd("slow.bin");
+    await firstCompletion;
   });
 
-  it("rejects at idle when a tracked resource failed", async () => {
-    const loading = new RuntimeLoading();
-    const boundary = loading.begin("https://example.test/tree.glts");
-    const resourceURL = "https://example.test/missing.png";
-    loading.manager.itemStart(resourceURL);
-    loading.manager.itemError(resourceURL);
-    const completion = boundary.waitForIdle();
-    loading.manager.itemEnd(resourceURL);
+  it("isolates a resource failure from other scopes", async () => {
+    const host = new LoadingManager();
+    const successful = new LoadingScope(host, "successful.glts");
+    const failed = new LoadingScope(host, "failed.glts");
+    failed.manager.itemStart("missing.bin");
+    failed.manager.itemError("missing.bin");
+    failed.manager.itemEnd("missing.bin");
 
-    await expect(completion).rejects.toMatchObject({
+    await expect(successful.waitForIdle()).resolves.toBeUndefined();
+    await expect(failed.waitForIdle()).rejects.toMatchObject({
       phase: "resource",
-      url: "https://example.test/tree.glts"
+      url: "failed.glts"
     });
-    await expect(completion).rejects.toThrow(resourceURL);
   });
 
-  it("retains synchronous failures until construction finishes", async () => {
-    const loading = new RuntimeLoading();
-    const boundary = loading.begin("https://example.test/tree.glts");
-    const resourceURL = "https://example.test/missing.png";
-    loading.manager.itemStart(resourceURL);
-    loading.manager.itemError(resourceURL);
-    loading.manager.itemEnd(resourceURL);
+  it("balances host notifications when callbacks throw", async () => {
+    const onProgress = vi.fn(() => {
+      throw new Error("progress failed");
+    });
+    const host = new LoadingManager(undefined, onProgress);
+    const scope = new LoadingScope(host, "tree.glts");
+    scope.manager.itemStart("leaf.png");
+    scope.manager.itemEnd("leaf.png");
 
-    await expect(boundary.waitForIdle()).rejects.toBeInstanceOf(GLTSError);
+    await expect(scope.waitForIdle()).rejects.toMatchObject({
+      phase: "resource",
+      url: "tree.glts"
+    });
+    expect(onProgress).toHaveBeenCalledOnce();
   });
 
-  it("shares an active failure with boundaries that join before idle", async () => {
-    const loading = new RuntimeLoading();
-    const resourceURL = "https://example.test/missing.png";
-    const first = loading.begin("https://example.test/first.glts");
-    loading.manager.itemStart(resourceURL);
-    loading.manager.itemError(resourceURL);
-    const second = loading.begin("https://example.test/second.glts");
-    const firstCompletion = first.waitForIdle();
-    const secondCompletion = second.waitForIdle();
+  it("rejects pending completion when cancelled", async () => {
+    const scope = new LoadingScope(new LoadingManager(), "tree.glts");
+    scope.manager.itemStart("slow.bin");
+    const completion = scope.waitForIdle();
+    await Promise.resolve();
+    scope.cancel(new Error("cancelled"));
 
-    loading.manager.itemEnd(resourceURL);
-
-    await expect(firstCompletion).rejects.toThrow(resourceURL);
-    await expect(secondCompletion).rejects.toThrow(resourceURL);
-    await expect(
-      loading.begin("https://example.test/next.glts").waitForIdle()
-    ).resolves.toBeUndefined();
+    await expect(completion).rejects.toThrow("cancelled");
   });
 
-  it("keeps separate runtimes independent", async () => {
-    const first = new RuntimeLoading();
-    const second = new RuntimeLoading();
-    const firstBoundary = first.begin("https://example.test/first.glts");
-    const secondBoundary = second.begin("https://example.test/second.glts");
-    first.manager.itemStart("https://example.test/slow.png");
+  it("rejects host-bound handlers and accepts scoped handlers", () => {
+    const host = new LoadingManager();
+    host.addHandler(/\.host$/, new FileLoader(host));
+    const scope = new LoadingScope(host, "tree.glts");
 
-    await expect(secondBoundary.waitForIdle()).resolves.toBeUndefined();
+    expect(() => scope.manager.getHandler("asset.host"))
+      .toThrow("cannot be scoped");
 
-    const firstCompletion = firstBoundary.waitForIdle();
-    first.manager.itemEnd("https://example.test/slow.png");
-    await expect(firstCompletion).resolves.toBeUndefined();
-  });
-
-  it("cancels one waiting boundary without changing shared resource state", async () => {
-    const loading = new RuntimeLoading();
-    const cancelled = loading.begin("https://example.test/cancelled.glts");
-    const remaining = loading.begin("https://example.test/remaining.glts");
-    const reason = new Error("root disposed");
-    loading.manager.itemStart("https://example.test/slow.png");
-    const cancelledCompletion = cancelled.waitForIdle();
-    const remainingCompletion = remaining.waitForIdle();
-
-    cancelled.cancel(reason);
-    await expect(cancelledCompletion).rejects.toBe(reason);
-
-    loading.manager.itemEnd("https://example.test/slow.png");
-    await expect(remainingCompletion).resolves.toBeUndefined();
+    const scopedHandler = new FileLoader(scope.manager);
+    scope.manager.addHandler(/\.local$/, scopedHandler);
+    expect(scope.manager.getHandler("asset.local")).toBe(scopedHandler);
   });
 });

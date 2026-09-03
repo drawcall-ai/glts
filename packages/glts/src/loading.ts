@@ -1,146 +1,133 @@
-import { LoadingManager } from "three";
+import * as THREE from "three";
 
 import { GLTSError } from "./errors.js";
 
-interface LoadingBoundaryState {
-  cancellation?: { readonly reason: unknown };
-  readonly failures: string[];
-  readonly rootURL: string;
-  completion?: LoadingCompletion;
-}
-
-interface LoadingCompletion {
+interface Completion {
   readonly reject: (error: unknown) => void;
   readonly resolve: () => void;
 }
 
-export interface LoadingBoundary {
-  cancel(reason?: unknown): void;
-  waitForIdle(): Promise<void>;
-}
-
-export class RuntimeLoading {
-  readonly manager = new LoadingManager();
-  readonly #boundaries = new Set<LoadingBoundaryState>();
-  readonly #activeFailures: string[] = [];
+export class LoadingScope {
+  readonly manager: THREE.LoadingManager;
+  readonly #errors: unknown[] = [];
+  readonly #failedURLs: string[] = [];
+  readonly #rootURL: string;
+  #active = true;
+  #completion: Completion | undefined;
   #pending = 0;
 
-  constructor() {
-    const itemStart = this.manager.itemStart.bind(this.manager);
-    const itemEnd = this.manager.itemEnd.bind(this.manager);
-    const itemError = this.manager.itemError.bind(this.manager);
+  constructor(host: THREE.LoadingManager, rootURL: string) {
+    this.#rootURL = rootURL;
+    const manager = new THREE.LoadingManager();
+    const itemStart = manager.itemStart.bind(manager);
+    const itemEnd = manager.itemEnd.bind(manager);
+    const itemError = manager.itemError.bind(manager);
+    const getHandler = manager.getHandler.bind(manager);
 
-    this.manager.itemStart = (url): void => {
-      if (this.#pending === 0) {
-        this.#activeFailures.length = 0;
+    manager.resolveURL = (url): string => host.resolveURL(url);
+    manager.getHandler = (url) => {
+      const handler = getHandler(url);
+      if (handler) {
+        return handler;
       }
+      if (host.getHandler(url)) {
+        throw new GLTSError(
+          "Host LoadingManager handlers cannot be scoped; register the handler with the contextual loadingManager",
+          { phase: "resource", url: this.#rootURL }
+        );
+      }
+      return null;
+    };
+    manager.itemStart = (url): void => {
+      this.#assertActive();
       this.#pending += 1;
-      itemStart(url);
+      this.#notify(() => itemStart(url));
+      this.#notify(() => host.itemStart(url));
     };
-    this.manager.itemError = (url): void => {
-      this.#activeFailures.push(url);
-      for (const boundary of this.#boundaries) {
-        boundary.failures.push(url);
-      }
-      itemError(url);
+    manager.itemError = (url): void => {
+      this.#failedURLs.push(url);
+      this.#notify(() => itemError(url));
+      this.#notify(() => host.itemError(url));
     };
-    this.manager.itemEnd = (url): void => {
+    manager.itemEnd = (url): void => {
       if (this.#pending === 0) {
-        throw new Error(`Loading manager ended an untracked resource: ${url}`);
+        throw new Error(`LoadingManager item ended without a matching start: ${url}`);
       }
 
-      try {
-        itemEnd(url);
-      } finally {
-        this.#pending -= 1;
-        this.#settleIdleBoundaries();
-        if (this.#pending === 0) {
-          this.#activeFailures.length = 0;
-        }
-      }
+      this.#pending -= 1;
+      this.#notify(() => itemEnd(url));
+      this.#notify(() => host.itemEnd(url));
+      this.#settle();
     };
+    this.manager = manager;
   }
 
-  begin(rootURL: string): LoadingBoundary {
-    const state: LoadingBoundaryState = {
-      failures: this.#pending > 0 ? [...this.#activeFailures] : [],
-      rootURL
-    };
-    this.#boundaries.add(state);
-    let consumed = false;
-
-    return {
-      cancel: (reason) => {
-        if (!this.#boundaries.delete(state)) {
-          return;
-        }
-
-        state.cancellation = {
-          reason: reason ?? new Error("Loading boundary was cancelled")
-        };
-        state.completion?.reject(state.cancellation.reason);
-        delete state.completion;
-      },
-      waitForIdle: () => {
-        if (consumed) {
-          return Promise.reject(new Error("Loading boundary has already been consumed"));
-        }
-        consumed = true;
-
-        // Coalesced roots construct in adjacent promise reactions.
-        return Promise.resolve().then(() => this.#waitForIdle(state));
-      }
-    };
-  }
-
-  #waitForIdle(state: LoadingBoundaryState): Promise<void> {
-    if (state.cancellation) {
-      return Promise.reject(state.cancellation.reason);
-    }
-
-    if (this.#pending === 0) {
-      this.#boundaries.delete(state);
-      const error = this.#resourceError(state);
-      return error ? Promise.reject(error) : Promise.resolve();
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      state.completion = { reject, resolve };
-    });
-  }
-
-  #settleIdleBoundaries(): void {
-    if (this.#pending > 0) {
+  cancel(reason: unknown): void {
+    if (!this.#active) {
       return;
     }
 
-    for (const state of this.#boundaries) {
-      const completion = state.completion;
-      if (!completion) {
-        continue;
-      }
+    this.#active = false;
+    this.manager.abort();
+    this.#completion?.reject(reason);
+    this.#completion = undefined;
+  }
 
-      this.#boundaries.delete(state);
-      delete state.completion;
+  async waitForIdle(): Promise<void> {
+    await Promise.resolve();
+    this.#assertActive();
+    if (this.#pending > 0) {
+      await new Promise<void>((resolve, reject) => {
+        this.#completion = { reject, resolve };
+      });
+    }
 
-      const error = this.#resourceError(state);
-      if (error) {
-        completion.reject(error);
-      } else {
-        completion.resolve();
-      }
+    this.#active = false;
+    this.#throwFailures();
+  }
+
+  #assertActive(): void {
+    if (!this.#active) {
+      throw new GLTSError("Loading scope is no longer active", {
+        phase: "dispose",
+        url: this.#rootURL
+      });
     }
   }
 
-  #resourceError(state: LoadingBoundaryState): GLTSError | undefined {
-    if (state.failures.length === 0) {
-      return undefined;
+  #notify(callback: () => void): void {
+    try {
+      callback();
+    } catch (error) {
+      this.#errors.push(error);
+    }
+  }
+
+  #settle(): void {
+    if (this.#pending !== 0 || !this.#completion) {
+      return;
     }
 
-    const failures = state.failures.map((url) => `- ${url}`).join("\n");
-    return new GLTSError(
-      `Constructor-started resources failed to load:\n${failures}`,
-      { url: state.rootURL, phase: "resource" }
-    );
+    const completion = this.#completion;
+    this.#completion = undefined;
+    completion.resolve();
+  }
+
+  #throwFailures(): void {
+    if (this.#failedURLs.length === 0 && this.#errors.length === 0) {
+      return;
+    }
+
+    const failures = this.#failedURLs.map((url) => `- ${url}`).join("\n");
+    const message = failures
+      ? `Resources failed to load:\n${failures}`
+      : "LoadingManager callback failed";
+    const cause = this.#errors.length > 0
+      ? new AggregateError(this.#errors, "LoadingManager callbacks failed")
+      : undefined;
+    throw new GLTSError(message, {
+      phase: "resource",
+      url: this.#rootURL
+    }, cause);
   }
 }

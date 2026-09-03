@@ -1,58 +1,171 @@
 import * as THREE from "three"
-import { loadingManager } from "@drawcall/glts"
+import { loadingManager, onDispose, scene } from "@drawcall/glts"
 
-export default class Branch extends THREE.Group {
-  private readonly geometry: THREE.BufferGeometry[] = []
-  private readonly materials: THREE.Material[] = []
-  private readonly leafTexture: THREE.Texture
+// One bough: a tapered twig and a single merged leaf sheet.
+//
+// Deliberately no onFrame(). tree.glts loads this file twice — once as a scene
+// and once through loadInstancesAsync() — and automatic instancing refuses an
+// animated hierarchy. Motion arrives from outside as setMatrixAt() writes.
 
-  constructor() {
-    super()
-    this.name = "Procedural branch"
+scene.name = "Bough"
 
-    this.leafTexture = new THREE.TextureLoader(loadingManager).load(
-      new URL("./leaf.svg", import.meta.url).href,
-    )
-    this.leafTexture.colorSpace = THREE.SRGBColorSpace
+const TWIG_SEGMENTS = 26
+const TWIG_SIDES = 6
+const LEAVES = 58
+const UP = new THREE.Vector3(0, 1, 0)
 
-    const stemGeometry = new THREE.CylinderGeometry(0.055, 0.11, 2.1, 7)
-    const stemMaterial = new THREE.MeshStandardMaterial({
-      color: "#684932",
-      roughness: 0.95,
-    })
-    this.geometry.push(stemGeometry)
-    this.materials.push(stemMaterial)
-
-    const stem = new THREE.Mesh(stemGeometry, stemMaterial)
-    stem.position.y = 1.05
-    stem.castShadow = true
-    this.add(stem)
-
-    const leafGeometry = new THREE.IcosahedronGeometry(0.34, 1)
-    const leafMaterial = new THREE.MeshStandardMaterial({
-      bumpMap: this.leafTexture,
-      bumpScale: 0.035,
-      color: "#718c55",
-      roughness: 0.85,
-    })
-    this.geometry.push(leafGeometry)
-    this.materials.push(leafMaterial)
-
-    for (let index = 0; index < 8; index += 1) {
-      const leaf = new THREE.Mesh(leafGeometry, leafMaterial)
-      const side = index % 2 === 0 ? -1 : 1
-      leaf.position.set(side * (0.18 + index * 0.018), 0.46 + index * 0.2, 0)
-      leaf.rotation.set(-0.18, side * 0.62, side * 0.38)
-      const scale = 0.72 + index * 0.045
-      leaf.scale.set(scale * 1.25, scale * 0.58, scale * 0.72)
-      leaf.castShadow = true
-      this.add(leaf)
-    }
-  }
-
-  dispose() {
-    this.leafTexture.dispose()
-    this.geometry.forEach((geometry) => geometry.dispose())
-    this.materials.forEach((material) => material.dispose())
+function seeded(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let value = Math.imul(state ^ (state >>> 15), 1 | state)
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296
   }
 }
+
+const random = seeded(0x5eed17)
+
+// The contextual loadingManager reports this fetch to the host, so the parent
+// load only resolves once the leaves are actually decoded.
+const leafTexture = new THREE.TextureLoader(loadingManager).load(
+  new URL("./leaf.svg", import.meta.url).href,
+)
+leafTexture.anisotropy = 4
+onDispose(() => leafTexture.dispose())
+
+const spine = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(0, 0, 0),
+  new THREE.Vector3(0.03, 0.52, 0.09),
+  new THREE.Vector3(-0.05, 1.06, 0.07),
+  new THREE.Vector3(0.04, 1.6, -0.05),
+  new THREE.Vector3(-0.01, 2.08, 0.03),
+])
+
+const twigGeometry = new THREE.TubeGeometry(spine, TWIG_SEGMENTS, 0.03, TWIG_SIDES, false)
+const twigVertices = twigGeometry.attributes.position
+const ringCenter = new THREE.Vector3()
+const ringOffset = new THREE.Vector3()
+
+for (let vertex = 0; vertex < twigVertices.count; vertex += 1) {
+  const along = Math.floor(vertex / (TWIG_SIDES + 1)) / TWIG_SEGMENTS
+  spine.getPointAt(along, ringCenter)
+  ringOffset
+    .fromBufferAttribute(twigVertices, vertex)
+    .sub(ringCenter)
+    .multiplyScalar(2.9 - along * 2.3)
+    .add(ringCenter)
+  twigVertices.setXYZ(vertex, ringOffset.x, ringOffset.y, ringOffset.z)
+}
+twigGeometry.computeVertexNormals()
+
+// Every leaf is a quad in one buffer, so the foliage stays one draw call no
+// matter how many leaves or outer branch instances it carries. The twig is a
+// second source mesh.
+const positions: number[] = []
+const normals: number[] = []
+const uvs: number[] = []
+const colors: number[] = []
+const indices: number[] = []
+
+const CORNERS = [
+  new THREE.Vector3(-0.5, 0, 0),
+  new THREE.Vector3(0.5, 0, 0),
+  new THREE.Vector3(0.5, 1, 0),
+  new THREE.Vector3(-0.5, 1, 0),
+]
+const CORNER_UVS = [0, 0, 1, 0, 1, 1, 0, 1]
+
+const anchor = new THREE.Vector3()
+const tangent = new THREE.Vector3()
+const outward = new THREE.Vector3()
+const heading = new THREE.Vector3()
+const corner = new THREE.Vector3()
+const facing = new THREE.Vector3()
+const orientation = new THREE.Quaternion()
+const roll = new THREE.Quaternion()
+const stretch = new THREE.Vector3()
+const placement = new THREE.Matrix4()
+const tint = new THREE.Color()
+const shade = new THREE.Color("#3c5c30")
+const fresh = new THREE.Color("#93b45c")
+const gold = new THREE.Color("#d69a44")
+
+for (let leaf = 0; leaf < LEAVES; leaf += 1) {
+  const along = 0.18 + (leaf / LEAVES) * 0.82
+  const spiral = leaf * 2.39996
+  spine.getPointAt(along, anchor)
+  spine.getTangentAt(along, tangent)
+  outward.set(Math.cos(spiral), 0, Math.sin(spiral))
+  heading
+    .copy(outward)
+    .multiplyScalar(0.85 + random() * 0.45)
+    .addScaledVector(tangent, 0.62 - random() * 0.55)
+    .addScaledVector(UP, -0.32 - random() * 0.28)
+    .normalize()
+
+  orientation
+    .setFromUnitVectors(UP, heading)
+    .multiply(roll.setFromAxisAngle(UP, random() * Math.PI))
+  facing.set(0, 0, 1).applyQuaternion(orientation)
+
+  const length = 0.29 + random() * 0.21
+  stretch.set(length * (0.6 + random() * 0.2), length, 1)
+  anchor.addScaledVector(outward, 0.025)
+  placement.compose(anchor, orientation, stretch)
+
+  tint
+    .copy(shade)
+    .lerp(fresh, random() * 0.85)
+    .lerp(gold, Math.max(0, along - 0.55) * random() * 0.9)
+
+  const base = leaf * 4
+  for (let index = 0; index < 4; index += 1) {
+    corner.copy(CORNERS[index]).applyMatrix4(placement)
+    positions.push(corner.x, corner.y, corner.z)
+    normals.push(facing.x, facing.y, facing.z)
+    uvs.push(CORNER_UVS[index * 2], CORNER_UVS[index * 2 + 1])
+    colors.push(tint.r, tint.g, tint.b)
+  }
+  indices.push(base, base + 1, base + 2, base, base + 2, base + 3)
+}
+
+const leafGeometry = new THREE.BufferGeometry()
+leafGeometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
+leafGeometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3))
+leafGeometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2))
+leafGeometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3))
+leafGeometry.setIndex(indices)
+
+const twigMaterial = new THREE.MeshStandardMaterial({
+  color: "#5a4128",
+  roughness: 0.95,
+})
+
+// alphaTest instead of transparency: the leaves stay depth-sorted for free and
+// the shadow pass cuts the same silhouette, which is where the dapple comes from.
+const leafMaterial = new THREE.MeshStandardMaterial({
+  alphaMap: leafTexture,
+  alphaTest: 0.4,
+  emissive: new THREE.Color("#17290e"),
+  roughness: 0.66,
+  side: THREE.DoubleSide,
+  vertexColors: true,
+})
+
+const twig = new THREE.Mesh(twigGeometry, twigMaterial)
+twig.castShadow = true
+twig.receiveShadow = true
+
+const leaves = new THREE.Mesh(leafGeometry, leafMaterial)
+leaves.castShadow = true
+leaves.receiveShadow = true
+
+scene.add(twig, leaves)
+
+onDispose(() => {
+  twigGeometry.dispose()
+  twigMaterial.dispose()
+  leafGeometry.dispose()
+  leafMaterial.dispose()
+})

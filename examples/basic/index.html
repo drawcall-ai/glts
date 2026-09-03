@@ -3,35 +3,61 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#10130f" />
-    <title>GLTS — Procedural Three.js assets</title>
+    <meta name="theme-color" content="#0a0d16" />
+    <meta
+      name="description"
+      content="A procedural Three.js tree compiled and executed in the browser from .glts source."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'><path fill='seagreen' d='M128 250C34 194-2 118 132 6c130 112 92 188-4 244Z'/></svg>"
+    />
+    <title>GLTS — the asset is the source</title>
   </head>
   <body>
-    <main id="app">
-      <section class="intro">
-        <p class="eyebrow">GLTS / live source</p>
-        <h1>Procedural assets,<br />ordinary Three.js.</h1>
-        <p class="lede">
-          This tree is TypeScript loaded in the browser. Edit
-          <code>tree.glts</code> or <code>branch.glts</code>, then use the controls
-          below to reload its stable scene wrapper in place.
-        </p>
-        <div class="actions">
-          <button id="reload-tree" type="button">Reload tree</button>
-          <button id="reload-branch" class="secondary" type="button">
-            Reload branches
-          </button>
-        </div>
-        <div class="status-row">
-          <span id="status-dot" class="status-dot"></span>
-          <span id="status">Loading /assets/tree.glts…</span>
-        </div>
-      </section>
-      <section class="viewport" aria-label="Interactive Three.js scene">
-        <canvas id="scene"></canvas>
-        <p class="hint">Drag to orbit · Scroll to zoom</p>
-      </section>
+    <canvas id="scene"></canvas>
+    <div class="scrim" aria-hidden="true"></div>
+    <div class="vignette" aria-hidden="true"></div>
+    <div class="grain" aria-hidden="true"></div>
+    <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
+
+    <main class="overlay">
+      <header class="masthead">
+        <p class="eyebrow">GLTS · procedural three.js assets</p>
+        <h1>The asset<br />is the source.</h1>
+      </header>
+
+      <div class="footer">
+        <section class="panel">
+          <p class="lede">
+            <code>tree.glts</code> is TypeScript, fetched and executed in this
+            page. It sweeps its own trunk, then asks the contextual loader for
+            <code>branch.glts</code> twice — once as a scene, once as fifteen
+            instances whose matrices it rewrites every frame.
+          </p>
+
+          <ul id="graph" class="graph"></ul>
+
+          <div class="actions">
+            <button id="reload-tree" type="button">Reload tree</button>
+            <button id="reload-branch" class="secondary" type="button">
+              Reload branches
+            </button>
+          </div>
+
+          <p class="status-row">
+            <span id="status-dot" class="status-dot"></span>
+            <span id="status" aria-live="polite">Loading /assets/tree.glts…</span>
+          </p>
+        </section>
+
+        <aside class="readout">
+          <p id="stats" class="stats"></p>
+          <p class="hint">drag to orbit · scroll to zoom</p>
+        </aside>
+      </div>
     </main>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

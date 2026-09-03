@@ -2,7 +2,7 @@ import { LoadingManager } from "three";
 
 function unavailable(): never {
   throw new Error(
-    "@drawcall/glts loadingManager is only available inside a .glts module loaded by GLTSLoader"
+    "@drawcall/glts loadingManager is only available inside a .glts script loaded by GLTSLoader"
   );
 }
 

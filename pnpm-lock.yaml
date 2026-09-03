@@ -45,9 +45,6 @@ importers:
       '@babel/parser':
         specifier: ^8.0.4
         version: 8.0.4
-      '@babel/types':
-        specifier: ^8.0.4
-        version: 8.0.4
       es-module-lexer:
         specifier: ^2.0.0
         version: 2.3.1

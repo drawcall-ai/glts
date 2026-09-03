@@ -1,15 +1,26 @@
+export {
+  gltsLoader,
+  instanceCount,
+  onDispose,
+  onFrame,
+  onMatrixUpdateAt,
+  isPreview,
+  scene
+} from "./context.js";
 export { GLTSError, type GLTSPhase } from "./errors.js";
 export { GLTSLoader } from "./GLTSLoader.js";
-export { inline } from "./inline.js";
 export { loadingManager } from "./loading-manager.js";
 export type {
-  GLTSAsset,
-  GLTSConstructor,
+  GLTSDisposeCallback,
   GLTSErrorCallback,
   GLTSFetch,
-  GLTSInstance,
+  GLTSFrameCallback,
+  GLTSInstances,
   GLTSLoadCallback,
   GLTSLoaderOptions,
-  GLTSPreviewExports,
-  GLTSProgressCallback
+  GLTSMatrixUpdateCallback,
+  GLTSProgressCallback,
+  GLTSScene,
+  GLTSScriptLoader,
+  GLTSURL
 } from "./types.js";
