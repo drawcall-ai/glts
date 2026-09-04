@@ -1,0 +1,325 @@
+import * as THREE from "three"
+import { onDispose, scene } from "@drawcall/glts"
+
+// A 16-inch Rudge-Whitworth style wire wheel: tall skinny racing tyre, 36 laced
+// spokes, brake drum and an eared knock-off spinner.
+//
+// The wheel is authored at the rear-axle size with its rotation axis along X and
+// its outboard face toward +X. index.glts loads four instances and writes the
+// track, steering, spin and front/rear size into each instance matrix, so this
+// file stays free of lights, cameras and frame callbacks that would make the
+// hierarchy ineligible for automatic instancing.
+
+const TYRE_RADIUS = 0.39
+const BEAD_RADIUS = 0.198
+const HUB_HALF_WIDTH = 0.055
+const SPOKE_COUNT = 36
+const SEGMENTS = 56
+
+interface Profile {
+  readonly r: number
+  readonly sharp?: boolean
+  readonly x: number
+}
+
+// Closed cross-section revolved around X. `sharp` duplicates a ring so that
+// computeVertexNormals() creases the surface instead of smoothing across it.
+function revolveX(profile: readonly Profile[], segments: number): THREE.BufferGeometry {
+  const rings: Profile[] = []
+  for (const point of profile) {
+    rings.push(point)
+    if (point.sharp) rings.push(point)
+  }
+
+  let arc = 0
+  const distances = rings.map((point, index) => {
+    const previous = rings[index - 1]
+    if (previous) arc += Math.hypot(point.x - previous.x, point.r - previous.r)
+    return arc
+  })
+
+  const positions: number[] = []
+  const uvs: number[] = []
+  const indices: number[] = []
+  for (const [index, point] of rings.entries()) {
+    const distance = distances[index]
+    if (distance === undefined) throw new RangeError(`Missing ring distance at index ${index}`)
+    for (let segment = 0; segment <= segments; segment += 1) {
+      const angle = (segment / segments) * Math.PI * 2
+      positions.push(point.x, point.r * Math.cos(angle), point.r * Math.sin(angle))
+      uvs.push(segment / segments, arc > 0 ? distance / arc : 0)
+    }
+  }
+
+  const stride = segments + 1
+  for (let index = 0; index < rings.length; index += 1) {
+    const next = (index + 1) % rings.length
+    for (let segment = 0; segment < segments; segment += 1) {
+      const a = index * stride + segment
+      const b = a + 1
+      const c = next * stride + segment
+      const d = c + 1
+      indices.push(a, b, c, b, d, c)
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+function attribute(
+  geometry: THREE.BufferGeometry,
+  name: string
+): THREE.BufferAttribute {
+  const value = geometry.getAttribute(name)
+  if (!(value instanceof THREE.BufferAttribute)) {
+    throw new TypeError(`Expected buffer attribute: ${name}`)
+  }
+  return value
+}
+
+function merge(parts: readonly THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const flat = parts.map((part) => (part.index ? part.toNonIndexed() : part))
+  const total = flat.reduce((sum, part) => sum + attribute(part, "position").count, 0)
+  const positions = new Float32Array(total * 3)
+  const normals = new Float32Array(total * 3)
+  const uvs = new Float32Array(total * 2)
+  let offset = 0
+  for (const part of flat) {
+    const position = attribute(part, "position")
+    positions.set(position.array, offset * 3)
+    normals.set(attribute(part, "normal").array, offset * 3)
+    if (part.hasAttribute("uv")) {
+      uvs.set(attribute(part, "uv").array, offset * 2)
+    }
+    offset += position.count
+  }
+
+  for (const part of new Set([...parts, ...flat])) part.dispose()
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3))
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2))
+  return geometry
+}
+
+function placed(
+  geometry: THREE.BufferGeometry,
+  position: THREE.Vector3,
+  rotation?: THREE.Quaternion
+): THREE.BufferGeometry {
+  const matrix = new THREE.Matrix4()
+  if (rotation) matrix.makeRotationFromQuaternion(rotation)
+  matrix.setPosition(position)
+  geometry.applyMatrix4(matrix)
+  return geometry
+}
+
+const alongY = new THREE.Vector3(0, 1, 0)
+
+function rod(
+  from: THREE.Vector3,
+  to: THREE.Vector3,
+  radius: number,
+  sides: number
+): THREE.BufferGeometry {
+  const axis = new THREE.Vector3().subVectors(to, from)
+  const geometry = new THREE.CylinderGeometry(radius, radius, axis.length(), sides, 1)
+  const rotation = new THREE.Quaternion().setFromUnitVectors(alongY, axis.clone().normalize())
+  return placed(geometry, from.clone().addScaledVector(axis, 0.5), rotation)
+}
+
+// Tyre: five ribs cut by four circumferential grooves, tall soft sidewalls and a
+// closed bore so the section reads as a solid casing from every angle.
+function tyreProfile(): Profile[] {
+  const crown = (x: number) => TYRE_RADIUS - 0.9 * x * x
+  const shoulder = 0.069
+  const points: Profile[] = [
+    { r: BEAD_RADIUS, sharp: true, x: -0.068 },
+    { r: 0.214, sharp: true, x: -0.076 },
+    { r: 0.248, x: -0.090 },
+    { r: 0.300, x: -0.094 },
+    { r: 0.352, x: -0.088 },
+    { r: 0.378, sharp: true, x: -0.079 },
+    { r: crown(-shoulder), sharp: true, x: -shoulder }
+  ]
+  for (const groove of [-0.050, -0.017, 0.017, 0.050]) {
+    points.push({ r: crown(groove - 0.006), sharp: true, x: groove - 0.006 })
+    points.push({ r: crown(groove) - 0.008, sharp: true, x: groove - 0.0035 })
+    points.push({ r: crown(groove) - 0.008, sharp: true, x: groove + 0.0035 })
+    points.push({ r: crown(groove + 0.006), sharp: true, x: groove + 0.006 })
+  }
+  points.push(
+    { r: crown(shoulder), sharp: true, x: shoulder },
+    { r: 0.378, sharp: true, x: 0.079 },
+    { r: 0.352, x: 0.088 },
+    { r: 0.300, x: 0.094 },
+    { r: 0.248, x: 0.090 },
+    { r: 0.214, sharp: true, x: 0.076 },
+    { r: BEAD_RADIUS, sharp: true, x: 0.068 },
+    { r: 0.190, sharp: true, x: 0.068 },
+    { r: 0.190, sharp: true, x: -0.068 }
+  )
+  return points
+}
+
+const rimProfile: Profile[] = [
+  { r: 0.222, sharp: true, x: -0.079 },
+  { r: 0.206, sharp: true, x: -0.070 },
+  { r: 0.201, x: -0.052 },
+  { r: 0.178, sharp: true, x: -0.024 },
+  { r: 0.178, sharp: true, x: 0.024 },
+  { r: 0.201, x: 0.052 },
+  { r: 0.206, sharp: true, x: 0.070 },
+  { r: 0.222, sharp: true, x: 0.079 },
+  { r: 0.216, sharp: true, x: 0.079 },
+  { r: 0.200, sharp: true, x: 0.070 },
+  { r: 0.195, x: 0.052 },
+  { r: 0.172, sharp: true, x: 0.024 },
+  { r: 0.172, sharp: true, x: -0.024 },
+  { r: 0.195, x: -0.052 },
+  { r: 0.200, sharp: true, x: -0.070 },
+  { r: 0.216, sharp: true, x: -0.079 }
+]
+
+const tyreGeometry = revolveX(tyreProfile(), SEGMENTS)
+const steelParts: THREE.BufferGeometry[] = [revolveX(rimProfile, SEGMENTS)]
+
+// Laced spokes: half to each hub flange, alternating leading and trailing so the
+// pattern crosses the way a real tangentially laced wheel does.
+for (let index = 0; index < SPOKE_COUNT; index += 1) {
+  const side = index % 2 === 0 ? 1 : -1
+  const lead = Math.floor(index / 2) % 2 === 0 ? 1 : -1
+  const hubAngle = (index / SPOKE_COUNT) * Math.PI * 2
+  const rimAngle = hubAngle + lead * 0.86
+  steelParts.push(rod(
+    new THREE.Vector3(side * 0.052, 0.070 * Math.cos(hubAngle), 0.070 * Math.sin(hubAngle)),
+    new THREE.Vector3(side * 0.023, 0.190 * Math.cos(rimAngle), 0.190 * Math.sin(rimAngle)),
+    0.0032,
+    5
+  ))
+}
+
+// Hub barrel, spoke flanges and the threaded nose the spinner screws onto.
+steelParts.push(
+  placed(
+    new THREE.CylinderGeometry(0.042, 0.042, HUB_HALF_WIDTH * 2, 24, 1),
+    new THREE.Vector3(),
+    new THREE.Quaternion().setFromUnitVectors(alongY, new THREE.Vector3(1, 0, 0))
+  ),
+  placed(
+    new THREE.CylinderGeometry(0.074, 0.074, 0.011, 28, 1),
+    new THREE.Vector3(0.052, 0, 0),
+    new THREE.Quaternion().setFromUnitVectors(alongY, new THREE.Vector3(1, 0, 0))
+  ),
+  placed(
+    new THREE.CylinderGeometry(0.074, 0.074, 0.011, 28, 1),
+    new THREE.Vector3(-0.052, 0, 0),
+    new THREE.Quaternion().setFromUnitVectors(alongY, new THREE.Vector3(1, 0, 0))
+  ),
+  placed(
+    new THREE.CylinderGeometry(0.034, 0.034, 0.052, 18, 1),
+    new THREE.Vector3(0.098, 0, 0),
+    new THREE.Quaternion().setFromUnitVectors(alongY, new THREE.Vector3(1, 0, 0))
+  ),
+  placed(
+    new THREE.CylinderGeometry(0.006, 0.006, 0.040, 8, 1),
+    new THREE.Vector3(-0.026, 0.168, 0),
+    new THREE.Quaternion().setFromUnitVectors(alongY, new THREE.Vector3(0.34, 0.94, 0).normalize())
+  )
+)
+
+const steelGeometry = merge(steelParts)
+
+// Brake drum and its fixed backing plate, visible between the spokes.
+const drumGeometry = merge([
+  placed(
+    new THREE.CylinderGeometry(0.116, 0.116, 0.090, 36, 1),
+    new THREE.Vector3(-0.012, 0, 0),
+    new THREE.Quaternion().setFromUnitVectors(alongY, new THREE.Vector3(1, 0, 0))
+  ),
+  placed(
+    new THREE.CylinderGeometry(0.110, 0.086, 0.022, 36, 1),
+    new THREE.Vector3(0.043, 0, 0),
+    new THREE.Quaternion().setFromUnitVectors(alongY, new THREE.Vector3(1, 0, 0))
+  )
+])
+
+// Two-eared knock-off spinner on the outboard face only.
+const spinnerParts: THREE.BufferGeometry[] = [
+  placed(
+    new THREE.SphereGeometry(0.050, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.55),
+    new THREE.Vector3(0.108, 0, 0),
+    new THREE.Quaternion().setFromUnitVectors(alongY, new THREE.Vector3(1, 0, 0))
+  ),
+  placed(
+    new THREE.CylinderGeometry(0.052, 0.056, 0.030, 24, 1),
+    new THREE.Vector3(0.115, 0, 0),
+    new THREE.Quaternion().setFromUnitVectors(alongY, new THREE.Vector3(1, 0, 0))
+  )
+]
+for (const direction of [1, -1]) {
+  const ear = new THREE.CylinderGeometry(0.011, 0.020, 0.086, 4, 1)
+  const rotation = new THREE.Quaternion().setFromUnitVectors(
+    alongY,
+    new THREE.Vector3(0.30, direction * 0.954, 0).normalize()
+  )
+  spinnerParts.push(placed(
+    ear,
+    new THREE.Vector3(0.132, direction * 0.040, 0),
+    rotation
+  ))
+}
+const spinnerGeometry = merge(spinnerParts)
+
+const tyreMaterial = new THREE.MeshStandardMaterial({
+  color: "#191a1f",
+  metalness: 0,
+  roughness: 0.74
+})
+const steelMaterial = new THREE.MeshStandardMaterial({
+  color: "#c6ccd2",
+  metalness: 1,
+  roughness: 0.21
+})
+const drumMaterial = new THREE.MeshStandardMaterial({
+  color: "#3b3e44",
+  metalness: 0.8,
+  roughness: 0.58
+})
+const spinnerMaterial = new THREE.MeshStandardMaterial({
+  color: "#c3a469",
+  metalness: 1,
+  roughness: 0.26
+})
+
+const wheel = new THREE.Group()
+wheel.name = "wire wheel"
+for (const [geometry, material] of [
+  [tyreGeometry, tyreMaterial],
+  [steelGeometry, steelMaterial],
+  [drumGeometry, drumMaterial],
+  [spinnerGeometry, spinnerMaterial]
+] as const) {
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  wheel.add(mesh)
+}
+scene.add(wheel)
+
+onDispose(() => {
+  tyreGeometry.dispose()
+  steelGeometry.dispose()
+  drumGeometry.dispose()
+  spinnerGeometry.dispose()
+  tyreMaterial.dispose()
+  steelMaterial.dispose()
+  drumMaterial.dispose()
+  spinnerMaterial.dispose()
+})

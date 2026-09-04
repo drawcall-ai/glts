@@ -1,12 +1,14 @@
-import * as THREE from "three";
+import type * as THREE from "three";
 
 import { GLTSError } from "./errors.js";
 import type {
   GLTSDisposeCallback,
   GLTSFrameCallback,
+  GLTSScene,
   GLTSMatrixUpdateCallback,
   GLTSScriptLoader
 } from "./types.js";
+import { createScene, type GLTSScriptScene } from "./rendering.js";
 
 export interface ScriptContext {
   readonly gltsLoader: GLTSScriptLoader;
@@ -16,8 +18,8 @@ export interface ScriptContext {
   readonly onFrame: (callback: GLTSFrameCallback) => void;
   readonly onMatrixUpdateAt: (callback: GLTSMatrixUpdateCallback) => void;
   readonly isPreview: boolean;
-  readonly scene: THREE.Group;
-  readonly bindScene: (bind: (scene: THREE.Group) => void) => void;
+  readonly scene: GLTSScriptScene;
+  readonly bindScene: (bind: (scene: GLTSScene) => void) => void;
 }
 
 function assertCallback(value: unknown, name: string): void {
@@ -27,17 +29,17 @@ function assertCallback(value: unknown, name: string): void {
 }
 
 export class Execution {
-  readonly scene = new THREE.Group();
+  readonly scene = createScene();
   readonly #ancestors: ReadonlySet<string>;
   readonly #disposals: GLTSDisposeCallback[] = [];
   readonly #frames: GLTSFrameCallback[] = [];
   readonly #matrixUpdates: GLTSMatrixUpdateCallback[] = [];
   readonly #matrices: readonly THREE.Matrix4[];
-  readonly #nodes = new Set<THREE.Group>();
+  readonly #nodes = new Set<GLTSScene>();
   readonly #pending = new Set<Promise<unknown>>();
   readonly #failures: unknown[] = [];
   #accepting = true;
-  #bindScene: ((scene: THREE.Group) => void) | undefined;
+  #bindScene: ((scene: GLTSScene) => void) | undefined;
 
   constructor(
     matrices: readonly THREE.Matrix4[],
@@ -93,7 +95,7 @@ export class Execution {
     };
   }
 
-  bindScene(scene: THREE.Group): void {
+  bindScene(scene: GLTSScene): void {
     this.#bindScene?.(scene);
   }
 
@@ -114,7 +116,7 @@ export class Execution {
     }
   }
 
-  own(node: THREE.Group): void {
+  own(node: GLTSScene): void {
     if (!this.#accepting) {
       throw new GLTSError("Nested GLTS load completed after its parent closed", {
         phase: "dispose",
@@ -124,7 +126,7 @@ export class Execution {
     this.#nodes.add(node);
   }
 
-  ownedNodes(): readonly THREE.Group[] {
+  ownedNodes(): readonly GLTSScene[] {
     return [...this.#nodes];
   }
 
@@ -193,8 +195,7 @@ export class Execution {
     }
   }
 
-  #nodeURL(node: THREE.Group): string {
-    const url = Reflect.get(node, "url");
-    return typeof url === "string" ? url : "glts://nested-node";
+  #nodeURL(node: GLTSScene): string {
+    return node.url;
   }
 }

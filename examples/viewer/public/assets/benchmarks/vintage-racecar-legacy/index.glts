@@ -1,0 +1,144 @@
+import * as THREE from "three";
+import { gltsLoader, isPreview, onDispose, scene } from "@drawcall/glts";
+
+// COMPATIBILITY PORT — do not treat as an example of current GLTS style.
+// Source: the legacy Drawcall Design "Opus baseline 2" run, frame zwmp0r07pfsbet.
+// Geometry, materials, transforms, lighting, environment and the authored camera
+// are byte-for-byte the legacy values. Only the module shape changed:
+//   - `export default class` -> local class instantiated into `scene`
+//   - static `./parts/*.glts` imports -> contextual `gltsLoader.loadAsync`
+//   - `export const previewCamera` -> `scene.defaultCamera`
+//   - `export const previewLighting` -> added to `scene` only when `isPreview`
+//   - `dispose()` -> registered with `onDispose`
+// See ../../../../../benchmarks/vintage-racecar/comparison.md for the full list
+// of semantic differences.
+
+// Root assembly of a pre-war grand prix car. Ground plane is y = 0, the nose
+// points toward +Z, the driver's right side is +X. Lengths are metres.
+const BODY_AXIS_HEIGHT = 0.62;
+const WHEEL_CENTER_HEIGHT = 0.405;
+const FRONT_AXLE_Z = 1.32;
+const REAR_AXLE_Z = -1.18;
+const FRONT_TRACK_HALF = 0.68;
+const REAR_TRACK_HALF = 0.66;
+const REAR_WHEEL_SCALE = 1.06;
+
+const previewCamera = new THREE.PerspectiveCamera(34, 1.6, 0.1, 100);
+previewCamera.position.set(4.4, 2.1, 4.7);
+previewCamera.lookAt(0, 0.6, 0.1);
+
+const previewLighting = new THREE.Group();
+
+const sky = new THREE.HemisphereLight(0xdfe8f6, 0x2b2521, 1.1);
+const keyLight = new THREE.DirectionalLight(0xfff2df, 2.6);
+keyLight.position.set(5, 6.5, 4);
+const fillLight = new THREE.DirectionalLight(0xc2d4ff, 1.0);
+fillLight.position.set(-5, 3, -4.5);
+const rimLight = new THREE.DirectionalLight(0xffffff, 1.5);
+rimLight.position.set(-1.5, 2.5, -6);
+previewLighting.add(sky, keyLight, fillLight, rimLight);
+
+// Sky-to-ground gradient used as the reflection source, so chrome and the
+// clearcoat paint read as metal instead of black under direct lights alone.
+function createEnvironmentTexture(): THREE.Texture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 128;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("2D canvas context unavailable for the reflection texture");
+  }
+
+  const gradient = context.createLinearGradient(0, 0, 0, 128);
+  gradient.addColorStop(0, "#e8eef8");
+  gradient.addColorStop(0.46, "#9fb0c6");
+  gradient.addColorStop(0.52, "#6b6357");
+  gradient.addColorStop(1, "#201c18");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 256, 128);
+
+  context.fillStyle = "#fff8e6";
+  context.beginPath();
+  context.ellipse(72, 26, 30, 16, 0, 0, Math.PI * 2);
+  context.fill();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+class VintageRacecar extends THREE.Group {
+  private readonly environment: THREE.Texture;
+
+  constructor(bodywork: THREE.Object3D, suspension: THREE.Object3D, wheels: THREE.Object3D[]) {
+    super();
+    this.name = "VintageRacecar";
+
+    bodywork.position.y = BODY_AXIS_HEIGHT;
+    this.add(bodywork, suspension);
+
+    this.addWheelPair(wheels.slice(0, 2), FRONT_AXLE_Z, FRONT_TRACK_HALF, 1);
+    this.addWheelPair(wheels.slice(2, 4), REAR_AXLE_Z, REAR_TRACK_HALF, REAR_WHEEL_SCALE);
+
+    this.environment = createEnvironmentTexture();
+    this.applyEnvironment();
+  }
+
+  private addWheelPair(pair: THREE.Object3D[], z: number, trackHalf: number, scale: number): void {
+    for (const [index, side] of [1, -1].entries()) {
+      const wheel = pair[index];
+      wheel.scale.setScalar(scale);
+      wheel.position.set(side * trackHalf, WHEEL_CENTER_HEIGHT * scale, z);
+      // Mirror the left wheels so the knock-off spinner faces outboard.
+      wheel.rotation.y = side > 0 ? 0 : Math.PI;
+      this.add(wheel);
+    }
+  }
+
+  private applyEnvironment(): void {
+    this.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) {
+        if (material instanceof THREE.MeshStandardMaterial) {
+          material.envMap = this.environment;
+          material.envMapIntensity = 1.15;
+          material.needsUpdate = true;
+        }
+      }
+    });
+  }
+
+  dispose(): void {
+    this.environment.dispose();
+  }
+}
+
+// The legacy root reached its parts through static `.glts` imports and four
+// `new Wheel()` calls. Four separate loads reproduce four independent wheel
+// instances with their own materials, matching the legacy object graph.
+const [bodywork, suspension, ...wheels] = await Promise.all([
+  gltsLoader.loadAsync(new URL("./parts/bodywork.glts", import.meta.url)),
+  gltsLoader.loadAsync(new URL("./parts/suspension.glts", import.meta.url)),
+  gltsLoader.loadAsync(new URL("./parts/wheel.glts", import.meta.url)),
+  gltsLoader.loadAsync(new URL("./parts/wheel.glts", import.meta.url)),
+  gltsLoader.loadAsync(new URL("./parts/wheel.glts", import.meta.url)),
+  gltsLoader.loadAsync(new URL("./parts/wheel.glts", import.meta.url))
+]);
+
+const car = new VintageRacecar(bodywork, suspension, wheels);
+scene.add(car);
+
+scene.defaultCamera = previewCamera;
+
+if (isPreview) {
+  scene.add(previewLighting);
+}
+
+onDispose(() => {
+  car.dispose();
+  for (const light of [sky, keyLight, fillLight, rimLight]) {
+    light.dispose();
+  }
+});

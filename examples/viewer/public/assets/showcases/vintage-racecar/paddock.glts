@@ -1,0 +1,120 @@
+import * as THREE from "three"
+import { onDispose, scene } from "@drawcall/glts"
+
+// Standalone staging for the racecar: a worn circuit surface and the light rig
+// that lifts the paint, chrome and wire wheels. index.glts loads this file only
+// while isPreview is set, so an embedding host keeps its own ground and lights.
+
+function asphaltTexture(): THREE.CanvasTexture {
+  const size = 512
+  const canvas = document.createElement("canvas")
+  canvas.width = size
+  canvas.height = size
+  const context = canvas.getContext("2d")
+  if (!context) throw new Error("Unable to create the asphalt canvas context")
+
+  const grain = context.createImageData(size, size)
+  for (let index = 0; index < grain.data.length; index += 4) {
+    const value = 26 + Math.random() * 18
+    grain.data[index] = value
+    grain.data[index + 1] = value + 1
+    grain.data[index + 2] = value + 4
+    grain.data[index + 3] = 255
+  }
+  context.putImageData(grain, 0, 0)
+
+  // Aggregate chips, drawn nine times so the tile stays seamless at its edges.
+  for (let chip = 0; chip < 900; chip += 1) {
+    const x = Math.random() * size
+    const y = Math.random() * size
+    const radius = 0.7 + Math.random() * 2.6
+    const value = Math.round(24 + Math.random() * 44)
+    context.fillStyle = `rgb(${value}, ${value + 1}, ${value + 5})`
+    for (const offsetX of [-size, 0, size]) {
+      for (const offsetY of [-size, 0, size]) {
+        context.beginPath()
+        context.ellipse(x + offsetX, y + offsetY, radius, radius * 0.8, 0, 0, Math.PI * 2)
+        context.fill()
+      }
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.anisotropy = 8
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.repeat.set(24, 24)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  return texture
+}
+
+const groundTexture = asphaltTexture()
+const groundGeometry = new THREE.CircleGeometry(46, 96)
+const groundMaterial = new THREE.MeshStandardMaterial({
+  color: "#171b22",
+  // Tarmac seen almost edge-on would otherwise mirror the whole surround and
+  // wash the frame with a warm sheen; the car keeps the full probe.
+  envMapIntensity: 0.22,
+  map: groundTexture,
+  metalness: 0,
+  roughness: 1
+})
+const ground = new THREE.Mesh(groundGeometry, groundMaterial)
+ground.name = "circuit surface"
+ground.receiveShadow = true
+ground.rotation.x = -Math.PI / 2
+
+// Faded paint marking the edge of the racing surface.
+const lineGeometry = new THREE.PlaneGeometry(0.11, 64)
+const lineMaterial = new THREE.MeshStandardMaterial({
+  color: "#cfc6b4",
+  metalness: 0,
+  opacity: 0.3,
+  roughness: 0.92,
+  transparent: true
+})
+const lines = new THREE.Group()
+for (const side of [-1, 1]) {
+  const line = new THREE.Mesh(lineGeometry, lineMaterial)
+  line.position.set(side * 4.7, 0.004, 0)
+  line.rotation.x = -Math.PI / 2
+  lines.add(line)
+}
+
+const key = new THREE.DirectionalLight("#fff0d6", 2.7)
+key.name = "key light"
+key.position.set(4.6, 5.8, 3.4)
+key.castShadow = true
+key.shadow.mapSize.set(2048, 2048)
+key.shadow.camera.near = 1
+key.shadow.camera.far = 20
+key.shadow.camera.left = -3.4
+key.shadow.camera.right = 3.4
+key.shadow.camera.top = 3.4
+key.shadow.camera.bottom = -3.4
+key.shadow.bias = -0.0004
+key.shadow.normalBias = 0.018
+key.target.position.set(0, 0.45, 0)
+
+const rim = new THREE.DirectionalLight("#ffc98c", 1.7)
+rim.name = "rim light"
+rim.position.set(-4.2, 2.1, -5.4)
+rim.target.position.set(0, 0.5, -0.4)
+
+const fill = new THREE.DirectionalLight("#a9bfe4", 0.95)
+fill.name = "fill light"
+fill.position.set(-5.2, 2.8, 4.6)
+fill.target.position.set(0, 0.5, 0)
+
+scene.add(ground, lines, key, key.target, rim, rim.target, fill, fill.target)
+
+onDispose(() => {
+  key.dispose()
+  rim.dispose()
+  fill.dispose()
+  lineGeometry.dispose()
+  lineMaterial.dispose()
+  groundGeometry.dispose()
+  groundMaterial.dispose()
+  groundTexture.dispose()
+})

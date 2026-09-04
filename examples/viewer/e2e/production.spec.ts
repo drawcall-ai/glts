@@ -37,7 +37,7 @@ test("isolates concurrent resource failures", async ({ page }) => {
       return window.readErrorField(error, "url");
     }
   });
-  expect(failure).toBe("http://127.0.0.1:5173/assets/failing.glts");
+  expect(failure).toBe(new URL("/assets/failing.glts", page.url()).href);
 
   release.resolve();
   const name = await page.evaluate(async () => {

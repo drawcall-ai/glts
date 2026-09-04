@@ -1,0 +1,84 @@
+import * as THREE from "three";
+import { onDispose, scene } from "@drawcall/glts";
+
+// COMPATIBILITY PORT of the legacy exhaust.glts part — see ../index.glts.
+// Body text below is the legacy source verbatim; only the module shape changed.
+
+// Four header pipes leaving the right flank of the bonnet into one side pipe
+// that runs back past the cockpit. Coordinates are body-local.
+const HEADERS: [number, number][] = [
+  // [station z, body half-width at that station]
+  [1.5, 0.352],
+  [1.25, 0.37],
+  [1.0, 0.386],
+  [0.75, 0.396],
+];
+const SIDE_PIPE_X = 0.52;
+
+class Exhaust extends THREE.Group {
+  private readonly pipeMetal: THREE.MeshStandardMaterial;
+
+  constructor() {
+    super();
+    this.name = "Exhaust";
+
+    // Heat-blued nickel: bright, but warmer and rougher than the trim chrome.
+    this.pipeMetal = new THREE.MeshStandardMaterial({ color: 0xb8b2a6, metalness: 1, roughness: 0.3 });
+
+    this.addHeaders();
+    this.addSidePipe();
+  }
+
+  private addHeaders(): void {
+    for (const [z, halfWidth] of HEADERS) {
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(halfWidth - 0.06, 0.06, z),
+        new THREE.Vector3(halfWidth + 0.05, 0.02, z),
+        new THREE.Vector3(SIDE_PIPE_X - 0.01, -0.06, z - 0.13),
+        new THREE.Vector3(SIDE_PIPE_X, -0.1, z - 0.28),
+      ]);
+      const header = new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.032, 14, false), this.pipeMetal);
+      this.add(header);
+    }
+  }
+
+  private addSidePipe(): void {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(SIDE_PIPE_X, -0.1, 0.62),
+      new THREE.Vector3(SIDE_PIPE_X + 0.005, -0.105, 0.0),
+      new THREE.Vector3(SIDE_PIPE_X, -0.075, -0.7),
+      new THREE.Vector3(SIDE_PIPE_X - 0.015, -0.04, -1.45),
+      new THREE.Vector3(SIDE_PIPE_X - 0.03, -0.02, -1.95),
+    ]);
+    const pipe = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, 0.055, 18, false), this.pipeMetal);
+    this.add(pipe);
+
+    const tipGeometry = new THREE.CylinderGeometry(0.072, 0.056, 0.1, 20);
+    tipGeometry.rotateX(Math.PI / 2);
+    const tip = new THREE.Mesh(tipGeometry, this.pipeMetal);
+    tip.position.set(SIDE_PIPE_X - 0.032, -0.018, -2.0);
+    this.add(tip);
+
+    const clampGeometry = new THREE.TorusGeometry(0.062, 0.012, 8, 20);
+    for (const z of [-0.3, -1.2]) {
+      const clamp = new THREE.Mesh(clampGeometry, this.pipeMetal);
+      clamp.rotation.y = Math.PI / 2;
+      clamp.position.set(SIDE_PIPE_X, -0.09, z);
+      this.add(clamp);
+    }
+  }
+
+  dispose(): void {
+    this.traverse((object) => {
+      if (object instanceof THREE.Mesh) object.geometry.dispose();
+    });
+    this.pipeMetal.dispose();
+  }
+}
+
+const exhaust = new Exhaust();
+scene.add(exhaust);
+
+onDispose(() => {
+  exhaust.dispose();
+});

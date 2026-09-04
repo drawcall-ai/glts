@@ -1,0 +1,286 @@
+import * as THREE from "three";
+import { gltsLoader, onDispose, scene } from "@drawcall/glts";
+
+// COMPATIBILITY PORT of the legacy bodywork part — see ../index.glts.
+// Body text below is the legacy source verbatim; only the module shape changed.
+// The static Cockpit/Exhaust imports became contextual gltsLoader loads and are
+// passed into the constructor, keeping them children of the Bodywork group at
+// the same local transform the legacy version gave them.
+
+// Torpedo bodywork, authored around the body axis: origin is the centreline,
+// +Z is the nose. The lathe profile below is [radius, z] from tail to nose.
+const PROFILE: [number, number][] = [
+  [0.03, -2.1],
+  [0.11, -2.02],
+  [0.19, -1.88],
+  [0.28, -1.62],
+  [0.35, -1.28],
+  [0.41, -0.92],
+  [0.445, -0.5],
+  [0.455, -0.1],
+  [0.45, 0.3],
+  [0.435, 0.7],
+  [0.42, 1.05],
+  [0.4, 1.35],
+  [0.375, 1.6],
+  [0.35, 1.8],
+  [0.325, 1.9],
+];
+const WIDTH_SCALE = 0.92;
+const HEIGHT_SCALE = 0.95;
+const RACING_NUMBER = "12";
+const OPENING_HALF_WIDTH = 0.275;
+const OPENING_HALF_LENGTH = 0.45;
+const OPENING_CENTER_Z = 0.11;
+
+// Deletes the roof triangles over the cockpit so the tub inside is exposed.
+function cutCockpitOpening(source: THREE.BufferGeometry): THREE.BufferGeometry {
+  const triangles = source.toNonIndexed();
+  source.dispose();
+  const position = triangles.getAttribute("position");
+  const kept: number[] = [];
+
+  for (let first = 0; first < position.count; first += 3) {
+    let x = 0;
+    let y = 0;
+    let z = 0;
+    for (let vertex = 0; vertex < 3; vertex++) {
+      x += position.getX(first + vertex) / 3;
+      y += position.getY(first + vertex) / 3;
+      z += position.getZ(first + vertex) / 3;
+    }
+
+    const overOpening =
+      y > 0.22 &&
+      (x / OPENING_HALF_WIDTH) ** 2 + ((z - OPENING_CENTER_Z) / OPENING_HALF_LENGTH) ** 2 < 1;
+    if (overOpening) continue;
+
+    for (let vertex = 0; vertex < 3; vertex++) {
+      kept.push(position.getX(first + vertex), position.getY(first + vertex), position.getZ(first + vertex));
+    }
+  }
+
+  triangles.dispose();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(kept, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function radiusAt(z: number): number {
+  for (let index = 1; index < PROFILE.length; index++) {
+    const [radius, station] = PROFILE[index];
+    if (z <= station) {
+      const [previousRadius, previousStation] = PROFILE[index - 1];
+      const t = (z - previousStation) / (station - previousStation);
+      return previousRadius + (radius - previousRadius) * t;
+    }
+  }
+  return PROFILE[PROFILE.length - 1][0];
+}
+
+function halfWidthAt(z: number): number {
+  return radiusAt(z) * WIDTH_SCALE;
+}
+
+function halfHeightAt(z: number): number {
+  return radiusAt(z) * HEIGHT_SCALE;
+}
+
+class Bodywork extends THREE.Group {
+  private readonly paint: THREE.MeshPhysicalMaterial;
+  private readonly chrome: THREE.MeshStandardMaterial;
+  private readonly brass: THREE.MeshStandardMaterial;
+  private readonly leather: THREE.MeshStandardMaterial;
+  private readonly shadowed: THREE.MeshStandardMaterial;
+  private readonly roundelWhite: THREE.MeshStandardMaterial;
+
+  constructor(cockpit: THREE.Object3D, exhaust: THREE.Object3D) {
+    super();
+    this.name = "Bodywork";
+
+    this.paint = new THREE.MeshPhysicalMaterial({
+      color: 0x9d1220,
+      metalness: 0.12,
+      roughness: 0.3,
+      clearcoat: 0.9,
+      clearcoatRoughness: 0.12,
+      side: THREE.DoubleSide,
+    });
+    this.chrome = new THREE.MeshStandardMaterial({ color: 0xd6d9de, metalness: 1, roughness: 0.14 });
+    this.brass = new THREE.MeshStandardMaterial({ color: 0xb0893c, metalness: 0.95, roughness: 0.3 });
+    this.leather = new THREE.MeshStandardMaterial({ color: 0x3a2a1e, roughness: 0.78 });
+    this.shadowed = new THREE.MeshStandardMaterial({ color: 0x111214, metalness: 0.35, roughness: 0.55 });
+    this.roundelWhite = new THREE.MeshStandardMaterial({ color: 0xf2efe6, roughness: 0.35, metalness: 0.05 });
+
+    this.add(this.createShell());
+    this.addRadiator();
+    this.addLouvers();
+    this.addBonnetStraps();
+    this.addRoundels();
+    this.addFillerCap();
+    this.add(cockpit, exhaust);
+  }
+
+  private createShell(): THREE.Mesh {
+    const points = PROFILE.map(([radius, station]) => new THREE.Vector2(radius, station));
+    const lathe = new THREE.LatheGeometry(points, 56);
+    lathe.rotateX(Math.PI / 2);
+    lathe.scale(WIDTH_SCALE, HEIGHT_SCALE, 1);
+    const shell = new THREE.Mesh(cutCockpitOpening(lathe), this.paint);
+    shell.name = "Shell";
+    return shell;
+  }
+
+  private addRadiator(): void {
+    const shape = new THREE.Shape();
+    shape.moveTo(-0.29, -0.26);
+    shape.lineTo(-0.29, 0.1);
+    shape.quadraticCurveTo(-0.29, 0.28, 0, 0.28);
+    shape.quadraticCurveTo(0.29, 0.28, 0.29, 0.1);
+    shape.lineTo(0.29, -0.26);
+    shape.closePath();
+
+    const shellGeometry = new THREE.ExtrudeGeometry(shape, {
+      depth: 0.1,
+      bevelEnabled: true,
+      bevelThickness: 0.02,
+      bevelSize: 0.02,
+      bevelSegments: 3,
+      curveSegments: 18,
+    });
+    const radiator = new THREE.Mesh(shellGeometry, this.chrome);
+    radiator.position.set(0, 0.02, 1.82);
+    radiator.rotation.x = -0.07;
+    this.add(radiator);
+
+    const core = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.46, 0.03), this.shadowed);
+    core.position.set(0, 0.02, 0.11);
+    radiator.add(core);
+
+    const slatGeometry = new THREE.BoxGeometry(0.012, 0.44, 0.02);
+    for (let index = 0; index < 11; index++) {
+      const slat = new THREE.Mesh(slatGeometry, this.chrome);
+      slat.position.set(-0.24 + index * 0.048, 0.02, 0.125);
+      radiator.add(slat);
+    }
+
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.06, 18), this.brass);
+    cap.position.set(0, 0.3, 0.05);
+    radiator.add(cap);
+
+    const badge = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.012, 20), this.brass);
+    badge.rotation.x = Math.PI / 2;
+    badge.position.set(0, 0.17, 0.135);
+    radiator.add(badge);
+  }
+
+  private addLouvers(): void {
+    const geometry = new THREE.BoxGeometry(0.022, 0.1, 0.016);
+    for (let z = 0.72; z <= 1.62; z += 0.052) {
+      for (const side of [1, -1]) {
+        const louver = new THREE.Mesh(geometry, this.shadowed);
+        louver.position.set(side * (halfWidthAt(z) - 0.009), 0.03, z);
+        this.add(louver);
+      }
+    }
+  }
+
+  private addBonnetStraps(): void {
+    for (const z of [0.82, 1.34]) {
+      const radius = radiusAt(z) + 0.006;
+      const geometry = new THREE.TorusGeometry(radius, 0.017, 10, 44);
+      geometry.scale(WIDTH_SCALE, HEIGHT_SCALE, 1);
+      const strap = new THREE.Mesh(geometry, this.leather);
+      strap.position.z = z;
+      this.add(strap);
+
+      const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.026, 0.05), this.chrome);
+      buckle.position.set(0.1, halfHeightAt(z) + 0.005, z);
+      this.add(buckle);
+    }
+  }
+
+  private addRoundels(): void {
+    const numberTexture = this.createNumberTexture();
+    const numberMaterial = new THREE.MeshStandardMaterial({
+      map: numberTexture,
+      transparent: true,
+      roughness: 0.4,
+      metalness: 0,
+    });
+    const numberGeometry = new THREE.PlaneGeometry(0.27, 0.27);
+    const z = -0.62;
+    const surfaceX = halfWidthAt(z);
+    // A spherical cap of this radius matches the flank curvature, so the
+    // roundel sits on the paint instead of floating over it.
+    const capRadius = 0.55;
+
+    for (const side of [1, -1]) {
+      const geometry = new THREE.SphereGeometry(capRadius, 36, 18, 0, Math.PI * 2, 0, 0.36);
+      geometry.rotateZ(-side * Math.PI * 0.5);
+      const roundel = new THREE.Mesh(geometry, this.roundelWhite);
+      roundel.position.set(side * (surfaceX - capRadius + 0.004), 0.02, z);
+      this.add(roundel);
+
+      const digits = new THREE.Mesh(numberGeometry, numberMaterial);
+      digits.rotation.y = side * Math.PI * 0.5;
+      digits.position.set(side * (surfaceX + 0.012), 0.02, z);
+      this.add(digits);
+    }
+  }
+
+  private createNumberTexture(): THREE.CanvasTexture {
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("2D canvas context unavailable for the racing number");
+    }
+    context.fillStyle = "#15171a";
+    context.font = "bold 180px Georgia, 'Times New Roman', serif";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(RACING_NUMBER, 128, 134);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+    return texture;
+  }
+
+  private addFillerCap(): void {
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.03, 20), this.brass);
+    cap.position.set(0, halfHeightAt(-1.3) - 0.005, -1.3);
+    this.add(cap);
+  }
+
+  dispose(): void {
+    this.traverse((object) => {
+      if (object instanceof THREE.Mesh) object.geometry.dispose();
+    });
+    for (const material of [
+      this.paint,
+      this.chrome,
+      this.brass,
+      this.leather,
+      this.shadowed,
+      this.roundelWhite,
+    ]) {
+      material.dispose();
+    }
+  }
+}
+
+const [cockpit, exhaust] = await Promise.all([
+  gltsLoader.loadAsync(new URL("./cockpit.glts", import.meta.url)),
+  gltsLoader.loadAsync(new URL("./exhaust.glts", import.meta.url))
+]);
+
+const bodywork = new Bodywork(cockpit, exhaust);
+scene.add(bodywork);
+
+onDispose(() => {
+  bodywork.dispose();
+});

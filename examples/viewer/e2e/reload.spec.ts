@@ -268,6 +268,6 @@ test("reloads a requested URL that redirects to the source", async ({ page }) =>
 
   expect(result).toEqual({
     name: "revision 2",
-    url: "http://127.0.0.1:5173/assets/redirect.glts"
+    url: new URL("/assets/redirect.glts", page.url()).href
   });
 });

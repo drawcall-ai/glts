@@ -1,0 +1,138 @@
+import * as THREE from "three";
+import { onDispose, scene } from "@drawcall/glts";
+
+// COMPATIBILITY PORT of the legacy wheel.glts part — see ../index.glts.
+// Body text below is the legacy source verbatim; only the module shape changed.
+
+// Tall, narrow wire wheel with a brake drum and centre-lock spinner.
+// The hub sits at the origin and the axle runs along X; the outboard face
+// looks toward +X, so a left-hand wheel is mirrored by rotating it 180 deg.
+const TIRE_CENTER_RADIUS = 0.325;
+const TIRE_SECTION = 0.078;
+const RIM_RADIUS = 0.285;
+const HUB_RADIUS = 0.075;
+const SPOKE_COUNT = 32;
+const SPOKE_DISH = 0.022;
+
+class Wheel extends THREE.Group {
+  private readonly rubber: THREE.MeshStandardMaterial;
+  private readonly steel: THREE.MeshStandardMaterial;
+  private readonly spokeMetal: THREE.MeshStandardMaterial;
+  private readonly drumMetal: THREE.MeshStandardMaterial;
+
+  constructor() {
+    super();
+    this.name = "Wheel";
+
+    this.rubber = new THREE.MeshStandardMaterial({ color: 0x25211d, roughness: 0.92, metalness: 0.05 });
+    this.steel = new THREE.MeshStandardMaterial({ color: 0xc9ccd2, metalness: 1, roughness: 0.22 });
+    this.spokeMetal = new THREE.MeshStandardMaterial({ color: 0xb9bec6, metalness: 1, roughness: 0.28 });
+    this.drumMetal = new THREE.MeshStandardMaterial({ color: 0x6d6a66, metalness: 0.85, roughness: 0.45 });
+
+    // Everything is built in the XY plane about the Z axis, then turned so the
+    // axle lies along X.
+    const disc = new THREE.Group();
+    disc.rotation.y = Math.PI / 2;
+    this.add(disc);
+
+    this.addTire(disc);
+    this.addRim(disc);
+    this.addSpokes(disc);
+    this.addHub(disc);
+  }
+
+  private addTire(disc: THREE.Group): void {
+    const tire = new THREE.Mesh(
+      new THREE.TorusGeometry(TIRE_CENTER_RADIUS, TIRE_SECTION, 18, 48),
+      this.rubber,
+    );
+    disc.add(tire);
+
+    // Two circumferential ribs, the period tread pattern.
+    const ribGeometry = new THREE.TorusGeometry(TIRE_CENTER_RADIUS + TIRE_SECTION - 0.004, 0.006, 8, 48);
+    for (const offset of [-0.028, 0.028]) {
+      const rib = new THREE.Mesh(ribGeometry, this.rubber);
+      rib.position.z = offset;
+      disc.add(rib);
+    }
+  }
+
+  private addRim(disc: THREE.Group): void {
+    const barrelGeometry = new THREE.CylinderGeometry(RIM_RADIUS, RIM_RADIUS, 0.115, 40, 1, true);
+    barrelGeometry.rotateX(Math.PI / 2);
+    const barrel = new THREE.Mesh(barrelGeometry, this.steel);
+    barrel.material.side = THREE.DoubleSide;
+    disc.add(barrel);
+
+    const flangeGeometry = new THREE.TorusGeometry(RIM_RADIUS + 0.004, 0.014, 8, 44);
+    for (const offset of [-0.056, 0.056]) {
+      const flange = new THREE.Mesh(flangeGeometry, this.steel);
+      flange.position.z = offset;
+      disc.add(flange);
+    }
+  }
+
+  private addSpokes(disc: THREE.Group): void {
+    const length = RIM_RADIUS - HUB_RADIUS;
+    const geometry = new THREE.CylinderGeometry(0.0055, 0.0055, length, 6);
+    const midRadius = (RIM_RADIUS + HUB_RADIUS) / 2;
+
+    for (let index = 0; index < SPOKE_COUNT; index++) {
+      const pivot = new THREE.Group();
+      pivot.rotation.z = (index / SPOKE_COUNT) * Math.PI * 2;
+
+      const dish = index % 2 === 0 ? SPOKE_DISH : -SPOKE_DISH;
+      const spoke = new THREE.Mesh(geometry, this.spokeMetal);
+      spoke.rotation.z = -Math.PI / 2;
+      // Lace the spoke back to the rim centreline from its offset hub flange.
+      spoke.rotation.y = Math.asin(Math.min(1, dish / (length / 2)));
+      spoke.position.set(midRadius, 0, dish);
+
+      pivot.add(spoke);
+      disc.add(pivot);
+    }
+  }
+
+  private addHub(disc: THREE.Group): void {
+    const hubGeometry = new THREE.CylinderGeometry(HUB_RADIUS, HUB_RADIUS, 0.16, 22);
+    hubGeometry.rotateX(Math.PI / 2);
+    const hub = new THREE.Mesh(hubGeometry, this.steel);
+    disc.add(hub);
+
+    const drumGeometry = new THREE.CylinderGeometry(0.185, 0.185, 0.1, 28);
+    drumGeometry.rotateX(Math.PI / 2);
+    const drum = new THREE.Mesh(drumGeometry, this.drumMetal);
+    drum.position.z = -0.095;
+    disc.add(drum);
+
+    const spinnerGeometry = new THREE.CylinderGeometry(0.042, 0.055, 0.055, 18);
+    spinnerGeometry.rotateX(Math.PI / 2);
+    const spinner = new THREE.Mesh(spinnerGeometry, this.steel);
+    spinner.position.z = 0.105;
+    disc.add(spinner);
+
+    const earGeometry = new THREE.BoxGeometry(0.13, 0.018, 0.03);
+    for (const angle of [0, Math.PI]) {
+      const ear = new THREE.Mesh(earGeometry, this.steel);
+      ear.position.set(Math.cos(angle) * 0.075, Math.sin(angle) * 0.075, 0.115);
+      ear.rotation.z = angle;
+      disc.add(ear);
+    }
+  }
+
+  dispose(): void {
+    this.traverse((object) => {
+      if (object instanceof THREE.Mesh) object.geometry.dispose();
+    });
+    for (const material of [this.rubber, this.steel, this.spokeMetal, this.drumMetal]) {
+      material.dispose();
+    }
+  }
+}
+
+const wheel = new Wheel();
+scene.add(wheel);
+
+onDispose(() => {
+  wheel.dispose();
+});

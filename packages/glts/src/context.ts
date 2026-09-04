@@ -1,5 +1,3 @@
-import * as THREE from "three";
-
 import type {
   GLTSDisposeCallback,
   GLTSFrameCallback,
@@ -9,6 +7,7 @@ import type {
   GLTSScriptLoader,
   GLTSURL
 } from "./types.js";
+import { createScene, type GLTSScriptScene } from "./rendering.js";
 
 function unavailable(name: string): never {
   throw new Error(
@@ -16,7 +15,7 @@ function unavailable(name: string): never {
   );
 }
 
-export const scene: THREE.Group = new Proxy(new THREE.Group(), {
+export const scene: GLTSScriptScene = new Proxy(createScene(), {
   get: () => unavailable("scene"),
   set: () => unavailable("scene")
 });
@@ -29,7 +28,6 @@ class UnavailableScriptLoader implements GLTSScriptLoader {
   loadInstancesAsync(_url: GLTSURL, _count: number): Promise<GLTSInstances> {
     return unavailable("gltsLoader");
   }
-
 }
 
 export const gltsLoader: GLTSScriptLoader = new UnavailableScriptLoader();

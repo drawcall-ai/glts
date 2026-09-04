@@ -1,0 +1,193 @@
+import * as THREE from "three"
+import { gltsLoader, isPreview, onDispose, onFrame, scene } from "@drawcall/glts"
+
+// A 1950s front-engine grand prix car: hand-formed aluminium body over a tubular
+// frame, exposed wire wheels, a tall slatted radiator and an open cockpit.
+//
+// This file owns the assembly, the presentation and the only frame callback.
+// body, chassis and cockpit are ordinary composition units; wheel is loaded once
+// and placed four times through automatic instancing; paddock is standalone
+// staging and is only pulled in while isPreview is set.
+
+const WHEELBASE = 2.28
+const FRONT_TRACK = 1.31
+const REAR_TRACK = 1.28
+const FRONT_RADIUS = 0.355
+const REAR_RADIUS = 0.39
+const STEER = -0.13
+
+// The wheel file is authored at the rear size with its outboard face toward +X,
+// so a left-hand wheel is turned half a revolution about Y to put its spinner
+// outboard. `phase` only decides where each wheel's lacing pattern comes to rest
+// and `width` squeezes the front pair down to the narrower front tyre.
+const wheelPlacements = [
+  {
+    mirror: false,
+    phase: 0.41,
+    radius: FRONT_RADIUS,
+    steer: STEER,
+    width: 0.8,
+    x: FRONT_TRACK / 2,
+    z: WHEELBASE / 2
+  },
+  {
+    mirror: true,
+    phase: 1.17,
+    radius: FRONT_RADIUS,
+    steer: STEER,
+    width: 0.8,
+    x: -FRONT_TRACK / 2,
+    z: WHEELBASE / 2
+  },
+  {
+    mirror: false,
+    phase: 2.63,
+    radius: REAR_RADIUS,
+    steer: 0,
+    width: 1,
+    x: REAR_TRACK / 2,
+    z: -WHEELBASE / 2
+  },
+  {
+    mirror: true,
+    phase: 3.02,
+    radius: REAR_RADIUS,
+    steer: 0,
+    width: 1,
+    x: -REAR_TRACK / 2,
+    z: -WHEELBASE / 2
+  }
+]
+
+// Equirectangular studio surround. Chrome, brass and clearcoated paint need
+// something to reflect, and the renderer prefilters this into an IBL probe.
+function studioEnvironment(): THREE.CanvasTexture {
+  const width = 1024
+  const height = 512
+  const canvas = document.createElement("canvas")
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext("2d")
+  if (!context) throw new Error("Unable to create the environment canvas context")
+
+  const sky = context.createLinearGradient(0, 0, 0, height)
+  sky.addColorStop(0, "#4a5670")
+  sky.addColorStop(0.42, "#333b49")
+  sky.addColorStop(0.5, "#1d1c1b")
+  sky.addColorStop(0.56, "#101010")
+  sky.addColorStop(1, "#040405")
+  context.fillStyle = sky
+  context.fillRect(0, 0, width, height)
+
+  // Light panels placed where the paddock rig actually is: three's equirect
+  // mapping puts +X at u 0.5, +Z at u 0.75, and the canvas top at straight up,
+  // so reflections and direct light agree instead of fighting each other.
+  const panels = [
+    { alpha: 0.92, h: 70, tint: "255, 243, 222", u: 0.6, v: 0.2, w: 235 },
+    { alpha: 0.5, h: 52, tint: "226, 236, 255", u: 0.15, v: 0.12, w: 175 },
+    { alpha: 0.44, h: 62, tint: "255, 214, 160", u: 0.145, v: 0.4, w: 215 },
+    { alpha: 0.3, h: 54, tint: "196, 216, 248", u: 0.885, v: 0.38, w: 195 },
+    { alpha: 0.36, h: 58, tint: "255, 240, 220", u: 0.75, v: 0.47, w: 205 }
+  ]
+  for (const panel of panels) {
+    const y = panel.v * height
+    // Drawn three times so a panel straddling the seam wraps around it.
+    for (const wrap of [-width, 0, width]) {
+      const x = panel.u * width + wrap
+      const glow = context.createRadialGradient(x, y, 0, x, y, panel.w)
+      glow.addColorStop(0, `rgba(${panel.tint}, ${panel.alpha})`)
+      glow.addColorStop(0.36, `rgba(${panel.tint}, ${panel.alpha * 0.42})`)
+      glow.addColorStop(1, `rgba(${panel.tint}, 0)`)
+      context.fillStyle = glow
+      context.save()
+      context.translate(x, y)
+      context.scale(1, panel.h / panel.w)
+      context.beginPath()
+      context.arc(0, 0, panel.w, 0, Math.PI * 2)
+      context.fill()
+      context.restore()
+    }
+  }
+
+  const bounce = context.createLinearGradient(0, height * 0.56, 0, height)
+  bounce.addColorStop(0, "rgba(74, 70, 64, 0.32)")
+  bounce.addColorStop(1, "rgba(10, 10, 12, 0)")
+  context.fillStyle = bounce
+  context.fillRect(0, height * 0.56, width, height * 0.44)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.mapping = THREE.EquirectangularReflectionMapping
+  return texture
+}
+
+const car = new THREE.Group()
+car.name = "vintage racecar"
+scene.add(car)
+
+const [body, chassis, cockpit, wheels] = await Promise.all([
+  gltsLoader.loadAsync(new URL("./body.glts", import.meta.url)),
+  gltsLoader.loadAsync(new URL("./chassis.glts", import.meta.url)),
+  gltsLoader.loadAsync(new URL("./cockpit.glts", import.meta.url)),
+  gltsLoader.loadInstancesAsync(
+    new URL("./wheel.glts", import.meta.url),
+    wheelPlacements.length
+  )
+])
+car.add(body, chassis, cockpit, wheels)
+
+const placement = new THREE.Matrix4()
+const spin = new THREE.Quaternion()
+const rotation = new THREE.Quaternion()
+const axisX = new THREE.Vector3(1, 0, 0)
+const axisY = new THREE.Vector3(0, 1, 0)
+for (const [index, wheel] of wheelPlacements.entries()) {
+  rotation.setFromAxisAngle(axisY, wheel.steer + (wheel.mirror ? Math.PI : 0))
+  spin.setFromAxisAngle(axisX, wheel.phase)
+  rotation.multiply(spin)
+  const scale = wheel.radius / REAR_RADIUS
+  wheels.setMatrixAt(index, placement.compose(
+    new THREE.Vector3(wheel.x, wheel.radius, wheel.z),
+    rotation,
+    new THREE.Vector3(wheel.width, scale, scale)
+  ))
+}
+
+// A hand-formed body was never perfectly still: the engine idle keeps a slight
+// tremble in the chassis, which is intrinsic to the asset rather than staging.
+let elapsed = 0
+onFrame((delta) => {
+  elapsed += delta
+  const idle = Math.sin(elapsed * 45.9) * 0.6 + Math.sin(elapsed * 73.5) * 0.4
+  car.position.y = idle * 0.0022
+  car.rotation.z = idle * 0.0016 + Math.sin(elapsed * 0.74) * 0.0022
+  car.rotation.x = Math.sin(elapsed * 0.51) * 0.0012
+})
+
+// The probe is not preview staging: without it the chrome, brass and clearcoat
+// have nothing to reflect. A host that nests this scene overrides it anyway.
+const environment = studioEnvironment()
+scene.environment = environment
+scene.environmentIntensity = 0.7
+
+const camera = new THREE.PerspectiveCamera(32, 1, 0.05, 140)
+camera.position.set(3.3, 1.34, 3.9)
+camera.lookAt(0, 0.54, 0.08)
+scene.defaultCamera = camera
+
+scene.rendering.shadows = true
+scene.rendering.toneMapping = THREE.ACESFilmicToneMapping
+scene.rendering.toneMappingExposure = 1.08
+
+if (isPreview) {
+  // The surround doubles as a softly blurred backdrop behind the car.
+  scene.background = environment
+  scene.backgroundBlurriness = 0.7
+  scene.backgroundIntensity = 0.2
+  scene.fog = new THREE.Fog("#0a0b0e", 6, 22)
+  scene.add(await gltsLoader.loadAsync(new URL("./paddock.glts", import.meta.url)))
+}
+
+onDispose(() => {
+  environment.dispose()
+})

@@ -1,0 +1,434 @@
+import * as THREE from "three"
+import { onDispose, scene } from "@drawcall/glts"
+
+// Everything mechanical that shows between the bodywork and the wheels: the
+// dropped front beam axle on semi-elliptic leaf springs, the live rear axle, the
+// friction dampers and linkages, and the four-into-one exhaust that leaves the
+// bonnet and runs the length of the right-hand flank.
+//
+// Parts are modelled full width and left to be occluded by body.glts where they
+// pass inside the shell, which is how the real chassis disappears under it.
+
+const FRONT_AXLE = 1.14
+const REAR_AXLE = -1.14
+
+function required<T>(values: readonly T[], index: number, name: string): T {
+  const value = values[index]
+  if (value === undefined) throw new RangeError(`Missing ${name} at index ${index}`)
+  return value
+}
+
+function attribute(
+  geometry: THREE.BufferGeometry,
+  name: string
+): THREE.BufferAttribute {
+  const value = geometry.getAttribute(name)
+  if (!(value instanceof THREE.BufferAttribute)) {
+    throw new TypeError(`Expected buffer attribute: ${name}`)
+  }
+  return value
+}
+
+function curve(points: readonly (readonly [number, number, number])[]): THREE.CatmullRomCurve3 {
+  return new THREE.CatmullRomCurve3(
+    points.map(([x, y, z]) => new THREE.Vector3(x, y, z)),
+    false,
+    "centripetal",
+    0.5
+  )
+}
+
+function circleSection(radius: number, sides: number): THREE.Vector2[] {
+  return Array.from({ length: sides }, (_, index) => {
+    const angle = (index / sides) * Math.PI * 2
+    return new THREE.Vector2(Math.cos(angle) * radius, Math.sin(angle) * radius)
+  })
+}
+
+function leafSection(width: number, thickness: number): THREE.Vector2[] {
+  const halfWidth = width / 2
+  const halfThickness = thickness / 2
+  return [
+    new THREE.Vector2(halfWidth, -halfThickness),
+    new THREE.Vector2(halfWidth, halfThickness),
+    new THREE.Vector2(-halfWidth, halfThickness),
+    new THREE.Vector2(-halfWidth, -halfThickness)
+  ]
+}
+
+// Sweeps a closed cross-section along a curve using its Frenet frames and caps
+// both ends. Used for round tubing and for the flat leaf-spring stacks.
+function sweep(
+  path: THREE.Curve<THREE.Vector3>,
+  section: readonly THREE.Vector2[],
+  steps: number
+): THREE.BufferGeometry {
+  const frames = path.computeFrenetFrames(steps, false)
+  const positions: number[] = []
+  const uvs: number[] = []
+  const indices: number[] = []
+  const stride = section.length
+
+  for (let step = 0; step <= steps; step += 1) {
+    const point = path.getPointAt(step / steps)
+    const normal = required(frames.normals, step, "sweep normal")
+    const binormal = required(frames.binormals, step, "sweep binormal")
+    for (const [index, corner] of section.entries()) {
+      positions.push(
+        point.x + normal.x * corner.x + binormal.x * corner.y,
+        point.y + normal.y * corner.x + binormal.y * corner.y,
+        point.z + normal.z * corner.x + binormal.z * corner.y
+      )
+      uvs.push(index / stride, step / steps)
+    }
+  }
+
+  for (let step = 0; step < steps; step += 1) {
+    for (let index = 0; index < stride; index += 1) {
+      const next = (index + 1) % stride
+      const a = step * stride + index
+      const b = step * stride + next
+      const c = (step + 1) * stride + index
+      const d = (step + 1) * stride + next
+      indices.push(a, b, c, b, d, c)
+    }
+  }
+
+  const start = path.getPointAt(0)
+  const end = path.getPointAt(1)
+  const startCentre = positions.length / 3
+  positions.push(start.x, start.y, start.z)
+  uvs.push(0.5, 0)
+  const endCentre = startCentre + 1
+  positions.push(end.x, end.y, end.z)
+  uvs.push(0.5, 1)
+  for (let index = 0; index < stride; index += 1) {
+    const next = (index + 1) % stride
+    indices.push(startCentre, next, index)
+    indices.push(endCentre, steps * stride + index, steps * stride + next)
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+function merge(parts: readonly THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const flat = parts.map((part) => (part.index ? part.toNonIndexed() : part))
+  const total = flat.reduce((sum, part) => sum + attribute(part, "position").count, 0)
+  const positions = new Float32Array(total * 3)
+  const normals = new Float32Array(total * 3)
+  const uvs = new Float32Array(total * 2)
+  let offset = 0
+  for (const part of flat) {
+    const position = attribute(part, "position")
+    positions.set(position.array, offset * 3)
+    normals.set(attribute(part, "normal").array, offset * 3)
+    if (part.hasAttribute("uv")) {
+      uvs.set(attribute(part, "uv").array, offset * 2)
+    }
+    offset += position.count
+  }
+
+  for (const [index, part] of flat.entries()) {
+    part.dispose()
+    const source = required(parts, index, "source geometry")
+    if (part !== source) source.dispose()
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3))
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2))
+  return geometry
+}
+
+function disc(
+  radius: number,
+  thickness: number,
+  position: readonly [number, number, number]
+): THREE.BufferGeometry {
+  const geometry = new THREE.CylinderGeometry(radius, radius, thickness, 20, 1)
+  geometry.rotateZ(Math.PI / 2)
+  geometry.translate(position[0], position[1], position[2])
+  return geometry
+}
+
+const steelParts: THREE.BufferGeometry[] = []
+const springParts: THREE.BufferGeometry[] = []
+
+// Dropped tubular front beam axle.
+steelParts.push(sweep(
+  curve([
+    [-0.615, 0.36, FRONT_AXLE],
+    [-0.44, 0.332, FRONT_AXLE],
+    [-0.2, 0.316, FRONT_AXLE],
+    [0.2, 0.316, FRONT_AXLE],
+    [0.44, 0.332, FRONT_AXLE],
+    [0.615, 0.36, FRONT_AXLE]
+  ]),
+  circleSection(0.028, 12),
+  40
+))
+
+// Live rear axle: the centre section stays hidden inside the tail.
+steelParts.push(sweep(
+  curve([
+    [-0.6, 0.39, REAR_AXLE],
+    [-0.24, 0.39, REAR_AXLE],
+    [0.24, 0.39, REAR_AXLE],
+    [0.6, 0.39, REAR_AXLE]
+  ]),
+  circleSection(0.036, 12),
+  24
+))
+const axleHousing = new THREE.SphereGeometry(0.098, 20, 14)
+axleHousing.scale(1, 1, 0.78)
+axleHousing.translate(0, 0.39, REAR_AXLE)
+steelParts.push(axleHousing)
+
+for (const side of [1, -1]) {
+  // Steering knuckle and hub carrier at each front wheel.
+  steelParts.push(sweep(
+    curve([
+      [side * 0.615, 0.24, FRONT_AXLE],
+      [side * 0.618, 0.36, FRONT_AXLE],
+      [side * 0.615, 0.47, FRONT_AXLE]
+    ]),
+    circleSection(0.021, 10),
+    10
+  ))
+  steelParts.push(disc(0.042, 0.09, [side * 0.6, 0.355, FRONT_AXLE]))
+
+  // Semi-elliptic front leaf spring, shackled fore and aft of the axle.
+  springParts.push(sweep(
+    curve([
+      [side * 0.3, 0.452, FRONT_AXLE - 0.46],
+      [side * 0.3, 0.412, FRONT_AXLE - 0.24],
+      [side * 0.3, 0.396, FRONT_AXLE],
+      [side * 0.3, 0.412, FRONT_AXLE + 0.24],
+      [side * 0.3, 0.452, FRONT_AXLE + 0.46]
+    ]),
+    leafSection(0.05, 0.017),
+    36
+  ))
+  springParts.push(sweep(
+    curve([
+      [side * 0.3, 0.436, FRONT_AXLE - 0.28],
+      [side * 0.3, 0.414, FRONT_AXLE],
+      [side * 0.3, 0.436, FRONT_AXLE + 0.28]
+    ]),
+    leafSection(0.046, 0.014),
+    24
+  ))
+
+  // Rear leaf spring, emerging from under the tail behind the body.
+  springParts.push(sweep(
+    curve([
+      [side * 0.262, 0.46, REAR_AXLE + 0.62],
+      [side * 0.262, 0.428, REAR_AXLE + 0.3],
+      [side * 0.262, 0.414, REAR_AXLE],
+      [side * 0.262, 0.432, REAR_AXLE - 0.26],
+      [side * 0.262, 0.47, REAR_AXLE - 0.42]
+    ]),
+    leafSection(0.054, 0.019),
+    36
+  ))
+
+  // Clamps holding each spring stack to its axle.
+  for (const [z, seat, offset] of [
+    [FRONT_AXLE, 0.388, 0.3],
+    [REAR_AXLE, 0.406, 0.262]
+  ] as const) {
+    const clamp = new THREE.BoxGeometry(0.068, 0.056, 0.05)
+    clamp.translate(side * offset, seat, z)
+    steelParts.push(clamp)
+  }
+
+  // Friction dampers on the frame, with their arms reaching to the axles.
+  steelParts.push(disc(0.058, 0.022, [side * 0.286, 0.47, FRONT_AXLE - 0.3]))
+  steelParts.push(sweep(
+    curve([
+      [side * 0.286, 0.47, FRONT_AXLE - 0.3],
+      [side * 0.44, 0.42, FRONT_AXLE - 0.18],
+      [side * 0.58, 0.382, FRONT_AXLE - 0.03]
+    ]),
+    circleSection(0.014, 8),
+    16
+  ))
+  steelParts.push(disc(0.062, 0.024, [side * 0.25, 0.52, REAR_AXLE + 0.36]))
+  steelParts.push(sweep(
+    curve([
+      [side * 0.25, 0.52, REAR_AXLE + 0.36],
+      [side * 0.4, 0.462, REAR_AXLE + 0.22],
+      [side * 0.55, 0.412, REAR_AXLE + 0.04]
+    ]),
+    circleSection(0.015, 8),
+    16
+  ))
+
+  // Radius rods locating each axle against the frame.
+  steelParts.push(sweep(
+    curve([
+      [side * 0.58, 0.318, FRONT_AXLE - 0.02],
+      [side * 0.42, 0.3, FRONT_AXLE - 0.36],
+      [side * 0.24, 0.288, FRONT_AXLE - 0.66]
+    ]),
+    circleSection(0.016, 8),
+    18
+  ))
+  steelParts.push(sweep(
+    curve([
+      [side * 0.55, 0.372, REAR_AXLE + 0.03],
+      [side * 0.4, 0.34, REAR_AXLE + 0.4],
+      [side * 0.24, 0.312, REAR_AXLE + 0.74]
+    ]),
+    circleSection(0.017, 8),
+    18
+  ))
+}
+
+// Track rod and the drag link back to the steering box under the bonnet.
+steelParts.push(sweep(
+  curve([
+    [-0.575, 0.322, FRONT_AXLE - 0.2],
+    [-0.3, 0.306, FRONT_AXLE - 0.23],
+    [0.3, 0.306, FRONT_AXLE - 0.23],
+    [0.575, 0.322, FRONT_AXLE - 0.2]
+  ]),
+  circleSection(0.016, 10),
+  30
+))
+steelParts.push(sweep(
+  curve([
+    [0.575, 0.33, FRONT_AXLE - 0.2],
+    [0.4, 0.372, 0.86],
+    [0.16, 0.412, 0.79]
+  ]),
+  circleSection(0.015, 8),
+  20
+))
+const steeringBox = new THREE.BoxGeometry(0.1, 0.12, 0.09)
+steeringBox.translate(0, 0.44, 0.8)
+steelParts.push(steeringBox)
+
+// Frame rails and the cross-member seen under the nose.
+steelParts.push(sweep(
+  curve([
+    [-0.24, 0.318, 1.66],
+    [0, 0.306, 1.68],
+    [0.24, 0.318, 1.66]
+  ]),
+  circleSection(0.024, 10),
+  16
+))
+for (const side of [1, -1]) {
+  steelParts.push(sweep(
+    curve([
+      [side * 0.2, 0.3, 1.7],
+      [side * 0.225, 0.288, 1.1],
+      [side * 0.23, 0.282, 0.2],
+      [side * 0.225, 0.3, -0.7],
+      [side * 0.2, 0.372, REAR_AXLE - 0.1],
+      [side * 0.17, 0.41, -1.44]
+    ]),
+    circleSection(0.026, 10),
+    48
+  ))
+}
+
+// Four-into-one exhaust: the headers break out of the bonnet flank, gather into
+// a collector and run past the rear wheel to a flared tail pipe.
+const exhaustParts: THREE.BufferGeometry[] = []
+for (let index = 0; index < 4; index += 1) {
+  const z = 1.56 - index * 0.16
+  const bend = z - 0.155
+  exhaustParts.push(sweep(
+    curve([
+      [0.09, 0.55, z],
+      [0.2, 0.54, z - 0.025],
+      [0.268, 0.505, z - 0.075],
+      [0.305, 0.45, bend],
+      [0.314, 0.41, (bend + 0.8) / 2],
+      [0.316, 0.394, 0.8]
+    ]),
+    circleSection(0.023, 10),
+    34
+  ))
+}
+const collector = new THREE.CylinderGeometry(0.058, 0.044, 0.17, 18, 1)
+collector.rotateX(Math.PI / 2)
+collector.translate(0.316, 0.392, 0.795)
+exhaustParts.push(collector)
+
+exhaustParts.push(sweep(
+  curve([
+    [0.314, 0.39, 0.73],
+    [0.352, 0.342, 0.55],
+    [0.395, 0.312, 0.24],
+    [0.404, 0.3, -0.3],
+    [0.386, 0.318, -0.85],
+    [0.358, 0.348, -1.34],
+    [0.342, 0.362, -1.66]
+  ]),
+  circleSection(0.036, 14),
+  56
+))
+const tailPipe = new THREE.CylinderGeometry(0.046, 0.038, 0.09, 16, 1)
+tailPipe.rotateX(Math.PI / 2)
+tailPipe.translate(0.338, 0.366, -1.7)
+exhaustParts.push(tailPipe)
+
+// Straps clamping the pipe to the body side.
+for (const [x, y, z] of [[0.402, 0.302, -0.3], [0.372, 0.334, -1.1]] as const) {
+  const strap = new THREE.TorusGeometry(0.05, 0.009, 8, 18)
+  strap.rotateY(Math.PI / 2)
+  strap.translate(x, y, z)
+  exhaustParts.push(strap)
+}
+
+const steelGeometry = merge(steelParts)
+const springGeometry = merge(springParts)
+const exhaustGeometry = merge(exhaustParts)
+
+const steelMaterial = new THREE.MeshStandardMaterial({
+  color: "#8b929a",
+  metalness: 1,
+  roughness: 0.42
+})
+const springMaterial = new THREE.MeshStandardMaterial({
+  color: "#5f656d",
+  metalness: 1,
+  roughness: 0.55
+})
+const exhaustMaterial = new THREE.MeshStandardMaterial({
+  color: "#9c8f7f",
+  metalness: 1,
+  roughness: 0.45
+})
+
+const chassis = new THREE.Group()
+chassis.name = "chassis"
+for (const [geometry, material] of [
+  [steelGeometry, steelMaterial],
+  [springGeometry, springMaterial],
+  [exhaustGeometry, exhaustMaterial]
+] as const) {
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  chassis.add(mesh)
+}
+scene.add(chassis)
+
+onDispose(() => {
+  steelGeometry.dispose()
+  springGeometry.dispose()
+  exhaustGeometry.dispose()
+  steelMaterial.dispose()
+  springMaterial.dispose()
+  exhaustMaterial.dispose()
+})

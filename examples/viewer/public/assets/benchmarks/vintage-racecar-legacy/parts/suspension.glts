@@ -1,0 +1,207 @@
+import * as THREE from "three";
+import { onDispose, scene } from "@drawcall/glts";
+
+// COMPATIBILITY PORT of the legacy suspension.glts part — see ../index.glts.
+// Body text below is the legacy source verbatim; only the module shape changed.
+
+// Beam front axle, live rear axle and semi-elliptic leaf springs, authored in
+// the root frame: ground at y = 0, nose toward +Z.
+const FRONT_AXLE_Z = 1.32;
+const REAR_AXLE_Z = -1.18;
+const FRONT_HUB_HEIGHT = 0.405;
+const REAR_HUB_HEIGHT = 0.429;
+
+class Suspension extends THREE.Group {
+  private readonly steel: THREE.MeshStandardMaterial;
+  private readonly springSteel: THREE.MeshStandardMaterial;
+
+  constructor() {
+    super();
+    this.name = "Suspension";
+
+    this.steel = new THREE.MeshStandardMaterial({ color: 0x3b3e43, metalness: 0.9, roughness: 0.5 });
+    this.springSteel = new THREE.MeshStandardMaterial({ color: 0x8b9098, metalness: 1, roughness: 0.42 });
+
+    this.addFrontAxle();
+    this.addRearAxle();
+    this.addLeafSprings();
+    this.addDampers();
+    this.addRadiusRods();
+  }
+
+  private createRod(from: THREE.Vector3, to: THREE.Vector3, radius: number): THREE.Mesh {
+    const direction = new THREE.Vector3().subVectors(to, from);
+    const rod = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, direction.length(), 10),
+      this.steel,
+    );
+    rod.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
+    rod.position.copy(from).addScaledVector(direction, 0.5);
+    return rod;
+  }
+
+  private addFrontAxle(): void {
+    const beamGeometry = new THREE.CylinderGeometry(0.038, 0.038, 1.24, 16);
+    beamGeometry.rotateZ(Math.PI / 2);
+    const beam = new THREE.Mesh(beamGeometry, this.steel);
+    beam.position.set(0, FRONT_HUB_HEIGHT, FRONT_AXLE_Z);
+    this.add(beam);
+
+    for (const side of [1, -1]) {
+      const kingpin = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.17, 12), this.steel);
+      kingpin.position.set(side * 0.62, FRONT_HUB_HEIGHT, FRONT_AXLE_Z);
+      this.add(kingpin);
+
+      const stubGeometry = new THREE.CylinderGeometry(0.028, 0.028, 0.16, 12);
+      stubGeometry.rotateZ(Math.PI / 2);
+      const stub = new THREE.Mesh(stubGeometry, this.steel);
+      stub.position.set(side * 0.66, FRONT_HUB_HEIGHT, FRONT_AXLE_Z);
+      this.add(stub);
+    }
+
+    // Track rod ahead of the beam, tying the two steering arms together.
+    const trackRodGeometry = new THREE.CylinderGeometry(0.018, 0.018, 1.14, 10);
+    trackRodGeometry.rotateZ(Math.PI / 2);
+    const trackRod = new THREE.Mesh(trackRodGeometry, this.steel);
+    trackRod.position.set(0, 0.34, FRONT_AXLE_Z + 0.16);
+    this.add(trackRod);
+
+    for (const side of [1, -1]) {
+      this.add(
+        this.createRod(
+          new THREE.Vector3(side * 0.57, FRONT_HUB_HEIGHT - 0.03, FRONT_AXLE_Z),
+          new THREE.Vector3(side * 0.57, 0.34, FRONT_AXLE_Z + 0.16),
+          0.016,
+        ),
+      );
+    }
+  }
+
+  private addRearAxle(): void {
+    const tubeGeometry = new THREE.CylinderGeometry(0.05, 0.05, 1.2, 18);
+    tubeGeometry.rotateZ(Math.PI / 2);
+    const tube = new THREE.Mesh(tubeGeometry, this.steel);
+    tube.position.set(0, REAR_HUB_HEIGHT, REAR_AXLE_Z);
+    this.add(tube);
+
+    const housingGeometry = new THREE.SphereGeometry(1, 24, 16);
+    housingGeometry.scale(0.15, 0.16, 0.19);
+    const housing = new THREE.Mesh(housingGeometry, this.steel);
+    housing.position.set(0, REAR_HUB_HEIGHT, REAR_AXLE_Z);
+    this.add(housing);
+
+    const torqueTube = this.createRod(
+      new THREE.Vector3(0, REAR_HUB_HEIGHT, REAR_AXLE_Z + 0.15),
+      new THREE.Vector3(0, 0.36, REAR_AXLE_Z + 0.95),
+      0.045,
+    );
+    this.add(torqueTube);
+  }
+
+  private createLeafSpring(length: number, camber: number): THREE.BufferGeometry {
+    const half = length / 2;
+    const thickness = 0.028;
+    const shape = new THREE.Shape();
+    shape.moveTo(-half, 0);
+    shape.quadraticCurveTo(0, camber * 2, half, 0);
+    shape.lineTo(half, -thickness);
+    shape.quadraticCurveTo(0, camber * 2 - thickness, -half, -thickness);
+    shape.closePath();
+
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+      depth: 0.055,
+      bevelEnabled: false,
+      curveSegments: 20,
+    });
+    geometry.translate(0, 0, -0.0275);
+    // The shape is drawn along X and extruded along Z; turn it so the leaf
+    // runs fore and aft with its width across the car.
+    geometry.rotateY(Math.PI / 2);
+    return geometry;
+  }
+
+  private addLeafSprings(): void {
+    const front = this.createLeafSpring(0.92, 0.05);
+    const rear = this.createLeafSpring(1.02, 0.06);
+    const shackleGeometry = new THREE.BoxGeometry(0.07, 0.09, 0.035);
+
+    for (const side of [1, -1]) {
+      const frontSpring = new THREE.Mesh(front, this.springSteel);
+      frontSpring.position.set(side * 0.4, 0.47, FRONT_AXLE_Z);
+      this.add(frontSpring);
+
+      const rearSpring = new THREE.Mesh(rear, this.springSteel);
+      rearSpring.position.set(side * 0.38, 0.5, REAR_AXLE_Z);
+      this.add(rearSpring);
+
+      for (const [z, y] of [
+        [FRONT_AXLE_Z - 0.46, 0.44],
+        [FRONT_AXLE_Z + 0.46, 0.44],
+        [REAR_AXLE_Z - 0.51, 0.47],
+        [REAR_AXLE_Z + 0.51, 0.47],
+      ]) {
+        const shackle = new THREE.Mesh(shackleGeometry, this.steel);
+        shackle.position.set(side * (z > 0 ? 0.4 : 0.38), y, z);
+        this.add(shackle);
+      }
+    }
+  }
+
+  private addDampers(): void {
+    const bodyGeometry = new THREE.CylinderGeometry(0.062, 0.062, 0.05, 20);
+    bodyGeometry.rotateZ(Math.PI / 2);
+
+    for (const side of [1, -1]) {
+      for (const [z, y, armZ, armY] of [
+        [FRONT_AXLE_Z - 0.32, 0.56, FRONT_AXLE_Z - 0.05, FRONT_HUB_HEIGHT + 0.02],
+        [REAR_AXLE_Z + 0.36, 0.58, REAR_AXLE_Z + 0.05, REAR_HUB_HEIGHT + 0.02],
+      ]) {
+        const damper = new THREE.Mesh(bodyGeometry, this.steel);
+        damper.position.set(side * 0.36, y, z);
+        this.add(damper);
+
+        this.add(
+          this.createRod(
+            new THREE.Vector3(side * 0.38, y, z),
+            new THREE.Vector3(side * 0.44, armY, armZ),
+            0.014,
+          ),
+        );
+      }
+    }
+  }
+
+  private addRadiusRods(): void {
+    for (const side of [1, -1]) {
+      this.add(
+        this.createRod(
+          new THREE.Vector3(side * 0.5, FRONT_HUB_HEIGHT - 0.02, FRONT_AXLE_Z - 0.03),
+          new THREE.Vector3(side * 0.24, 0.3, FRONT_AXLE_Z - 0.72),
+          0.017,
+        ),
+      );
+      this.add(
+        this.createRod(
+          new THREE.Vector3(side * 0.48, REAR_HUB_HEIGHT - 0.02, REAR_AXLE_Z + 0.03),
+          new THREE.Vector3(side * 0.24, 0.32, REAR_AXLE_Z + 0.66),
+          0.017,
+        ),
+      );
+    }
+  }
+
+  dispose(): void {
+    this.traverse((object) => {
+      if (object instanceof THREE.Mesh) object.geometry.dispose();
+    });
+    this.steel.dispose();
+    this.springSteel.dispose();
+  }
+}
+
+const suspension = new Suspension();
+scene.add(suspension);
+
+onDispose(() => {
+  suspension.dispose();
+});

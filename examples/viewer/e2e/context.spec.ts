@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { routeGLTS } from "./routes.js";
 
-test("returns the authored group and runs contextual lifecycle hooks", async ({ page }) => {
+test("returns the authored scene and runs contextual lifecycle hooks", async ({ page }) => {
   await routeGLTS(page, "**/assets/context.glts", `
     import * as THREE from "three"
     import { isPreview, onDispose, onFrame, scene } from "@drawcall/glts"
@@ -10,7 +10,7 @@ test("returns the authored group and runs contextual lifecycle hooks", async ({ 
     scene.name = "context scene"
     scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()))
     if (isPreview) {
-      scene.add(new THREE.PerspectiveCamera(), new THREE.AmbientLight())
+      scene.add(new THREE.AmbientLight())
     }
     onFrame((delta) => {
       scene.userData.elapsed = (scene.userData.elapsed ?? 0) + delta
@@ -26,16 +26,15 @@ test("returns the authored group and runs contextual lifecycle hooks", async ({ 
     const node = await loader.loadAsync(new URL("/assets/context.glts", location.href));
     node.update(0.25);
     const clone = node.clone();
-    let cameras = 0;
     let lights = 0;
     node.traverse((object) => {
-      if (Reflect.get(object, "isCamera") === true) cameras += 1;
       if (Reflect.get(object, "isLight") === true) lights += 1;
     });
     const snapshot = {
-      cameras,
+      cloneIsScene: clone instanceof window.Scene,
       cloneManaged: Reflect.has(clone, "reload"),
       elapsed: node.userData.elapsed,
+      isScene: node instanceof window.Scene,
       lights,
       name: node.name,
       url: node.url
@@ -47,17 +46,18 @@ test("returns the authored group and runs contextual lifecycle hooks", async ({ 
   });
 
   expect(result).toEqual({
-    cameras: 1,
+    cloneIsScene: true,
     cloneManaged: false,
     disposals: 1,
     elapsed: 0.25,
+    isScene: true,
     lights: 1,
     name: "context scene",
-    url: "http://127.0.0.1:5173/assets/context.glts"
+    url: new URL("/assets/context.glts", page.url()).href
   });
 });
 
-test("shares one runtime while keeping recursive loaders scoped", async ({ page }) => {
+test("enables preview only for the root across recursion and reload", async ({ page }) => {
   await routeGLTS(page, "**/assets/parent.glts", `
     import { gltsLoader, isPreview, scene } from "@drawcall/glts"
     globalThis.__parentContextLoader = gltsLoader
@@ -70,7 +70,14 @@ test("shares one runtime while keeping recursive loaders scoped", async ({ page 
     scene.name = "child"
     scene.userData.preview = isPreview
     scene.userData.scopedLoader = gltsLoader !== globalThis.__parentContextLoader
+    const grandchild = await gltsLoader.loadAsync(new URL("./grandchild.glts", import.meta.url))
+    scene.add(grandchild)
     onDispose(() => { globalThis.__childDisposed = true })
+  `);
+  await routeGLTS(page, "**/assets/grandchild.glts", `
+    import { isPreview, scene } from "@drawcall/glts"
+    scene.name = "grandchild"
+    scene.userData.preview = isPreview
   `);
 
   await page.goto("/test-harness.html");
@@ -80,26 +87,41 @@ test("shares one runtime while keeping recursive loaders scoped", async ({ page 
     const parent = await loader.loadAsync("/assets/parent.glts");
     const child = parent.children[0];
     if (!child) throw new Error("Child was not loaded");
+    const grandchild = child.children[0];
+    if (!grandchild) throw new Error("Grandchild was not loaded");
     const contextLoader = Reflect.get(globalThis, "__parentContextLoader");
-    const snapshot = {
+    const initial = {
       childName: child.name,
       childPreview: child.userData.preview,
+      grandchildPreview: grandchild.userData.preview,
       managerForwarded: Reflect.get(contextLoader, "manager") === manager,
       parentPreview: parent.userData.preview,
       scopedLoader: child.userData.scopedLoader
     };
+    await loader.reload("/assets/child.glts");
+    const reloadedGrandchild = child.children[0];
+    if (!reloadedGrandchild) throw new Error("Grandchild was not reloaded");
+    const reloaded = {
+      childPreview: child.userData.preview,
+      grandchildPreview: reloadedGrandchild.userData.preview
+    };
     parent.dispose();
     const childDisposed = Reflect.get(globalThis, "__childDisposed");
     loader.dispose();
-    return { ...snapshot, childDisposed };
+    return { ...initial, childDisposed, reloaded };
   });
 
   expect(result).toEqual({
     childDisposed: true,
     childName: "child",
     childPreview: false,
+    grandchildPreview: false,
     managerForwarded: true,
     parentPreview: true,
+    reloaded: {
+      childPreview: false,
+      grandchildPreview: false
+    },
     scopedLoader: true
   });
 });

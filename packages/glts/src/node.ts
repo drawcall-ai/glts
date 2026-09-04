@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import type { GLTSInstances, GLTSScene } from "./types.js";
+import type { GLTSScriptScene } from "./rendering.js";
 
 export type GLTSNode = GLTSInstances | GLTSScene;
 export type GLTSNodeKind = "instances" | "scene";
@@ -18,7 +19,7 @@ export interface InstanceMethods extends SceneMethods {
 }
 
 function defineCommon(
-  scene: THREE.Group,
+  scene: GLTSScriptScene,
   url: string,
   methods: SceneMethods
 ): void {
@@ -32,7 +33,8 @@ function defineCommon(
 
 function isScene(value: unknown): value is GLTSScene {
   return (
-    value instanceof THREE.Group &&
+    value instanceof THREE.Scene &&
+    "rendering" in value &&
     typeof Reflect.get(value, "url") === "string" &&
     typeof Reflect.get(value, "dispose") === "function" &&
     typeof Reflect.get(value, "reload") === "function" &&
@@ -50,7 +52,7 @@ function isInstances(value: unknown): value is GLTSInstances {
 }
 
 export function createSceneNode(
-  scene: THREE.Group,
+  scene: GLTSScriptScene,
   url: string,
   methods: SceneMethods
 ): GLTSScene {
@@ -63,7 +65,7 @@ export function createSceneNode(
 }
 
 export function createInstancesNode(
-  scene: THREE.Group,
+  scene: GLTSScriptScene,
   url: string,
   methods: InstanceMethods
 ): GLTSInstances {

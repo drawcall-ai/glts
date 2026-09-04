@@ -50,7 +50,7 @@ function visibleBelowRoot(object: THREE.Object3D, root: THREE.Object3D): boolean
 }
 
 export function createAutoInstances(
-  scene: THREE.Group,
+  scene: THREE.Scene,
   matrices: readonly THREE.Matrix4[],
   url: string
 ): AutoInstances {

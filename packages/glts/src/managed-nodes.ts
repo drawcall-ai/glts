@@ -10,6 +10,7 @@ import {
   type GLTSNodeKind
 } from "./node.js";
 import type { GLTSInstances, GLTSScene } from "./types.js";
+import type { GLTSScriptScene } from "./rendering.js";
 
 export interface PreparedExecution {
   readonly automatic: AutoInstances | undefined;
@@ -27,7 +28,7 @@ export interface NodeRecord {
   execution: Execution;
 }
 
-function copyRootState(target: THREE.Group, source: THREE.Group): void {
+function copyRootState(target: GLTSScene, source: GLTSScriptScene): void {
   // The revision owns root metadata and render state; the caller owns its transform.
   target.name = source.name;
   target.layers.mask = source.layers.mask;
@@ -38,10 +39,23 @@ function copyRootState(target: THREE.Group, source: THREE.Group): void {
   target.renderOrder = source.renderOrder;
   target.animations = source.animations.slice();
   target.userData = source.userData;
+  target.defaultCamera = source.defaultCamera;
+  target.background = source.background;
+  target.backgroundBlurriness = source.backgroundBlurriness;
+  target.backgroundIntensity = source.backgroundIntensity;
+  target.backgroundRotation.copy(source.backgroundRotation);
+  target.environment = source.environment;
+  target.environmentIntensity = source.environmentIntensity;
+  target.environmentRotation.copy(source.environmentRotation);
+  target.fog = source.fog;
+  target.overrideMaterial = source.overrideMaterial;
+  Object.assign(target.rendering, source.rendering, {
+    effects: source.rendering.effects.slice()
+  });
 }
 
 export class ManagedNodes {
-  readonly #records = new Map<THREE.Group, NodeRecord>();
+  readonly #records = new Map<THREE.Object3D, NodeRecord>();
   readonly #reload: (record: NodeRecord) => Promise<void>;
 
   constructor(reload: (record: NodeRecord) => Promise<void>) {
@@ -89,7 +103,7 @@ export class ManagedNodes {
     );
   }
 
-  record(node: THREE.Group): NodeRecord {
+  record(node: THREE.Object3D): NodeRecord {
     const record = this.#records.get(node);
     if (record && !record.disposed) {
       return record;
@@ -136,7 +150,7 @@ export class ManagedNodes {
     }
   }
 
-  update(node: THREE.Group, delta: number): void {
+  update(node: THREE.Object3D, delta: number): void {
     const record = this.record(node);
     if (!Number.isFinite(delta) || delta < 0) {
       throw new RangeError("GLTS update delta must be a non-negative finite number");
@@ -148,7 +162,7 @@ export class ManagedNodes {
     }
   }
 
-  dispose(node: THREE.Group): void {
+  dispose(node: THREE.Object3D): void {
     const record = this.#records.get(node);
     if (!record || record.disposed) {
       return;
@@ -158,7 +172,7 @@ export class ManagedNodes {
 
   disposeExecution(
     execution: Execution,
-    root: THREE.Group,
+    root: THREE.Object3D,
     automatic?: AutoInstances
   ): void {
     const errors: unknown[] = [];
@@ -209,14 +223,14 @@ export class ManagedNodes {
   }
 
   #getMatrixAt(
-    node: THREE.Group,
+    node: THREE.Object3D,
     index: number,
     matrix: THREE.Matrix4
   ): THREE.Matrix4 {
     return matrix.copy(this.#matrix(this.record(node), index));
   }
 
-  #setMatrixAt(node: THREE.Group, index: number, matrix: THREE.Matrix4): void {
+  #setMatrixAt(node: THREE.Object3D, index: number, matrix: THREE.Matrix4): void {
     const record = this.record(node);
     const target = this.#matrix(record, index);
     target.copy(matrix);
@@ -247,13 +261,12 @@ export class ManagedNodes {
     record.disposed = true;
     this.#records.delete(record.node);
     this.disposeExecution(record.execution, record.node, record.automatic);
-    record.node.clear();
   }
 
-  #descendants(root: THREE.Group): NodeRecord[] {
+  #descendants(root: THREE.Object3D): NodeRecord[] {
     const descendants: NodeRecord[] = [];
     root.traverse((object) => {
-      if (object === root || !(object instanceof THREE.Group)) {
+      if (object === root) {
         return;
       }
       const record = this.#records.get(object);

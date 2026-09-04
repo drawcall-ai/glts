@@ -1,0 +1,189 @@
+import * as THREE from "three";
+import { onDispose, scene } from "@drawcall/glts";
+
+// COMPATIBILITY PORT of the legacy cockpit.glts part — see ../index.glts.
+// Body text below is the legacy source verbatim; only the module shape changed.
+
+// Open cockpit fitted into the hole cut in the bodywork shell. Coordinates are
+// body-local: origin on the body axis, +Z toward the nose.
+// These mirror the opening cut in bodywork.glts.
+const OPENING_HALF_WIDTH = 0.278;
+const OPENING_HALF_LENGTH = 0.455;
+const OPENING_CENTER_Z = 0.11;
+// The body cross-section is near enough constant over the cockpit stations.
+const FLANK_HALF_WIDTH = 0.408;
+const FLANK_HALF_HEIGHT = 0.4215;
+
+class Cockpit extends THREE.Group {
+  private readonly leather: THREE.MeshStandardMaterial;
+  private readonly interior: THREE.MeshStandardMaterial;
+  private readonly chrome: THREE.MeshStandardMaterial;
+  private readonly wood: THREE.MeshStandardMaterial;
+  private readonly paint: THREE.MeshPhysicalMaterial;
+  private readonly glass: THREE.MeshPhysicalMaterial;
+
+  constructor() {
+    super();
+    this.name = "Cockpit";
+
+    this.leather = new THREE.MeshStandardMaterial({ color: 0x3d2c1d, roughness: 0.8, metalness: 0.05 });
+    this.interior = new THREE.MeshStandardMaterial({
+      color: 0x191614,
+      roughness: 0.85,
+      metalness: 0.1,
+      side: THREE.DoubleSide,
+    });
+    this.chrome = new THREE.MeshStandardMaterial({ color: 0xd6d9de, metalness: 1, roughness: 0.16 });
+    this.wood = new THREE.MeshStandardMaterial({ color: 0x6d4526, roughness: 0.55 });
+    this.paint = new THREE.MeshPhysicalMaterial({
+      color: 0x9d1220,
+      metalness: 0.12,
+      roughness: 0.3,
+      clearcoat: 0.9,
+      clearcoatRoughness: 0.12,
+    });
+    this.glass = new THREE.MeshPhysicalMaterial({
+      color: 0xdff0f5,
+      metalness: 0,
+      roughness: 0.05,
+      transmission: 0.9,
+      transparent: true,
+      opacity: 0.4,
+      side: THREE.DoubleSide,
+    });
+
+    this.addTub();
+    this.addCoaming();
+    this.addSeat();
+    this.addDashboard();
+    this.addSteering();
+    this.addLevers();
+    this.addHeadrest();
+    this.addAeroScreen();
+  }
+
+  private addTub(): void {
+    const geometry = new THREE.SphereGeometry(1, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+    geometry.scale(0.3, 0.26, 0.5);
+    const tub = new THREE.Mesh(geometry, this.interior);
+    tub.position.set(0, 0.3, OPENING_CENTER_Z);
+    this.add(tub);
+  }
+
+  // A flat ring would sink into the body at the ends of the opening, so the
+  // coaming follows the saddle-shaped edge of the cut.
+  private addCoaming(): void {
+    const points: THREE.Vector3[] = [];
+    for (let index = 0; index < 48; index++) {
+      const angle = (index / 48) * Math.PI * 2;
+      const x = OPENING_HALF_WIDTH * Math.cos(angle);
+      const z = OPENING_CENTER_Z + OPENING_HALF_LENGTH * Math.sin(angle);
+      const flankFraction = Math.max(0.02, 1 - (x / FLANK_HALF_WIDTH) ** 2);
+      points.push(new THREE.Vector3(x, FLANK_HALF_HEIGHT * Math.sqrt(flankFraction) - 0.008, z));
+    }
+    const curve = new THREE.CatmullRomCurve3(points, true, "catmullrom", 0.4);
+    const coaming = new THREE.Mesh(new THREE.TubeGeometry(curve, 120, 0.023, 10, true), this.chrome);
+    this.add(coaming);
+  }
+
+  private addSeat(): void {
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.28, 0.05), this.leather);
+    back.position.set(0, 0.28, -0.23);
+    back.rotation.x = 0.2;
+    this.add(back);
+
+    const cushion = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.07, 0.3), this.leather);
+    cushion.position.set(0, 0.14, -0.02);
+    this.add(cushion);
+  }
+
+  private addDashboard(): void {
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.22, 0.035), this.wood);
+    panel.position.set(0, 0.31, 0.44);
+    panel.rotation.x = -0.25;
+    this.add(panel);
+
+    const gaugeGeometry = new THREE.CylinderGeometry(0.045, 0.045, 0.03, 20);
+    gaugeGeometry.rotateX(Math.PI / 2);
+    for (const x of [-0.11, 0.11]) {
+      const gauge = new THREE.Mesh(gaugeGeometry, this.chrome);
+      gauge.position.set(x, 0.33, 0.42);
+      gauge.rotation.x = -0.25;
+      this.add(gauge);
+    }
+  }
+
+  private addSteering(): void {
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.135, 0.014, 12, 40), this.wood);
+    const wheel = new THREE.Group();
+    wheel.position.set(0, 0.3, 0.36);
+    wheel.rotation.x = 0.38;
+    wheel.add(rim);
+
+    const spokeGeometry = new THREE.CylinderGeometry(0.007, 0.007, 0.26, 8);
+    for (let index = 0; index < 3; index++) {
+      const spoke = new THREE.Mesh(spokeGeometry, this.chrome);
+      spoke.rotation.z = (index / 3) * Math.PI;
+      wheel.add(spoke);
+    }
+
+    const hubGeometry = new THREE.CylinderGeometry(0.032, 0.032, 0.035, 16);
+    hubGeometry.rotateX(Math.PI / 2);
+    wheel.add(new THREE.Mesh(hubGeometry, this.chrome));
+    this.add(wheel);
+
+    const column = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.3, 12), this.chrome);
+    column.position.set(0, 0.24, 0.47);
+    column.rotation.x = Math.PI / 2 - 0.38;
+    this.add(column);
+  }
+
+  private addLevers(): void {
+    const leverGeometry = new THREE.CylinderGeometry(0.011, 0.013, 0.26, 10);
+    const knobGeometry = new THREE.SphereGeometry(0.024, 14, 10);
+    for (const [z, tilt] of [
+      [0.08, -0.2],
+      [-0.02, -0.32],
+    ]) {
+      const lever = new THREE.Mesh(leverGeometry, this.chrome);
+      lever.position.set(0.2, 0.22, z);
+      lever.rotation.z = tilt;
+      this.add(lever);
+
+      const knob = new THREE.Mesh(knobGeometry, this.leather);
+      knob.position.set(0.2 + Math.sin(-tilt) * 0.13, 0.35, z);
+      this.add(knob);
+    }
+  }
+
+  private addHeadrest(): void {
+    const geometry = new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2);
+    geometry.scale(0.165, 0.15, 0.4);
+    const fairing = new THREE.Mesh(geometry, this.paint);
+    fairing.position.set(0, 0.395, -0.62);
+    this.add(fairing);
+  }
+
+  private addAeroScreen(): void {
+    const geometry = new THREE.CylinderGeometry(0.3, 0.3, 0.115, 32, 1, true, -0.62, 1.24);
+    const screen = new THREE.Mesh(geometry, this.glass);
+    screen.position.set(0, 0.45, 0.235);
+    this.add(screen);
+  }
+
+  dispose(): void {
+    this.traverse((object) => {
+      if (object instanceof THREE.Mesh) object.geometry.dispose();
+    });
+    for (const material of [this.leather, this.interior, this.chrome, this.wood, this.paint, this.glass]) {
+      material.dispose();
+    }
+  }
+}
+
+const cockpit = new Cockpit();
+scene.add(cockpit);
+
+onDispose(() => {
+  cockpit.dispose();
+});

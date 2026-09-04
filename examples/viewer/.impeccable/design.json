@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-04T10:29:04Z",
+  "title": "Design System: GLTS Viewer",
+  "extensions": {
+    "colorMeta": {
+      "stage": {
+        "role": "neutral",
+        "displayName": "Stage Black",
+        "canonical": "#080a10",
+        "tonalRamp": ["oklch(15% 0.014 269.4)", "oklch(26% 0.014 269.4)", "oklch(37% 0.014 269.4)", "oklch(49% 0.014 269.4)", "oklch(61% 0.014 269.4)", "oklch(73% 0.014 269.4)", "oklch(84% 0.014 269.4)", "oklch(95% 0.014 269.4)"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Warm Ivory",
+        "canonical": "#f5eee4",
+        "tonalRamp": ["oklch(15% 0.015 77.1)", "oklch(26% 0.015 77.1)", "oklch(37% 0.015 77.1)", "oklch(49% 0.015 77.1)", "oklch(61% 0.015 77.1)", "oklch(73% 0.015 77.1)", "oklch(84% 0.015 77.1)", "oklch(95% 0.015 77.1)"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Stone",
+        "canonical": "#b7afa3",
+        "tonalRamp": ["oklch(15% 0.019 78.2)", "oklch(26% 0.019 78.2)", "oklch(37% 0.019 78.2)", "oklch(49% 0.019 78.2)", "oklch(61% 0.019 78.2)", "oklch(73% 0.019 78.2)", "oklch(84% 0.019 78.2)", "oklch(95% 0.019 78.2)"]
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Faint Stone",
+        "canonical": "#817b72",
+        "tonalRamp": ["oklch(15% 0.015 78.2)", "oklch(26% 0.015 78.2)", "oklch(37% 0.015 78.2)", "oklch(49% 0.015 78.2)", "oklch(61% 0.015 78.2)", "oklch(73% 0.015 78.2)", "oklch(84% 0.015 78.2)", "oklch(95% 0.015 78.2)"]
+      },
+      "warm": {
+        "role": "primary",
+        "displayName": "Signal Amber",
+        "canonical": "#f3b96f",
+        "tonalRamp": ["oklch(15% 0.113 71.9)", "oklch(26% 0.113 71.9)", "oklch(37% 0.113 71.9)", "oklch(49% 0.113 71.9)", "oklch(61% 0.113 71.9)", "oklch(73% 0.113 71.9)", "oklch(84% 0.113 71.9)", "oklch(95% 0.113 71.9)"]
+      },
+      "edge": {
+        "role": "neutral",
+        "displayName": "Warm Hairline",
+        "canonical": "rgba(255, 244, 228, 0.16)",
+        "tonalRamp": ["oklch(15% 0.024 77.5 / 0.16)", "oklch(26% 0.024 77.5 / 0.16)", "oklch(37% 0.024 77.5 / 0.16)", "oklch(49% 0.024 77.5 / 0.16)", "oklch(61% 0.024 77.5 / 0.16)", "oklch(73% 0.024 77.5 / 0.16)", "oklch(84% 0.024 77.5 / 0.16)", "oklch(95% 0.024 77.5 / 0.16)"]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Glass Panel",
+        "canonical": "rgba(9, 11, 17, 0.86)",
+        "tonalRamp": ["oklch(15% 0.013 270.2 / 0.86)", "oklch(26% 0.013 270.2 / 0.86)", "oklch(37% 0.013 270.2 / 0.86)", "oklch(49% 0.013 270.2 / 0.86)", "oklch(61% 0.013 270.2 / 0.86)", "oklch(73% 0.013 270.2 / 0.86)", "oklch(84% 0.013 270.2 / 0.86)", "oklch(95% 0.013 270.2 / 0.86)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Viewer identity only." },
+      "title": { "displayName": "Action Title", "purpose": "File and showcase actions." },
+      "body": { "displayName": "Body", "purpose": "Descriptions and live status." },
+      "label": { "displayName": "Technical Label", "purpose": "Telemetry and showcase metadata." }
+    },
+    "shadows": [
+      { "name": "portal-raised", "value": "0 12px 32px rgba(0, 0, 0, 0.22)", "purpose": "Keeps the file portal legible over the scene." },
+      { "name": "dock-anchored", "value": "0 18px 50px rgba(0, 0, 0, 0.34)", "purpose": "Anchors the bottom dock over unknown imagery." }
+    ],
+    "motion": [
+      { "name": "state-fast", "value": "160ms ease", "purpose": "Hover, focus, border, and drag-overlay state changes." },
+      { "name": "portal-settle", "value": "520ms cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Moves the loading portal into ready-state chrome." },
+      { "name": "status-pulse", "value": "1.05s ease-in-out infinite", "purpose": "Signals a busy loading state; reduced-motion removes repetition." }
+    ],
+    "breakpoints": [
+      { "name": "compact", "value": "720px" },
+      { "name": "narrow", "value": "430px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "File Drop Portal",
+      "kind": "custom",
+      "refersTo": "file-drop",
+      "description": "Primary local-file action during loading and compact chrome after readiness.",
+      "html": "<label class=\"ds-drop-portal\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4\" /></svg><span><strong>Drop a .glts anywhere</strong><small>or choose a self-contained file</small></span><input class=\"ds-file-input\" type=\"file\" accept=\".glts\"></label>",
+      "css": ".ds-drop-portal { position: relative; display: flex; align-items: center; gap: .75rem; min-width: 16rem; padding: .72rem .85rem; border: 1px dashed rgba(245,238,228,.32); border-radius: 13px; color: var(--ink); background: rgba(9,11,17,.84); box-shadow: 0 12px 32px rgba(0,0,0,.22); backdrop-filter: blur(14px) saturate(1.1); cursor: pointer; transition: background 160ms ease, border-color 160ms ease; font-family: var(--sans); } .ds-drop-portal:hover, .ds-drop-portal:focus-within { border-color: var(--warm); background: rgba(23,20,18,.82); outline: none; } .ds-drop-portal svg { width: 1.35rem; fill: none; stroke: var(--warm); stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.5; } .ds-drop-portal span { display: grid; gap: .18rem; } .ds-drop-portal strong { font-size: .78rem; font-weight: 650; } .ds-drop-portal small { color: var(--muted); font-size: .67rem; } .ds-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }"
+    },
+    {
+      "name": "Showcase Choice",
+      "kind": "button",
+      "refersTo": "showcase-button",
+      "description": "Default bundled-example selector.",
+      "html": "<button class=\"ds-showcase-choice\" type=\"button\"><span>Geode Outcrop</span><small>Procedural geometry</small></button>",
+      "css": ".ds-showcase-choice { display: grid; gap: .3rem; min-width: 0; padding: 1rem 1.1rem; border: 0; border-right: 1px solid var(--edge); color: var(--ink); text-align: left; background: transparent; cursor: pointer; font-family: var(--sans); } .ds-showcase-choice:hover, .ds-showcase-choice:focus-visible { background: rgba(255,255,255,.08); outline: none; } .ds-showcase-choice:active { background: rgba(255,255,255,.12); } .ds-showcase-choice span { font-size: .8rem; font-weight: 650; } .ds-showcase-choice small { color: var(--muted); font-family: var(--mono); font-size: .61rem; }"
+    },
+    {
+      "name": "Selected Showcase Choice",
+      "kind": "button",
+      "refersTo": "showcase-button-selected",
+      "description": "Active bundled example, expressed as a full amber cell.",
+      "html": "<button class=\"ds-showcase-choice ds-is-selected\" type=\"button\" aria-pressed=\"true\"><span>Geode Outcrop</span><small>Procedural geometry</small></button>",
+      "css": ".ds-showcase-choice { display: grid; gap: .3rem; min-width: 0; padding: 1rem 1.1rem; border: 0; color: var(--ink); text-align: left; background: transparent; cursor: pointer; font-family: var(--sans); } .ds-showcase-choice.ds-is-selected, .ds-showcase-choice.ds-is-selected:hover, .ds-showcase-choice.ds-is-selected:focus-visible { color: #18120c; background: var(--warm); outline: none; } .ds-showcase-choice span { font-size: .8rem; font-weight: 650; } .ds-showcase-choice small { color: var(--muted); font-family: var(--mono); font-size: .61rem; } .ds-showcase-choice.ds-is-selected small { color: #3c2d1d; }"
+    },
+    {
+      "name": "Viewer Dock",
+      "kind": "card",
+      "refersTo": "viewer-dock",
+      "description": "Bottom-anchored glass chrome for example selection and live readout.",
+      "html": "<section class=\"ds-viewer-dock\"><div class=\"ds-dock-choice\">GEODE OUTCROP</div><div class=\"ds-dock-choice\">PENDULUM WAVE</div><div class=\"ds-dock-readout\">READY · 60 FPS</div></section>",
+      "css": ".ds-viewer-dock { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)) minmax(10rem,.76fr); max-width: 68rem; border-top: 1px solid var(--edge); border-bottom: 1px solid rgba(255,255,255,.07); color: var(--ink); background: var(--panel); box-shadow: 0 18px 50px rgba(0,0,0,.34); backdrop-filter: blur(18px) saturate(1.12); font-family: var(--sans); } .ds-dock-choice, .ds-dock-readout { padding: 1rem 1.1rem; } .ds-dock-choice { border-right: 1px solid var(--edge); font-size: .8rem; font-weight: 650; } .ds-dock-readout { align-self: center; color: var(--muted); font-family: var(--mono); font-size: .58rem; }"
+    },
+    {
+      "name": "Status Readout",
+      "kind": "custom",
+      "refersTo": "status-readout",
+      "description": "Compact runtime state and interaction telemetry.",
+      "html": "<div class=\"ds-status-readout\"><p><span class=\"ds-status-dot\"></span><span>Geode Outcrop ready</span></p><div class=\"ds-telemetry\"><span>60 FPS</span><span>drag to orbit · scroll to zoom</span></div><small>GLTS runs as code. Open files you trust.</small></div>",
+      "css": ".ds-status-readout { display: grid; gap: .34rem; color: var(--ink); font-family: var(--sans); } .ds-status-readout p { display: flex; align-items: flex-start; gap: .5rem; margin: 0; font-size: .7rem; line-height: 1.4; } .ds-status-dot { flex: 0 0 auto; width: .42rem; height: .42rem; margin-top: .28rem; border-radius: 50%; background: #9fd08a; box-shadow: 0 2px 10px rgba(159,208,138,.65); } .ds-telemetry { display: flex; justify-content: space-between; gap: .75rem; color: var(--muted); font-family: var(--mono); font-size: .58rem; } .ds-status-readout small { color: var(--faint); font-size: .59rem; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Cinematic Workbench",
+    "overview": "The rendered Three.js asset owns the viewport. Compact controls sit at the perimeter as translucent, low-contrast chrome, preserving a direct relationship between the user and the live scene.\n\nWarm editorial display type gives the workspace character; restrained sans-serif controls and monospaced telemetry keep it technical. Amber is a scarce interaction signal, while ivory neutrals carry hierarchy without competing with the asset.",
+    "keyCharacteristics": [
+      "Full-bleed live stage with compact perimeter chrome.",
+      "Warm editorial headlines paired with precise technical readouts.",
+      "One amber accent reserved for interaction and active state."
+    ],
+    "rules": [
+      { "name": "The Amber Signal Rule", "body": "Use amber only for actions, progress, and active selection; its rarity keeps state unmistakable.", "section": "colors" },
+      { "name": "The Three-Voice Rule", "body": "Use editorial serif for identity, sans-serif for action, and monospace only for technical metadata.", "section": "typography" },
+      { "name": "The Stage Owns the Screen Rule", "body": "Chrome stays at the perimeter and never becomes a competing central panel once the asset is ready.", "section": "layout" },
+      { "name": "The Bounded Glass Rule", "body": "Every blurred surface needs a visible edge or shadow so it remains legible over unknown asset imagery.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep the rendered asset visible behind every piece of chrome.",
+      "Do use amber for interactive focus, progress, and selected state.",
+      "Do preserve the serif/sans/mono role split at compact sizes."
+    ],
+    "donts": [
+      "Don't turn amber into a general decorative fill.",
+      "Don't round the dock or showcase cells; curvature identifies file-drop interactions.",
+      "Don't add central chrome after loading that competes with orbiting the asset."
+    ]
+  }
+}

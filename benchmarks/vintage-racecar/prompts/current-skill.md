@@ -40,8 +40,8 @@ not against the runtime's generated module.
 
 ## Scene and presentation
 
-Use native scene properties directly: `scene.background`, `scene.environment`,
-`scene.fog`, `scene.overrideMaterial`, and the normal `Object3D` API. Assign a
+Use native scene properties directly: `scene.background`, `environment`,
+`fog`, `overrideMaterial`, and the normal `Object3D` API. Assign a
 `THREE.Camera` to `scene.defaultCamera` when the asset has a useful authored
 view. It is a recommendation: the host may ignore it or pass another camera to
 the renderer, and remains responsible for adapting its projection to the
@@ -49,8 +49,6 @@ viewport. The camera need not be in the scene graph unless it depends on an
 authored parent; a camera in the hierarchy makes automatic instancing
 ineligible. GLTS does not search the hierarchy for cameras. The same loaded
 scene can be added beneath another Three.js scene or rendered as the root.
-`defaultCamera` is qualified because the host renderer accepts a competing
-camera argument; native scene properties have no competing argument.
 
 The host owns the root `scene` transform. Put authored placement under a child
 group; do not set `scene.position`, rotation, quaternion, scale, or matrix.

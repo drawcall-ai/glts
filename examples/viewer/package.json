@@ -1,5 +1,5 @@
 {
-  "name": "@drawcall/glts-example-basic",
+  "name": "@drawcall/glts-example-viewer",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@drawcall/glts": "workspace:*",
+    "@fontsource-variable/newsreader": "^5.3.0",
     "three": "^0.185.1"
   },
   "devDependencies": {

@@ -1,0 +1,764 @@
+import * as THREE from "three"
+import { onDispose, scene } from "@drawcall/glts"
+
+// The hand-formed aluminium shell: a torpedo body lofted from keyframed cross
+// sections, with the cockpit cut straight into the loft so the opening has a
+// real rolled lip and a real inner tub rather than a dark decal.
+//
+// The car points along +Z with its nose at z = +1.96, the ground at y = 0 and
+// the wheels on the z = ±1.14 axles. chassis.glts and cockpit.glts place their
+// parts against the same numbers.
+
+const TAIL_Z = -1.78
+const NOSE_Z = 1.96
+const RINGS = 140
+const ARC_POINTS = 51
+const WAIST = 0.45
+
+function required<T>(values: readonly T[], index: number, name: string): T {
+  const value = values[index]
+  if (value === undefined) throw new RangeError(`Missing ${name} at index ${index}`)
+  return value
+}
+
+function attribute(
+  geometry: THREE.BufferGeometry,
+  name: string
+): THREE.BufferAttribute {
+  const value = geometry.getAttribute(name)
+  if (!(value instanceof THREE.BufferAttribute)) {
+    throw new TypeError(`Expected buffer attribute: ${name}`)
+  }
+  return value
+}
+
+// Half of the cockpit cross-section, from the left lip to the right lip. `depth`
+// is a fraction of the opening depth at that station, so the same profile makes
+// the shallow front and rear bulkheads and the full-depth footwell.
+const COCKPIT_SECTION = [
+  { depth: 0.05, side: -1 },
+  { depth: 0.3, side: -0.965 },
+  { depth: 0.62, side: -0.885 },
+  { depth: 0.88, side: -0.745 },
+  { depth: 1, side: -0.52 },
+  { depth: 1.03, side: -0.26 },
+  { depth: 1.04, side: 0 },
+  { depth: 1.03, side: 0.26 },
+  { depth: 1, side: 0.52 },
+  { depth: 0.88, side: 0.745 },
+  { depth: 0.62, side: 0.885 },
+  { depth: 0.3, side: 0.965 },
+  { depth: 0.05, side: 1 }
+]
+const RING_POINTS = ARC_POINTS + COCKPIT_SECTION.length
+
+// Monotone cubic interpolation (Fritsch-Carlson): the body curves stay smooth
+// between the keyframes below without bulging past them.
+function monotoneSpline(
+  knots: readonly number[],
+  values: readonly number[]
+): (at: number) => number {
+  const count = knots.length
+  if (count < 2 || values.length !== count) {
+    throw new RangeError("A spline needs matching knots and values")
+  }
+  const secants: number[] = []
+  for (let index = 0; index < count - 1; index += 1) {
+    secants.push(
+      (required(values, index + 1, "spline value") - required(values, index, "spline value"))
+      / (required(knots, index + 1, "spline knot") - required(knots, index, "spline knot"))
+    )
+  }
+
+  const slopes = [required(secants, 0, "spline secant")]
+  for (let index = 1; index < count - 1; index += 1) {
+    const before = required(secants, index - 1, "spline secant")
+    const after = required(secants, index, "spline secant")
+    slopes.push(before * after <= 0 ? 0 : (before + after) / 2)
+  }
+  slopes.push(required(secants, count - 2, "spline secant"))
+
+  for (let index = 0; index < count - 1; index += 1) {
+    const secant = required(secants, index, "spline secant")
+    if (secant === 0) {
+      slopes[index] = 0
+      slopes[index + 1] = 0
+      continue
+    }
+    const start = required(slopes, index, "spline slope") / secant
+    const end = required(slopes, index + 1, "spline slope") / secant
+    const excess = Math.hypot(start, end)
+    if (excess > 3) {
+      slopes[index] = (3 / excess) * start * secant
+      slopes[index + 1] = (3 / excess) * end * secant
+    }
+  }
+
+  return (at) => {
+    let index = 0
+    while (index < count - 2 && at > required(knots, index + 1, "spline knot")) index += 1
+    const knot = required(knots, index, "spline knot")
+    const span = required(knots, index + 1, "spline knot") - knot
+    const t = Math.min(Math.max((at - knot) / span, 0), 1)
+    const square = t * t
+    const cube = square * t
+    return (2 * cube - 3 * square + 1) * required(values, index, "spline value")
+      + (cube - 2 * square + t) * span * required(slopes, index, "spline slope")
+      + (-2 * cube + 3 * square) * required(values, index + 1, "spline value")
+      + (cube - square) * span * required(slopes, index + 1, "spline slope")
+  }
+}
+
+//              tail                                  cockpit                                 scuttle          nose
+const shapeZ = [-1.78, -1.74, -1.62, -1.45, -1.24, -1.00, -0.75, -0.50, -0.28, 0.00, 0.22, 0.45, 0.62, 0.85, 1.14, 1.42, 1.68, 1.82, 1.90, 1.96]
+const shapeHalf = [0.014, 0.052, 0.108, 0.168, 0.228, 0.276, 0.308, 0.324, 0.331, 0.333, 0.329, 0.315, 0.302, 0.282, 0.258, 0.228, 0.192, 0.170, 0.160, 0.170]
+const shapeTop = [0.558, 0.590, 0.622, 0.658, 0.690, 0.712, 0.727, 0.736, 0.741, 0.744, 0.748, 0.752, 0.746, 0.730, 0.714, 0.707, 0.700, 0.695, 0.696, 0.718]
+const shapeFloor = [0.540, 0.508, 0.452, 0.386, 0.325, 0.288, 0.262, 0.244, 0.236, 0.232, 0.233, 0.238, 0.244, 0.256, 0.274, 0.297, 0.318, 0.330, 0.336, 0.336]
+const shapePower = [2.05, 2.15, 2.20, 2.28, 2.38, 2.50, 2.62, 2.72, 2.76, 2.80, 2.78, 2.72, 2.66, 2.56, 2.48, 2.38, 2.26, 2.18, 2.12, 2.08]
+
+// The opening half-width and its depth ramp together, so the hole in the deck is
+// a closed oval instead of a flat strip that never lifts off the surface.
+const openZ = [-1.78, -0.605, -0.60, -0.575, -0.545, -0.50, -0.44, -0.36, -0.24, -0.10, 0.12, 0.28, 0.42, 0.52, 0.58, 0.62, 0.655, 0.66, 1.96]
+const openHalf = [0.004, 0.004, 0.008, 0.055, 0.090, 0.125, 0.156, 0.176, 0.190, 0.196, 0.198, 0.183, 0.152, 0.118, 0.092, 0.062, 0.020, 0.004, 0.004]
+const openDrop = [0.000, 0.000, 0.004, 0.030, 0.070, 0.130, 0.190, 0.230, 0.252, 0.260, 0.262, 0.252, 0.228, 0.198, 0.170, 0.132, 0.050, 0.000, 0.000]
+
+const halfWidth = monotoneSpline(shapeZ, shapeHalf)
+const topHeight = monotoneSpline(shapeZ, shapeTop)
+const floorHeight = monotoneSpline(shapeZ, shapeFloor)
+const sectionPower = monotoneSpline(shapeZ, shapePower)
+const openingHalf = monotoneSpline(openZ, openHalf)
+const openingDrop = monotoneSpline(openZ, openDrop)
+
+function waistHeight(z: number): number {
+  const top = topHeight(z)
+  const floor = floorHeight(z)
+  return floor + (top - floor) * WAIST
+}
+
+function clampUnit(value: number): number {
+  return Math.min(Math.max(value, 0), 1)
+}
+
+// Superellipse section: angle 0 is the widest point on the right flank, PI/2 the
+// top centreline and -PI/2 the belly.
+function surfacePoint(z: number, angle: number): THREE.Vector3 {
+  const power = sectionPower(z)
+  const waist = waistHeight(z)
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  const reach = sin >= 0 ? topHeight(z) - waist : waist - floorHeight(z)
+  return new THREE.Vector3(
+    halfWidth(z) * Math.sign(cos) * Math.abs(cos) ** (2 / power),
+    waist + Math.sign(sin) * reach * Math.abs(sin) ** (2 / power),
+    z
+  )
+}
+
+function deckHeight(z: number, x: number): number {
+  const power = sectionPower(z)
+  const waist = waistHeight(z)
+  const across = clampUnit(Math.abs(x) / halfWidth(z))
+  return waist + (topHeight(z) - waist) * Math.max(1 - across ** power, 0) ** (1 / power)
+}
+
+function angleAtHeight(z: number, y: number): number {
+  const power = sectionPower(z)
+  const waist = waistHeight(z)
+  const reach = y >= waist ? topHeight(z) - waist : waist - floorHeight(z)
+  const ratio = clampUnit(Math.abs(y - waist) / reach)
+  return Math.sign(y - waist) * Math.asin(clampUnit(ratio ** (power / 2)))
+}
+
+function surfaceNormal(z: number, angle: number): THREE.Vector3 {
+  const step = 0.004
+  const alongZ = surfacePoint(z + step, angle).sub(surfacePoint(z - step, angle))
+  const alongAngle = surfacePoint(z, angle + step).sub(surfacePoint(z, angle - step))
+  return alongAngle.cross(alongZ).normalize()
+}
+
+interface Place {
+  readonly angle: number
+  readonly offset: number
+  readonly z: number
+}
+
+// A rectangular sheet lying on (or just off) the body surface: roundels, bonnet
+// straps, louvre blades and panel gaps are all placed this way.
+function surfacePatch(
+  columns: number,
+  rows: number,
+  place: (u: number, v: number) => Place,
+  flipU = false
+): THREE.BufferGeometry {
+  const positions: number[] = []
+  const uvs: number[] = []
+  const indices: number[] = []
+  for (let column = 0; column <= columns; column += 1) {
+    const u = column / columns
+    for (let row = 0; row <= rows; row += 1) {
+      const v = row / rows
+      const at = place(u, v)
+      const point = surfacePoint(at.z, at.angle)
+      if (at.offset !== 0) point.addScaledVector(surfaceNormal(at.z, at.angle), at.offset)
+      positions.push(point.x, point.y, point.z)
+      uvs.push(flipU ? 1 - u : u, v)
+    }
+  }
+
+  const stride = rows + 1
+  for (let column = 0; column < columns; column += 1) {
+    for (let row = 0; row < rows; row += 1) {
+      const a = column * stride + row
+      const b = a + stride
+      const c = a + 1
+      const d = b + 1
+      indices.push(a, c, b, b, c, d)
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+// Mirrors a part built on the right flank onto the left one. A mirror reverses
+// both the winding and the apparent left-to-right reading of any texture, so U
+// is flipped back and the triangles are reordered.
+function mirrored(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  const copy = geometry.clone()
+  copy.applyMatrix4(new THREE.Matrix4().makeScale(-1, 1, 1))
+  const uv = copy.getAttribute("uv")
+  if (uv) {
+    for (let vertex = 0; vertex < uv.count; vertex += 1) {
+      uv.setX(vertex, 1 - uv.getX(vertex))
+    }
+    uv.needsUpdate = true
+  }
+  const index = copy.getIndex()
+  if (index) {
+    for (let offset = 0; offset < index.count; offset += 3) {
+      const first = index.getX(offset)
+      index.setX(offset, index.getX(offset + 2))
+      index.setX(offset + 2, first)
+    }
+    index.needsUpdate = true
+  }
+  copy.computeVertexNormals()
+  return copy
+}
+
+function merge(parts: readonly THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const flat = parts.map((part) => (part.index ? part.toNonIndexed() : part))
+  const total = flat.reduce((sum, part) => sum + attribute(part, "position").count, 0)
+  const positions = new Float32Array(total * 3)
+  const normals = new Float32Array(total * 3)
+  const uvs = new Float32Array(total * 2)
+  let offset = 0
+  for (const part of flat) {
+    const position = attribute(part, "position")
+    positions.set(position.array, offset * 3)
+    normals.set(attribute(part, "normal").array, offset * 3)
+    if (part.hasAttribute("uv")) {
+      uvs.set(attribute(part, "uv").array, offset * 2)
+    }
+    offset += position.count
+  }
+
+  for (const [index, part] of flat.entries()) {
+    part.dispose()
+    const source = required(parts, index, "source geometry")
+    if (part !== source) source.dispose()
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3))
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2))
+  return geometry
+}
+
+// ---------------------------------------------------------------------------
+// Shell
+// ---------------------------------------------------------------------------
+
+function bodyRing(z: number): THREE.Vector3[] {
+  const points: THREE.Vector3[] = []
+  const opening = Math.min(openingHalf(z), halfWidth(z) * 0.92)
+  const edge = Math.acos(clampUnit((opening / halfWidth(z)) ** (sectionPower(z) / 2)))
+  const sweep = Math.PI + 2 * edge
+  for (let index = 0; index < ARC_POINTS; index += 1) {
+    points.push(surfacePoint(z, edge - (sweep * index) / (ARC_POINTS - 1)))
+  }
+
+  const drop = openingDrop(z)
+  for (const station of COCKPIT_SECTION) {
+    const x = station.side * opening
+    points.push(new THREE.Vector3(x, deckHeight(z, x) - station.depth * drop, z))
+  }
+  return points
+}
+
+const shellPositions: number[] = []
+const shellUvs: number[] = []
+const paintIndices: number[] = []
+const tubIndices: number[] = []
+const stations: number[] = []
+// Stations are pulled toward the nose and tail, where the section changes fast,
+// while staying dense enough through the cockpit to keep the opening smooth.
+for (let index = 0; index < RINGS; index += 1) {
+  const t = index / (RINGS - 1)
+  const clustered = t * 0.45 + (0.5 - 0.5 * Math.cos(Math.PI * t)) * 0.55
+  const z = TAIL_Z + (NOSE_Z - TAIL_Z) * clustered
+  stations.push(z)
+  const ring = bodyRing(z)
+  for (const [point, position] of ring.entries()) {
+    shellPositions.push(position.x, position.y, position.z)
+    shellUvs.push(point / RING_POINTS, (z - TAIL_Z) / (NOSE_Z - TAIL_Z))
+  }
+}
+
+for (let index = 0; index < RINGS - 1; index += 1) {
+  const start = required(stations, index, "body station")
+  const end = required(stations, index + 1, "body station")
+  const inTub = Math.max(openingDrop(start), openingDrop(end)) > 0.012
+  for (let point = 0; point < RING_POINTS; point += 1) {
+    const next = (point + 1) % RING_POINTS
+    const a = index * RING_POINTS + point
+    const b = index * RING_POINTS + next
+    const c = (index + 1) * RING_POINTS + point
+    const d = (index + 1) * RING_POINTS + next
+    const target = inTub && point >= ARC_POINTS - 1 ? tubIndices : paintIndices
+    target.push(a, c, b, b, c, d)
+  }
+}
+
+// Rounded tail cap closing the last section onto the centreline.
+const tailCenter = shellPositions.length / 3
+shellPositions.push(0, (topHeight(TAIL_Z) + floorHeight(TAIL_Z)) / 2, TAIL_Z - 0.014)
+shellUvs.push(0.5, 0)
+for (let point = 0; point < RING_POINTS; point += 1) {
+  paintIndices.push(point, (point + 1) % RING_POINTS, tailCenter)
+}
+
+const shellGeometry = new THREE.BufferGeometry()
+shellGeometry.setAttribute("position", new THREE.Float32BufferAttribute(shellPositions, 3))
+shellGeometry.setAttribute("uv", new THREE.Float32BufferAttribute(shellUvs, 2))
+shellGeometry.setIndex([...paintIndices, ...tubIndices])
+shellGeometry.addGroup(0, paintIndices.length, 0)
+shellGeometry.addGroup(paintIndices.length, tubIndices.length, 1)
+shellGeometry.computeVertexNormals()
+
+// ---------------------------------------------------------------------------
+// Radiator: chrome bezel rolled off the nose section, slatted core behind it
+// ---------------------------------------------------------------------------
+
+const GRILLE_SEGMENTS = 72
+const noseCenter = (topHeight(NOSE_Z) + floorHeight(NOSE_Z)) / 2
+
+function noseOutline(scale: number, z: number): THREE.Vector3[] {
+  const points: THREE.Vector3[] = []
+  for (let index = 0; index < GRILLE_SEGMENTS; index += 1) {
+    const point = surfacePoint(NOSE_Z, (index / GRILLE_SEGMENTS) * Math.PI * 2)
+    points.push(new THREE.Vector3(
+      point.x * scale,
+      noseCenter + (point.y - noseCenter) * scale,
+      z
+    ))
+  }
+  return points
+}
+
+const bezelRings = [
+  { scale: 1.0, z: 1.888 },
+  { scale: 1.036, z: 1.948 },
+  { scale: 1.0, z: 1.978 },
+  { scale: 0.962, z: 1.987 },
+  { scale: 0.928, z: 1.978 }
+]
+
+const bezelPositions: number[] = []
+const bezelUvs: number[] = []
+const bezelIndices: number[] = []
+for (const [index, ring] of bezelRings.entries()) {
+  for (const point of noseOutline(ring.scale, ring.z)) {
+    bezelPositions.push(point.x, point.y, point.z)
+    bezelUvs.push(index / (bezelRings.length - 1), 0)
+  }
+}
+for (let index = 0; index < bezelRings.length - 1; index += 1) {
+  for (let point = 0; point < GRILLE_SEGMENTS; point += 1) {
+    const next = (point + 1) % GRILLE_SEGMENTS
+    const a = index * GRILLE_SEGMENTS + point
+    const b = index * GRILLE_SEGMENTS + next
+    const c = (index + 1) * GRILLE_SEGMENTS + point
+    const d = (index + 1) * GRILLE_SEGMENTS + next
+    bezelIndices.push(a, c, b, b, c, d)
+  }
+}
+const bezelGeometry = new THREE.BufferGeometry()
+bezelGeometry.setAttribute("position", new THREE.Float32BufferAttribute(bezelPositions, 3))
+bezelGeometry.setAttribute("uv", new THREE.Float32BufferAttribute(bezelUvs, 2))
+bezelGeometry.setIndex(bezelIndices)
+bezelGeometry.computeVertexNormals()
+
+// The radiator shell leans back the way a period one does. Everything in front
+// of the nose section shares the rake so bezel, core and slats stay aligned.
+const RADIATOR_RAKE = 0.1
+function rake(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  geometry.translate(0, -noseCenter, -NOSE_Z)
+  geometry.rotateX(-RADIATOR_RAKE)
+  geometry.translate(0, noseCenter, NOSE_Z)
+  return geometry
+}
+rake(bezelGeometry)
+
+const corePositions: number[] = []
+const coreUvs: number[] = []
+const coreIndices: number[] = []
+const coreRings = [{ scale: 0.926, z: 1.977 }, { scale: 0.918, z: 1.938 }]
+const coreOutline = noseOutline(0.918, 1.938)
+const coreHalf = Math.max(...coreOutline.map((point) => Math.abs(point.x)))
+const coreReach = Math.max(...coreOutline.map((point) => Math.abs(point.y - noseCenter)))
+for (const ring of coreRings) {
+  for (const point of noseOutline(ring.scale, ring.z)) {
+    corePositions.push(point.x, point.y, point.z)
+    coreUvs.push(0.5 + point.x / (coreHalf * 2), 0.5 + (point.y - noseCenter) / (coreReach * 2))
+  }
+}
+for (let point = 0; point < GRILLE_SEGMENTS; point += 1) {
+  const next = (point + 1) % GRILLE_SEGMENTS
+  coreIndices.push(
+    point, GRILLE_SEGMENTS + point, next,
+    next, GRILLE_SEGMENTS + point, GRILLE_SEGMENTS + next
+  )
+}
+const coreCenter = GRILLE_SEGMENTS * 2
+corePositions.push(0, noseCenter, 1.918)
+coreUvs.push(0.5, 0.5)
+for (let point = 0; point < GRILLE_SEGMENTS; point += 1) {
+  coreIndices.push(
+    GRILLE_SEGMENTS + point,
+    coreCenter,
+    GRILLE_SEGMENTS + ((point + 1) % GRILLE_SEGMENTS)
+  )
+}
+const coreGeometry = new THREE.BufferGeometry()
+coreGeometry.setAttribute("position", new THREE.Float32BufferAttribute(corePositions, 3))
+coreGeometry.setAttribute("uv", new THREE.Float32BufferAttribute(coreUvs, 2))
+coreGeometry.setIndex(coreIndices)
+coreGeometry.computeVertexNormals()
+rake(coreGeometry)
+
+// Vertical slats, each cut to the height of the oval at its own station.
+const slatParts: THREE.BufferGeometry[] = []
+const slatCount = 15
+for (let index = 0; index < slatCount; index += 1) {
+  const x = ((index / (slatCount - 1)) * 2 - 1) * coreHalf * 0.94
+  const reach = coreReach * Math.sqrt(Math.max(1 - (x / (coreHalf * 0.99)) ** 2, 0))
+  const centre = index === (slatCount - 1) / 2
+  const slat = new THREE.BoxGeometry(centre ? 0.018 : 0.0085, reach * 2 * 0.985, centre ? 0.018 : 0.011)
+  slat.translate(x, noseCenter, centre ? 1.965 : 1.962)
+  slatParts.push(slat)
+}
+const slatGeometry = rake(merge(slatParts))
+
+// Brass filler cap on the crown of the nose.
+const capParts: THREE.BufferGeometry[] = []
+for (const [z, radius] of [[1.878, 0.031], [-1.36, 0.03]] as const) {
+  const base = new THREE.CylinderGeometry(radius, radius * 1.13, 0.018, 24, 1)
+  base.translate(0, topHeight(z) - 0.003, z)
+  const dome = new THREE.SphereGeometry(radius, 24, 10, 0, Math.PI * 2, 0, Math.PI * 0.46)
+  dome.translate(0, topHeight(z) + 0.005, z)
+  capParts.push(base, dome)
+}
+const fillerGeometry = merge(capParts)
+
+// ---------------------------------------------------------------------------
+// Headrest fairing behind the cockpit
+// ---------------------------------------------------------------------------
+
+const headrestGeometry = new THREE.SphereGeometry(1, 32, 24)
+headrestGeometry.scale(0.116, 0.082, 0.35)
+headrestGeometry.translate(0, 0.7, -0.91)
+
+const headrestPadGeometry = new THREE.SphereGeometry(1, 24, 16)
+headrestPadGeometry.scale(0.082, 0.04, 0.044)
+headrestPadGeometry.translate(0, 0.744, -0.585)
+
+// ---------------------------------------------------------------------------
+// Skin details: cockpit beading, bonnet straps, race roundels, louvres, gaps
+// ---------------------------------------------------------------------------
+
+// Leather beading rolled around the cockpit opening.
+const beadingParts: THREE.BufferGeometry[] = []
+{
+  const rim: THREE.Vector3[] = []
+  const steps = 128
+  for (let index = 0; index < steps; index += 1) {
+    const phase = (index / steps) * Math.PI * 2
+    const z = 0.03 + 0.63 * Math.cos(phase)
+    const x = Math.min(openingHalf(z), halfWidth(z) * 0.92) * Math.sin(phase)
+    rim.push(new THREE.Vector3(x, deckHeight(z, x) - 0.003, z))
+  }
+  const curve = new THREE.CatmullRomCurve3(rim, true, "centripetal")
+  beadingParts.push(new THREE.TubeGeometry(curve, 240, 0.011, 8, true))
+}
+const beadingGeometry = merge(beadingParts)
+
+const strapParts: THREE.BufferGeometry[] = []
+const buckleParts: THREE.BufferGeometry[] = []
+for (const strapZ of [1.44, 1.79]) {
+  strapParts.push(surfacePatch(6, 40, (u, v) => ({
+    angle: 0.24 + v * (Math.PI - 0.48),
+    offset: 0.0058 * Math.sqrt(Math.max(1 - (2 * u - 1) ** 2, 0)),
+    z: strapZ - 0.035 + u * 0.07
+  })))
+  for (const angle of [0.6, Math.PI - 0.6]) {
+    const anchor = surfacePoint(strapZ, angle)
+    const normal = surfaceNormal(strapZ, angle)
+    const buckle = new THREE.BoxGeometry(0.046, 0.03, 0.011)
+    buckle.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(
+      new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal)
+    ))
+    buckle.translate(
+      anchor.x + normal.x * 0.011,
+      anchor.y + normal.y * 0.011,
+      anchor.z + normal.z * 0.011
+    )
+    buckleParts.push(buckle)
+  }
+}
+const strapGeometry = merge(strapParts)
+const buckleGeometry = merge(buckleParts)
+
+// Fine core mesh behind the slats, so the radiator reads as a filled opening
+// rather than a hole cut in the nose.
+function radiatorTexture(): THREE.CanvasTexture {
+  const size = 128
+  const canvas = document.createElement("canvas")
+  canvas.width = size
+  canvas.height = size
+  const context = canvas.getContext("2d")
+  if (!context) throw new Error("Unable to create the radiator canvas context")
+  context.fillStyle = "#0a0c0e"
+  context.fillRect(0, 0, size, size)
+  context.strokeStyle = "#6d7278"
+  context.lineWidth = 2.5
+  for (let line = 0; line < 8; line += 1) {
+    const at = ((line + 0.5) / 8) * size
+    context.beginPath()
+    context.moveTo(at, 0)
+    context.lineTo(at, size)
+    context.moveTo(0, at)
+    context.lineTo(size, at)
+    context.stroke()
+  }
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.anisotropy = 8
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.repeat.set(11, 9)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  return texture
+}
+
+function roundelTexture(): THREE.CanvasTexture {
+  const size = 256
+  const canvas = document.createElement("canvas")
+  canvas.width = size
+  canvas.height = size
+  const context = canvas.getContext("2d")
+  if (!context) throw new Error("Unable to create the roundel canvas context")
+  context.clearRect(0, 0, size, size)
+  context.fillStyle = "#efe7d4"
+  context.beginPath()
+  context.arc(size / 2, size / 2, size * 0.46, 0, Math.PI * 2)
+  context.fill()
+  context.strokeStyle = "rgba(40, 34, 26, 0.35)"
+  context.lineWidth = 3
+  context.stroke()
+  context.fillStyle = "#1a1614"
+  context.font = "800 168px Helvetica, Arial, sans-serif"
+  context.textAlign = "center"
+  context.textBaseline = "middle"
+  context.fillText("7", size / 2, size * 0.53)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.anisotropy = 8
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+const roundelRight = surfacePatch(18, 18, (u, v) => ({
+  angle: angleAtHeight(-0.135 + u * 0.27, 0.318 + v * 0.27),
+  offset: 0.0022,
+  z: -0.135 + u * 0.27
+}), true)
+const roundelGeometry = merge([roundelRight.clone(), mirrored(roundelRight)])
+roundelRight.dispose()
+
+// Bonnet louvres: a pressed blade that lifts off the panel over a dark slot.
+const louvreParts: THREE.BufferGeometry[] = []
+const slotParts: THREE.BufferGeometry[] = []
+for (let index = 0; index < 9; index += 1) {
+  const z = 0.79 + index * 0.062
+  louvreParts.push(surfacePatch(7, 4, (u, v) => ({
+    angle: 0.3 + v * 0.42,
+    offset: 0.016 * (1 - v) ** 1.3 * Math.sqrt(Math.max(1 - (2 * u - 1) ** 2, 0)),
+    z: z + (u - 0.5) * 0.056
+  })))
+  slotParts.push(surfacePatch(7, 1, (u, v) => ({
+    angle: 0.238 + v * 0.066,
+    offset: -0.004,
+    z: z + (u - 0.5) * 0.05
+  })))
+}
+const louvreRight = merge(louvreParts)
+const slotRight = merge(slotParts)
+const louvreGeometry = merge([louvreRight.clone(), mirrored(louvreRight)])
+const slotGeometry = merge([slotRight.clone(), mirrored(slotRight)])
+louvreRight.dispose()
+slotRight.dispose()
+
+// Panel gaps: the bonnet's trailing edge and the split along each flank.
+const gapParts: THREE.BufferGeometry[] = [
+  surfacePatch(2, 44, (u, v) => ({
+    angle: -0.95 + v * (Math.PI + 1.9),
+    offset: -0.0035,
+    z: 0.7 + u * 0.008
+  }))
+]
+const flankGap = surfacePatch(44, 2, (u, v) => ({
+  angle: -0.115 + v * 0.03,
+  offset: -0.0035,
+  z: 0.72 + u * 1.18
+}))
+gapParts.push(flankGap.clone(), mirrored(flankGap))
+flankGap.dispose()
+const gapGeometry = merge(gapParts)
+
+// ---------------------------------------------------------------------------
+// Materials
+// ---------------------------------------------------------------------------
+
+const paintMaterial = new THREE.MeshPhysicalMaterial({
+  clearcoat: 0.6,
+  clearcoatRoughness: 0.24,
+  color: "#0f462a",
+  metalness: 0,
+  roughness: 0.34
+})
+const tubMaterial = new THREE.MeshStandardMaterial({
+  color: "#4a4f54",
+  envMapIntensity: 1.2,
+  metalness: 0.42,
+  roughness: 0.55
+})
+const chromeMaterial = new THREE.MeshStandardMaterial({
+  color: "#ccd2d8",
+  envMapIntensity: 1.35,
+  metalness: 1,
+  roughness: 0.2
+})
+const brassMaterial = new THREE.MeshStandardMaterial({
+  color: "#c0a066",
+  metalness: 1,
+  roughness: 0.28
+})
+const radiatorMap = radiatorTexture()
+const coreMaterial = new THREE.MeshStandardMaterial({
+  color: "#4a4f55",
+  map: radiatorMap,
+  metalness: 0.85,
+  roughness: 0.46
+})
+// Louvre slots and panel gaps only ever need to read as shadow.
+const shadowMaterial = new THREE.MeshStandardMaterial({
+  color: "#0b0d0f",
+  metalness: 0.4,
+  roughness: 0.8
+})
+const leatherMaterial = new THREE.MeshStandardMaterial({
+  color: "#4a3626",
+  metalness: 0,
+  roughness: 0.68
+})
+const roundelTextureMap = roundelTexture()
+const roundelMaterial = new THREE.MeshStandardMaterial({
+  alphaTest: 0.5,
+  map: roundelTextureMap,
+  metalness: 0,
+  roughness: 0.42,
+  transparent: true
+})
+
+const body = new THREE.Group()
+body.name = "bodywork"
+
+const shell = new THREE.Mesh(shellGeometry, [paintMaterial, tubMaterial])
+shell.name = "aluminium shell"
+for (const [geometry, material] of [
+  [bezelGeometry, chromeMaterial],
+  [coreGeometry, coreMaterial],
+  [slatGeometry, chromeMaterial],
+  [fillerGeometry, brassMaterial],
+  [headrestGeometry, paintMaterial],
+  [headrestPadGeometry, leatherMaterial],
+  [beadingGeometry, leatherMaterial],
+  [strapGeometry, leatherMaterial],
+  [buckleGeometry, brassMaterial],
+  [louvreGeometry, paintMaterial],
+  [slotGeometry, shadowMaterial],
+  [gapGeometry, shadowMaterial]
+] as const) {
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  body.add(mesh)
+}
+
+const roundels = new THREE.Mesh(roundelGeometry, roundelMaterial)
+roundels.name = "race numbers"
+roundels.receiveShadow = true
+
+shell.castShadow = true
+shell.receiveShadow = true
+body.add(shell, roundels)
+scene.add(body)
+
+onDispose(() => {
+  for (const geometry of [
+    shellGeometry,
+    bezelGeometry,
+    coreGeometry,
+    slatGeometry,
+    fillerGeometry,
+    headrestGeometry,
+    headrestPadGeometry,
+    beadingGeometry,
+    strapGeometry,
+    buckleGeometry,
+    louvreGeometry,
+    slotGeometry,
+    gapGeometry,
+    roundelGeometry
+  ]) {
+    geometry.dispose()
+  }
+  for (const material of [
+    paintMaterial,
+    tubMaterial,
+    chromeMaterial,
+    brassMaterial,
+    coreMaterial,
+    shadowMaterial,
+    leatherMaterial,
+    roundelMaterial
+  ]) {
+    material.dispose()
+  }
+  radiatorMap.dispose()
+  roundelTextureMap.dispose()
+})

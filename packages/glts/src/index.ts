@@ -9,6 +9,12 @@ export {
 } from "./context.js";
 export { GLTSError, type GLTSPhase } from "./errors.js";
 export { GLTSLoader } from "./GLTSLoader.js";
+export {
+  GLTSRenderer,
+  type GLTSEffect,
+  type GLTSEffectContext,
+  type GLTSRenderingProfile
+} from "./rendering.js";
 export { loadingManager } from "./loading-manager.js";
 export type {
   GLTSDisposeCallback,

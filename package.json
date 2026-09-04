@@ -6,7 +6,7 @@
   "scripts": {
     "build": "pnpm -r --if-present build",
     "check": "pnpm build && pnpm typecheck && pnpm test",
-    "dev": "pnpm --filter @drawcall/glts-example-basic dev",
+    "dev": "pnpm --filter @drawcall/glts-example-viewer dev",
     "test": "pnpm -r --if-present test",
     "test:e2e": "pnpm --filter @drawcall/glts build && playwright test",
     "typecheck": "tsc -p tsconfig.json --noEmit && pnpm -r --if-present typecheck"

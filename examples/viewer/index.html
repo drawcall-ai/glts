@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#080a10" />
+    <meta
+      name="description"
+      content="Open local GLTS files and explore executable Three.js assets in a reusable viewer."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'><rect width='256' height='256' rx='58' fill='%23080a10'/><path fill='%23f3b96f' d='m128 38 78 45v90l-78 45-78-45V83l78-45Zm0 24L72 94v66l56 32 56-32V94l-56-32Z'/></svg>"
+    />
+    <title>GLTS Viewer</title>
+  </head>
+  <body>
+    <!--
+      DESIGN CONTRACT
+      THESIS: The executable asset is the hero; viewer chrome stays compact and recedes around the live stage.
+      OWN-WORLD: Cinematic dark Three.js workspace with warm editorial type and precise technical readouts.
+      STORY: Open a trusted GLTS file, inspect it directly, then explore a deeply authored example.
+      FIRST VIEWPORT: A running racecar, an unmistakable file-drop affordance, and the bundled example are all immediately reachable.
+      FORM: Centered drop portal that settles into compact viewer chrome; experience seed 93883488.
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+    -->
+    <canvas id="scene"></canvas>
+    <div class="scrim" aria-hidden="true"></div>
+    <div class="vignette" aria-hidden="true"></div>
+    <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
+
+    <main id="viewer" class="viewer" data-state="loading">
+      <header class="masthead">
+        <div class="mark" aria-hidden="true">GLTS</div>
+        <div>
+          <h1>GLTS Viewer</h1>
+          <p>Executable Three.js assets, running in your browser.</p>
+        </div>
+      </header>
+
+      <label class="drop-zone" for="file-input">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+        </svg>
+        <span>
+          <strong>Drop a .glts anywhere</strong>
+          <small>or choose a self-contained file</small>
+        </span>
+        <input id="file-input" type="file" accept=".glts" />
+      </label>
+
+      <footer class="dock">
+        <nav class="showcases" aria-label="Bundled GLTS example">
+          <button
+            type="button"
+            data-showcase="/assets/showcases/vintage-racecar/index.glts"
+          >
+            <span>Vintage Racecar</span>
+            <small>Multi-file composition</small>
+          </button>
+        </nav>
+
+        <div class="readout">
+          <p class="status-row">
+            <span id="status-dot" class="status-dot" data-state="busy"></span>
+            <span id="status" aria-live="polite">Opening Vintage Racecar…</span>
+          </p>
+          <div class="telemetry">
+            <span id="stats"></span>
+            <span>drag to orbit · scroll to zoom</span>
+          </div>
+          <p class="trust">GLTS runs as code. Open files you trust.</p>
+        </div>
+      </footer>
+
+      <div class="drop-curtain" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+        </svg>
+        <strong>Release to open</strong>
+        <span>One self-contained .glts file</span>
+      </div>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

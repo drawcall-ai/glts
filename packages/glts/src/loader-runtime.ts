@@ -332,7 +332,7 @@ export class LoaderRuntime {
 
   #track<T>(url: string, operation: () => Promise<T>): Promise<T> {
     return this.#operations.track(url, operation, (value) => {
-      if (value instanceof THREE.Group) {
+      if (value instanceof THREE.Scene) {
         this.#nodes.dispose(value);
       }
     });

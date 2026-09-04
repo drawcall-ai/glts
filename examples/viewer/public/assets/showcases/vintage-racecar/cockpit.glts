@@ -1,0 +1,358 @@
+import * as THREE from "three"
+import { onDispose, scene } from "@drawcall/glts"
+
+// What drops into the opening body.glts cuts in the deck: leather seat, drilled
+// alloy dash with its three dials, the big four-spoke wood-rimmed wheel on its
+// raked column, gear lever, aeroscreen and cowl mirror.
+//
+// The opening runs from z = -0.60 to z = 0.66 with its floor near y = 0.49, so
+// everything here is placed against those numbers.
+
+const WHEEL_CENTRE = new THREE.Vector3(0, 0.632, 0.3)
+const WHEEL_RAKE = 0.34
+const DASH_Z = 0.435
+
+function attribute(
+  geometry: THREE.BufferGeometry,
+  name: string
+): THREE.BufferAttribute {
+  const value = geometry.getAttribute(name)
+  if (!(value instanceof THREE.BufferAttribute)) {
+    throw new TypeError(`Expected buffer attribute: ${name}`)
+  }
+  return value
+}
+
+function merge(parts: readonly THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const flat = parts.map((part) => (part.index ? part.toNonIndexed() : part))
+  const total = flat.reduce((sum, part) => sum + attribute(part, "position").count, 0)
+  const positions = new Float32Array(total * 3)
+  const normals = new Float32Array(total * 3)
+  const uvs = new Float32Array(total * 2)
+  let offset = 0
+  for (const part of flat) {
+    const position = attribute(part, "position")
+    positions.set(position.array, offset * 3)
+    normals.set(attribute(part, "normal").array, offset * 3)
+    if (part.hasAttribute("uv")) {
+      uvs.set(attribute(part, "uv").array, offset * 2)
+    }
+    offset += position.count
+  }
+
+  for (const part of new Set([...parts, ...flat])) part.dispose()
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3))
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2))
+  return geometry
+}
+
+// Rotates a part built in the XY plane onto the raked steering axis.
+function onSteeringAxis(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  geometry.rotateX(WHEEL_RAKE)
+  geometry.translate(WHEEL_CENTRE.x, WHEEL_CENTRE.y, WHEEL_CENTRE.z)
+  return geometry
+}
+
+function dialTexture(): THREE.CanvasTexture {
+  const size = 256
+  const canvas = document.createElement("canvas")
+  canvas.width = size
+  canvas.height = size
+  const context = canvas.getContext("2d")
+  if (!context) throw new Error("Unable to create the dial canvas context")
+  context.fillStyle = "#0e1012"
+  context.fillRect(0, 0, size, size)
+  context.fillStyle = "#f0e6cf"
+  context.beginPath()
+  context.arc(size / 2, size / 2, size * 0.44, 0, Math.PI * 2)
+  context.fill()
+
+  context.strokeStyle = "#20242a"
+  context.lineCap = "round"
+  for (let tick = 0; tick <= 24; tick += 1) {
+    const angle = Math.PI * 0.75 + (tick / 24) * Math.PI * 1.5
+    const major = tick % 4 === 0
+    const inner = size * (major ? 0.3 : 0.34)
+    const outer = size * 0.4
+    context.lineWidth = major ? 6 : 3
+    context.beginPath()
+    context.moveTo(
+      size / 2 + Math.cos(angle) * inner,
+      size / 2 + Math.sin(angle) * inner
+    )
+    context.lineTo(
+      size / 2 + Math.cos(angle) * outer,
+      size / 2 + Math.sin(angle) * outer
+    )
+    context.stroke()
+  }
+
+  const needle = Math.PI * 0.75 + 0.34 * Math.PI * 1.5
+  context.strokeStyle = "#a8321e"
+  context.lineWidth = 8
+  context.beginPath()
+  context.moveTo(size / 2, size / 2)
+  context.lineTo(
+    size / 2 + Math.cos(needle) * size * 0.34,
+    size / 2 + Math.sin(needle) * size * 0.34
+  )
+  context.stroke()
+  context.fillStyle = "#20242a"
+  context.beginPath()
+  context.arc(size / 2, size / 2, size * 0.05, 0, Math.PI * 2)
+  context.fill()
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.anisotropy = 8
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+const leatherParts: THREE.BufferGeometry[] = []
+const alloyParts: THREE.BufferGeometry[] = []
+const woodParts: THREE.BufferGeometry[] = []
+const chromeParts: THREE.BufferGeometry[] = []
+const darkParts: THREE.BufferGeometry[] = []
+
+// Seat: squab, backrest and the rolled bolsters either side of the driver.
+const squab = new THREE.SphereGeometry(1, 24, 16)
+squab.scale(0.15, 0.045, 0.19)
+squab.translate(0, 0.505, -0.24)
+leatherParts.push(squab)
+
+const backrest = new THREE.CapsuleGeometry(0.052, 0.22, 8, 20)
+backrest.rotateZ(Math.PI / 2)
+backrest.scale(1, 1, 0.66)
+backrest.rotateX(-0.26)
+backrest.translate(0, 0.585, -0.455)
+leatherParts.push(backrest)
+
+for (const side of [1, -1]) {
+  const bolster = new THREE.CapsuleGeometry(0.024, 0.26, 6, 12)
+  bolster.rotateX(Math.PI / 2)
+  bolster.rotateY(side * 0.05)
+  bolster.translate(side * 0.152, 0.55, -0.19)
+  leatherParts.push(bolster)
+}
+
+// Drilled alloy dash panel, tipped back toward the driver.
+const dash = new THREE.BoxGeometry(0.31, 0.15, 0.011)
+dash.rotateX(0.16)
+dash.translate(0, 0.615, DASH_Z)
+alloyParts.push(dash)
+
+for (const [x, radius] of [[0, 0.05], [-0.115, 0.032], [0.115, 0.032]] as const) {
+  const bezel = new THREE.TorusGeometry(radius, 0.007, 8, 24)
+  bezel.rotateX(0.16)
+  bezel.translate(x, 0.617, DASH_Z - 0.01)
+  chromeParts.push(bezel)
+
+  const body = new THREE.CylinderGeometry(radius, radius, 0.05, 24, 1)
+  body.rotateX(Math.PI / 2 + 0.16)
+  body.translate(x, 0.617, DASH_Z + 0.015)
+  darkParts.push(body)
+}
+
+// Lightening holes drilled through the panel between the dials.
+for (const x of [-0.062, 0.062, -0.148, 0.148]) {
+  const hole = new THREE.CylinderGeometry(0.016, 0.016, 0.014, 14, 1)
+  hole.rotateX(Math.PI / 2 + 0.16)
+  hole.translate(x, 0.588, DASH_Z + 0.004)
+  darkParts.push(hole)
+}
+
+// Four-spoke wheel: wood rim, alloy spokes, chrome boss, raked column.
+const rim = new THREE.TorusGeometry(0.142, 0.0158, 12, 44)
+woodParts.push(onSteeringAxis(rim))
+
+for (let index = 0; index < 4; index += 1) {
+  const angle = (index / 4) * Math.PI * 2 + Math.PI / 4
+  const spoke = new THREE.BoxGeometry(0.02, 0.118, 0.009)
+  spoke.translate(0, 0.076, 0)
+  spoke.rotateZ(angle)
+  alloyParts.push(onSteeringAxis(spoke))
+}
+
+const boss = new THREE.CylinderGeometry(0.034, 0.03, 0.026, 20, 1)
+boss.rotateX(Math.PI / 2)
+chromeParts.push(onSteeringAxis(boss))
+
+const column = new THREE.CylinderGeometry(0.017, 0.017, 0.55, 14, 1)
+column.rotateX(Math.PI / 2)
+column.translate(0, 0, 0.275)
+alloyParts.push(onSteeringAxis(column))
+
+// Gear lever and its gate, on the driver's right.
+const lever = new THREE.CylinderGeometry(0.009, 0.011, 0.15, 12, 1)
+lever.rotateX(-0.2)
+lever.rotateZ(-0.16)
+lever.translate(0.118, 0.595, 0.06)
+chromeParts.push(lever)
+const knob = new THREE.SphereGeometry(0.021, 16, 12)
+knob.translate(0.13, 0.668, 0.075)
+woodParts.push(knob)
+
+// Aeroscreen on the scuttle, with a chrome rail along its top edge.
+const screenPositions: number[] = []
+const screenUvs: number[] = []
+const screenIndices: number[] = []
+const railPoints: THREE.Vector3[] = []
+const columns = 18
+const rows = 4
+for (let column = 0; column <= columns; column += 1) {
+  const u = (column / columns) * 2 - 1
+  const sweep = u * 0.96
+  const x = Math.sin(sweep) * 0.185
+  const z = 0.7 - (1 - Math.cos(sweep)) * 0.13
+  const base = 0.735 - Math.abs(u) ** 2 * 0.035
+  for (let row = 0; row <= rows; row += 1) {
+    const v = row / rows
+    const height = 0.098 - Math.abs(u) ** 2.2 * 0.042
+    screenPositions.push(x, base + v * height, z - v * 0.014)
+    screenUvs.push((u + 1) / 2, v)
+    if (row === rows) railPoints.push(new THREE.Vector3(x, base + height, z - 0.014))
+  }
+}
+for (let column = 0; column < columns; column += 1) {
+  for (let row = 0; row < rows; row += 1) {
+    const a = column * (rows + 1) + row
+    const b = a + rows + 1
+    const c = a + 1
+    const d = b + 1
+    screenIndices.push(a, c, b, b, c, d)
+  }
+}
+const screenGeometry = new THREE.BufferGeometry()
+screenGeometry.setAttribute("position", new THREE.Float32BufferAttribute(screenPositions, 3))
+screenGeometry.setAttribute("uv", new THREE.Float32BufferAttribute(screenUvs, 2))
+screenGeometry.setIndex(screenIndices)
+screenGeometry.computeVertexNormals()
+
+chromeParts.push(new THREE.TubeGeometry(
+  new THREE.CatmullRomCurve3(railPoints, false, "centripetal"),
+  40,
+  0.0075,
+  8,
+  false
+))
+
+// Cowl mirror on the right-hand scuttle, aimed back past the driver.
+const stalk = new THREE.CylinderGeometry(0.0075, 0.0105, 0.125, 10, 1)
+stalk.rotateZ(-0.24)
+stalk.translate(0.162, 0.736, 0.71)
+chromeParts.push(stalk)
+const mirrorShell = new THREE.CylinderGeometry(0.042, 0.042, 0.014, 22, 1)
+mirrorShell.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(
+  new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(0.3, 0.16, -0.94).normalize()
+  )
+))
+mirrorShell.translate(0.178, 0.796, 0.703)
+chromeParts.push(mirrorShell)
+
+const dialFace = new THREE.CylinderGeometry(0.05, 0.05, 0.001, 24, 1)
+dialFace.rotateX(-Math.PI / 2 + 0.16)
+dialFace.translate(0, 0.617, DASH_Z - 0.014)
+const smallFaces: THREE.BufferGeometry[] = []
+for (const x of [-0.115, 0.115]) {
+  const face = new THREE.CylinderGeometry(0.032, 0.032, 0.001, 20, 1)
+  face.rotateX(-Math.PI / 2 + 0.16)
+  face.translate(x, 0.617, DASH_Z - 0.014)
+  smallFaces.push(face)
+}
+const faceGeometry = merge([dialFace, ...smallFaces])
+
+const leatherGeometry = merge(leatherParts)
+const alloyGeometry = merge(alloyParts)
+const woodGeometry = merge(woodParts)
+const chromeGeometry = merge(chromeParts)
+const darkGeometry = merge(darkParts)
+
+const leatherMaterial = new THREE.MeshStandardMaterial({
+  color: "#5c452e",
+  metalness: 0,
+  roughness: 0.6
+})
+const alloyMaterial = new THREE.MeshStandardMaterial({
+  color: "#b4bac0",
+  envMapIntensity: 1.3,
+  metalness: 0.9,
+  roughness: 0.34
+})
+const woodMaterial = new THREE.MeshStandardMaterial({
+  color: "#6b3f1e",
+  metalness: 0,
+  roughness: 0.38
+})
+const chromeMaterial = new THREE.MeshStandardMaterial({
+  color: "#ccd2d8",
+  metalness: 1,
+  roughness: 0.16
+})
+const darkMaterial = new THREE.MeshStandardMaterial({
+  color: "#111316",
+  metalness: 0.3,
+  roughness: 0.78
+})
+const dialMap = dialTexture()
+const dialMaterial = new THREE.MeshStandardMaterial({
+  map: dialMap,
+  metalness: 0.1,
+  roughness: 0.44
+})
+const screenMaterial = new THREE.MeshPhysicalMaterial({
+  color: "#cfe0e2",
+  metalness: 0,
+  opacity: 0.22,
+  roughness: 0.05,
+  side: THREE.DoubleSide,
+  transparent: true
+})
+
+const cockpit = new THREE.Group()
+cockpit.name = "cockpit"
+for (const [geometry, material] of [
+  [leatherGeometry, leatherMaterial],
+  [alloyGeometry, alloyMaterial],
+  [woodGeometry, woodMaterial],
+  [chromeGeometry, chromeMaterial],
+  [darkGeometry, darkMaterial],
+  [faceGeometry, dialMaterial],
+  [screenGeometry, screenMaterial]
+] as const) {
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  cockpit.add(mesh)
+}
+scene.add(cockpit)
+
+onDispose(() => {
+  for (const geometry of [
+    leatherGeometry,
+    alloyGeometry,
+    woodGeometry,
+    chromeGeometry,
+    darkGeometry,
+    faceGeometry,
+    screenGeometry
+  ]) {
+    geometry.dispose()
+  }
+  for (const material of [
+    leatherMaterial,
+    alloyMaterial,
+    woodMaterial,
+    chromeMaterial,
+    darkMaterial,
+    dialMaterial,
+    screenMaterial
+  ]) {
+    material.dispose()
+  }
+  dialMap.dispose()
+})
