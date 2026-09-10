@@ -1,5 +1,6 @@
+import type { PhysicsWorld } from "@drawcall/physics";
 import type * as THREE from "three";
-import type { GLTSScriptScene } from "./rendering.js";
+import type { GLTSScriptScene } from "./scene/state.js";
 
 export type GLTSURL = string | URL;
 
@@ -9,13 +10,19 @@ export type GLTSFetch = (
 ) => Promise<Response>;
 
 export interface GLTSLoaderOptions {
+  physicsWorld?: PhysicsWorld;
   baseURL?: GLTSURL;
   cdnURL?: GLTSURL;
   fetch?: GLTSFetch;
   isPreview?: boolean;
 }
 
+export interface GLTSCapabilities {
+  readonly physics: boolean;
+}
+
 interface GLTSSceneMethods {
+  readonly capabilities: GLTSCapabilities;
   readonly url: string;
   add(...objects: THREE.Object3D[]): this;
   applyQuaternion(quaternion: THREE.Quaternion): this;

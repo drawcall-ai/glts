@@ -1,0 +1,65 @@
+import * as THREE from "three";
+import { scene, onDispose, isPreview } from "@drawcall/glts";
+import { RigidBody, RevoluteJoint, SphericalJoint } from "@drawcall/physics";
+
+const assembly = (() => {
+  const scene = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({ color: "#eaa65a", roughness: 0.7 });
+  const floorMaterial = new THREE.MeshStandardMaterial({ color: "#526478", roughness: 1 });
+  function body(name: string, size: [number, number, number], position: [number, number, number], mass: number) {
+    const body = new RigidBody(mass === 0 ? { type: "static" } : { mass });
+    body.name = name;
+    body.position.set(...position);
+    body.add(new THREE.Mesh(new THREE.BoxGeometry(...size), mass === 0 ? floorMaterial : material));
+    scene.add(body);
+    return body;
+  }
+  body("Floor", [8, 0.2, 6], [0, -0.1, 0], 0);
+  const pelvis = body("Pelvis", [0.5, 0.3, 0.28], [0, 1.8, 0], 8);
+  const chest = body("Chest", [0.6, 0.6, 0.3], [0, 2.3, 0], 12);
+  const head = body("Head", [0.32, 0.36, 0.32], [0, 2.84, 0], 4);
+  function ball(name: string, body0: RigidBody, body1: RigidBody, position: [number, number, number]) {
+    const joint = new SphericalJoint({ body0, body1, collideConnected: true });
+    joint.name = name;
+    joint.position.set(...position);
+    scene.add(joint);
+  }
+  ball("Waist", pelvis, chest, [0, 1.98, 0]);
+  ball("Neck", chest, head, [0, 2.63, 0]);
+  for (const side of [-1, 1]) {
+    const name = side < 0 ? "Left" : "Right";
+    const arm = body(`${name}UpperArm`, [0.22, 0.45, 0.22], [side * 0.46, 2.28, 0], 2);
+    const forearm = body(`${name}Forearm`, [0.18, 0.42, 0.18], [side * 0.46, 1.81, 0], 1.5);
+    const thigh = body(`${name}Thigh`, [0.22, 0.55, 0.24], [side * 0.16, 1.32, 0], 5);
+    const shin = body(`${name}Shin`, [0.18, 0.52, 0.22], [side * 0.16, 0.74, 0], 3);
+    ball(`${name}Shoulder`, chest, arm, [side * 0.34, 2.5, 0]);
+    ball(`${name}Hip`, pelvis, thigh, [side * 0.16, 1.64, 0]);
+    for (const [jointName, body0, body1, y] of [
+      [`${name}Elbow`, arm, forearm, 2.04],
+      [`${name}Knee`, thigh, shin, 1.03],
+    ] as const) {
+      const joint = new RevoluteJoint({ body0, body1, collideConnected: true, axis: "X", limits: [0, Math.PI * 0.75] });
+      joint.name = jointName;
+      joint.position.set(body1.position.x, y, 0);
+      scene.add(joint);
+    }
+  }
+  pelvis.options.linearVelocity = [0.6, 0, 0.8];
+  return scene;
+})();
+scene.add(assembly);
+if (isPreview) {
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 3));
+  scene.defaultCamera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+  scene.defaultCamera.position.set(4, 3, 5);
+  scene.defaultCamera.lookAt(0, 1, 0);
+}
+
+onDispose(() => {
+  assembly.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    object.geometry.dispose();
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) material.dispose();
+  });
+});

@@ -1,0 +1,22 @@
+{
+  "name": "@drawcall/glts-example-physics",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@drawcall/physics": "^0.1.0",
+    "@drawcall/physics-rapier": "^0.1.0",
+    "three": "^0.185.1",
+    "@drawcall/glts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.1"
+  }
+}

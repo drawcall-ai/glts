@@ -83,18 +83,19 @@ test("enables preview only for the root across recursion and reload", async ({ p
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
     const manager = new window.LoadingManager();
+    const completed: string[] = [];
+    manager.onProgress = (url) => completed.push(new URL(url).pathname);
     const loader = new window.GLTSLoader(manager, { isPreview: true });
     const parent = await loader.loadAsync("/assets/parent.glts");
     const child = parent.children[0];
     if (!child) throw new Error("Child was not loaded");
     const grandchild = child.children[0];
     if (!grandchild) throw new Error("Grandchild was not loaded");
-    const contextLoader = Reflect.get(globalThis, "__parentContextLoader");
     const initial = {
       childName: child.name,
       childPreview: child.userData.preview,
       grandchildPreview: grandchild.userData.preview,
-      managerForwarded: Reflect.get(contextLoader, "manager") === manager,
+      completed: completed.slice().sort(),
       parentPreview: parent.userData.preview,
       scopedLoader: child.userData.scopedLoader
     };
@@ -116,12 +117,65 @@ test("enables preview only for the root across recursion and reload", async ({ p
     childName: "child",
     childPreview: false,
     grandchildPreview: false,
-    managerForwarded: true,
+    completed: ["/assets/child.glts", "/assets/grandchild.glts", "/assets/parent.glts"],
     parentPreview: true,
     reloaded: {
       childPreview: false,
       grandchildPreview: false
     },
     scopedLoader: true
+  });
+});
+
+
+test("scopes nested URLs while reading current host request configuration", async ({ page }) => {
+  await page.goto("/test-harness.html");
+  const result = await page.evaluate(async () => {
+    const resolved: string[] = [];
+    const requests: { path: string; header: string | null; credentials: string | undefined }[] = [];
+    const manager = new window.LoadingManager();
+    manager.setURLModifier((url) => {
+      resolved.push(url);
+      return `${url}?mapped`;
+    });
+    const loader = new window.GLTSLoader(manager, {
+      baseURL: new URL("/base/", location.href),
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        requests.push({
+          path: url.pathname + url.search,
+          header: new Headers(init?.headers).get("x-context"),
+          credentials: init?.credentials
+        });
+        if (url.pathname.endsWith("parent.glts")) {
+          loader.setRequestHeader({ "x-context": "child" });
+          loader.setWithCredentials(false);
+          return new Response(`
+            import { gltsLoader, scene } from "@drawcall/glts";
+            scene.add(await gltsLoader.loadAsync("child.glts"));
+            scene.userData.contextualHost = "setPath" in gltsLoader;
+          `);
+        }
+        return new Response(`import { scene } from "@drawcall/glts"; scene.name = "child";`);
+      }
+    });
+    loader.setPath("host/");
+    loader.setRequestHeader({ "x-context": "parent" });
+    loader.setWithCredentials(true);
+    try {
+      const node = await loader.loadAsync("parent.glts");
+      return { resolved, requests, child: node.children[0]?.name, contextualHost: node.userData.contextualHost };
+    } finally {
+      loader.dispose();
+    }
+  });
+  expect(result).toEqual({
+    resolved: ["host/parent.glts", "child.glts"],
+    requests: [
+      { path: "/base/host/parent.glts?mapped", header: "parent", credentials: "include" },
+      { path: "/base/child.glts?mapped", header: "child", credentials: undefined }
+    ],
+    child: "child",
+    contextualHost: false
   });
 });

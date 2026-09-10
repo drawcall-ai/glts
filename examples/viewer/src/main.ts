@@ -1,7 +1,8 @@
-import { GLTSLoader, GLTSRenderer, type GLTSScene } from "@drawcall/glts";
+import { GLTSLoader, type GLTSScene } from "@drawcall/glts";
 import "@fontsource-variable/newsreader";
-import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { LoadingManager } from "three";
+import { createPreview } from "./preview.js";
+import { bindFileDrop } from "./file-drop.js";
 
 import "./style.css";
 
@@ -52,33 +53,12 @@ const stats = requiredElement("#stats", HTMLElement);
 const progressBar = requiredElement("#progress-bar", HTMLElement);
 const showcaseButton = requiredElement("[data-showcase]", HTMLButtonElement);
 
-const renderer = new THREE.WebGLRenderer({
-  ...GLTSRenderer.parameters,
-  antialias: true,
-  canvas
-});
-const gltsRenderer = new GLTSRenderer(renderer);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.setClearColor(0x080a10);
-renderer.info.autoReset = false;
+const preview = createPreview(canvas, (error) => {
+  console.error(error);
+  showStatus(`Rendering failed. ${errorMessage(error)}`, "error");
+}, (text) => { stats.textContent = text; });
 
-const fallbackCamera = new THREE.PerspectiveCamera(35, 1, 0.05, 200);
-let camera: THREE.Camera = fallbackCamera;
-
-function createControls(camera: THREE.Camera): OrbitControls {
-  const controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.06;
-  controls.minDistance = 0.5;
-  controls.maxDistance = 240;
-  controls.maxPolarAngle = Math.PI * 0.98;
-  return controls;
-}
-
-let controls = createControls(camera);
-
-const loadingManager = new THREE.LoadingManager();
+const loadingManager = new LoadingManager();
 loadingManager.onStart = () => {
   progressBar.dataset.state = "active";
   progressBar.style.transform = "scaleX(0.08)";
@@ -93,28 +73,12 @@ loadingManager.onLoad = () => {
 };
 
 const loader = new GLTSLoader(loadingManager, { isPreview: true });
-const timer = new THREE.Timer();
-timer.connect(document);
 let current: LoadedScene | undefined;
-let renderFailure: GLTSScene | undefined;
 let disposed = false;
-let dragDepth = 0;
 
 function showStatus(message: string, state: "ready" | "busy" | "error"): void {
   status.textContent = message;
   statusDot.dataset.state = state;
-}
-
-function setCamera(scene?: GLTSScene, showcase?: Showcase): void {
-  controls.dispose();
-  camera = scene?.defaultCamera ?? fallbackCamera;
-  if (camera === fallbackCamera) {
-    fallbackCamera.position.set(4.6, 2.8, 5.8);
-  }
-  controls = createControls(camera);
-  controls.target.fromArray(showcase?.target ?? [0, 0.8, 0]);
-  controls.update();
-  resize();
 }
 
 function setBusy(busy: boolean): void {
@@ -131,7 +95,7 @@ function selectButton(url?: string): void {
 
 function disposeScene(loaded: LoadedScene): void {
   try {
-    gltsRenderer.release(loaded.scene);
+    preview.release(loaded.scene);
   } finally {
     try {
       loaded.scene.dispose();
@@ -167,8 +131,7 @@ async function openScene(
 
   const previous = current;
   current = { objectURL, scene };
-  renderFailure = undefined;
-  setCamera(scene, showcase);
+  preview.setScene(scene, showcase?.target);
   selectButton(showcase?.url);
   viewer.dataset.state = "ready";
   showStatus(
@@ -196,48 +159,6 @@ async function openFile(file: File): Promise<void> {
   await openScene(url, file.name, undefined, url);
 }
 
-function draggedFiles(event: DragEvent): FileList | undefined {
-  return event.dataTransfer?.types.includes("Files")
-    ? event.dataTransfer.files
-    : undefined;
-}
-
-function showDropTarget(event: DragEvent): void {
-  if (!draggedFiles(event)) return;
-  event.preventDefault();
-  dragDepth += 1;
-  viewer.dataset.dragging = "";
-}
-
-function keepDropTarget(event: DragEvent): void {
-  if (!draggedFiles(event)) return;
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-}
-
-function hideDropTarget(event: DragEvent): void {
-  if (!draggedFiles(event)) return;
-  dragDepth = Math.max(0, dragDepth - 1);
-  if (dragDepth === 0) delete viewer.dataset.dragging;
-}
-
-function dropFile(event: DragEvent): void {
-  const files = draggedFiles(event);
-  if (!files) return;
-  event.preventDefault();
-  dragDepth = 0;
-  delete viewer.dataset.dragging;
-  if (files.length !== 1) {
-    showStatus("Drop one self-contained .glts file at a time.", "error");
-    return;
-  }
-  const file = files.item(0);
-  if (!file) {
-    throw new Error("Dropped file is missing");
-  }
-  void openFile(file);
-}
-
 showcaseButton.addEventListener("click", () => {
   void openScene(showcase.url, showcase.label, showcase);
 });
@@ -245,74 +166,30 @@ fileInput.addEventListener("change", () => {
   const file = fileInput.files?.[0];
   if (file) void openFile(file);
 });
-window.addEventListener("dragenter", showDropTarget);
-window.addEventListener("dragover", keepDropTarget);
-window.addEventListener("dragleave", hideDropTarget);
-window.addEventListener("drop", dropFile);
-
-function resize(): void {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  renderer.setSize(width, height, false);
-  if (camera instanceof THREE.PerspectiveCamera) {
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
-  } else if (camera instanceof THREE.OrthographicCamera) {
-    const center = (camera.left + camera.right) / 2;
-    const halfWidth = (camera.top - camera.bottom) * width / height / 2;
-    camera.left = center - halfWidth;
-    camera.right = center + halfWidth;
-    camera.updateProjectionMatrix();
-  }
-}
+const unbindFileDrop = bindFileDrop(
+  viewer,
+  (file) => { void openFile(file); },
+  (message) => showStatus(message, "error")
+);
 
 function disposeHost(): void {
   if (disposed) return;
   disposed = true;
-  renderer.setAnimationLoop(null);
-  window.removeEventListener("resize", resize);
-  window.removeEventListener("dragenter", showDropTarget);
-  window.removeEventListener("dragover", keepDropTarget);
-  window.removeEventListener("dragleave", hideDropTarget);
-  window.removeEventListener("drop", dropFile);
-  controls.dispose();
-  timer.dispose();
-  if (current) disposeScene(current);
-  gltsRenderer.dispose();
-  loader.dispose();
-  renderer.dispose();
+  unbindFileDrop();
+  const errors: unknown[] = [];
+  for (const dispose of [
+    () => { if (current) disposeScene(current); },
+    () => preview.dispose(),
+    () => loader.dispose()
+  ]) {
+    try {
+      dispose();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 0) throw new AggregateError(errors, "Viewer disposal failed");
 }
 
 window.addEventListener("beforeunload", disposeHost);
-window.addEventListener("resize", resize);
-resize();
-setCamera();
-
-let statsAt = 0;
-renderer.setAnimationLoop(() => {
-  timer.update();
-  controls.update();
-  const scene = current?.scene;
-  const delta = timer.getDelta();
-  if (scene && scene !== renderFailure) {
-    renderer.info.reset();
-    try {
-      scene.update(delta);
-      gltsRenderer.render(scene, camera, delta);
-    } catch (error) {
-      renderFailure = scene;
-      console.error(error);
-      showStatus(`Rendering failed. ${errorMessage(error)}`, "error");
-    }
-  }
-
-  const elapsed = timer.getElapsed();
-  if (scene && elapsed - statsAt > 0.5) {
-    statsAt = elapsed;
-    stats.textContent =
-      `${renderer.info.render.triangles.toLocaleString()} triangles · ` +
-      `${renderer.info.render.calls} draw calls`;
-  }
-});
-
 void openScene(showcase.url, showcase.label, showcase);

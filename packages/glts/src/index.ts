@@ -1,6 +1,7 @@
 export {
   gltsLoader,
   instanceCount,
+  loadingManager,
   onDispose,
   onFrame,
   onMatrixUpdateAt,
@@ -8,15 +9,15 @@ export {
   scene
 } from "./context.js";
 export { GLTSError, type GLTSPhase } from "./errors.js";
-export { GLTSLoader } from "./GLTSLoader.js";
-export {
-  GLTSRenderer,
-  type GLTSEffect,
-  type GLTSEffectContext,
-  type GLTSRenderingProfile
-} from "./rendering.js";
-export { loadingManager } from "./loading-manager.js";
+export { GLTSLoader } from "./loader/index.js";
+export { GLTSRenderer } from "./renderer/index.js";
 export type {
+  GLTSEffect,
+  GLTSEffectContext,
+  GLTSRenderingProfile
+} from "./scene/state.js";
+export type {
+  GLTSCapabilities,
   GLTSDisposeCallback,
   GLTSErrorCallback,
   GLTSFetch,
@@ -30,3 +31,5 @@ export type {
   GLTSScriptLoader,
   GLTSURL
 } from "./types.js";
+
+export { GLTSUSDExporter, type GLTSUSDExportOptions } from "./usd.js";

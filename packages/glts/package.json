@@ -1,6 +1,6 @@
 {
   "name": "@drawcall/glts",
-  "version": "0.2.0",
+  "version": "0.7.0",
   "type": "module",
   "description": "Like glTF, but for procedural Three.js assets.",
   "license": "MIT",
@@ -47,10 +47,12 @@
     "@babel/parser": "^8.0.4",
     "es-module-lexer": "^2.0.0",
     "magic-string": "^0.30.21",
-    "sucrase": "3.35.1"
+    "sucrase": "3.35.1",
+    "@drawcall/physics": "^0.1.0",
+    "@drawcall/physics-usd": "^0.1.0"
   },
   "peerDependencies": {
-    "three": ">=0.185.0"
+    "three": ">=0.185.0 <0.186.0"
   },
   "devDependencies": {
     "@types/three": "^0.185.0",

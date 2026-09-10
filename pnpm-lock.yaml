@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@drawcall/physics': link:../physics/packages/physics
+  '@drawcall/physics-usd': link:../physics/packages/physics-usd
+  '@drawcall/physics-rapier': link:../physics/packages/physics-rapier
+
 importers:
 
   .:
@@ -21,6 +26,31 @@ importers:
         specifier: ^4.0.17
         version: 4.1.10(@types/node@24.13.3)(vite@8.2.1(@types/node@24.13.3))
 
+  examples/physics:
+    dependencies:
+      '@drawcall/glts':
+        specifier: workspace:*
+        version: link:../../packages/glts
+      '@drawcall/physics':
+        specifier: link:../../../physics/packages/physics
+        version: link:../../../physics/packages/physics
+      '@drawcall/physics-rapier':
+        specifier: link:../../../physics/packages/physics-rapier
+        version: link:../../../physics/packages/physics-rapier
+      three:
+        specifier: ^0.185.1
+        version: 0.185.1
+    devDependencies:
+      '@types/three':
+        specifier: ^0.185.0
+        version: 0.185.4
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vite:
+        specifier: ^8.2.1
+        version: 8.2.1(@types/node@24.13.3)
+
   examples/viewer:
     dependencies:
       '@drawcall/glts':
@@ -33,6 +63,9 @@ importers:
         specifier: ^0.185.1
         version: 0.185.1
     devDependencies:
+      '@drawcall/physics':
+        specifier: link:../../../physics/packages/physics
+        version: link:../../../physics/packages/physics
       '@types/three':
         specifier: ^0.185.0
         version: 0.185.4
@@ -48,6 +81,12 @@ importers:
       '@babel/parser':
         specifier: ^8.0.4
         version: 8.0.4
+      '@drawcall/physics':
+        specifier: link:../../../physics/packages/physics
+        version: link:../../../physics/packages/physics
+      '@drawcall/physics-usd':
+        specifier: link:../../../physics/packages/physics-usd
+        version: link:../../../physics/packages/physics-usd
       es-module-lexer:
         specifier: ^2.0.0
         version: 2.3.1

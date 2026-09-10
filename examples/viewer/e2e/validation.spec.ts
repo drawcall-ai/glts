@@ -64,3 +64,25 @@ test("rejects contextual graph reloads", async ({ page }) => {
   expect(result.phase).toBe("reload");
   expect(result.message).toContain("cannot reload the live graph");
 });
+
+test("reports managed-node augmentation as construction", async ({ page }) => {
+  await routeGLTS(page, "**/assets/frozen-phase.glts", `
+    import { scene } from "@drawcall/glts"
+    Object.preventExtensions(scene)
+  `);
+
+  await page.goto("/test-harness.html");
+  const phase = await page.evaluate(async () => {
+    const loader = new window.GLTSLoader(new window.LoadingManager());
+    try {
+      await loader.loadAsync("/assets/frozen-phase.glts");
+      return "resolved";
+    } catch (error) {
+      return window.readErrorField(error, "phase");
+    } finally {
+      loader.dispose();
+    }
+  });
+
+  expect(phase).toBe("construct");
+});

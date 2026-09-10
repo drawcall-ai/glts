@@ -37,6 +37,8 @@ Install GLTS next to the application's Three.js dependency:
 pnpm add @drawcall/glts three
 ```
 
+The current physics integration supports Three.js r185 (`>=0.185.0 <0.186.0`).
+
 ```ts
 import { GLTSLoader } from "@drawcall/glts"
 import * as THREE from "three"
@@ -53,9 +55,10 @@ tree.dispose()
 loader.dispose()
 ```
 
-The result is a stable `THREE.Scene` with six additions:
+The result is a stable `THREE.Scene` with seven additions:
 
 - `url`: canonical source URL;
+- `capabilities`: read-only dependency declarations, including `physics`;
 - `reload()`: executes the latest source while preserving scene identity;
 - `update(delta)`: dispatches registered frame callbacks;
 - `dispose()`: releases this scene and its nested GLTS scenes;
@@ -374,6 +377,12 @@ pnpm check
 pnpm test:e2e
 ```
 
+Package tests live in `packages/glts/test`, beside `src`; browser tests live in
+`examples/viewer/e2e`. Both are included in strict TypeScript checks.
+
+Browser tests start their own server. If port 5173 is occupied, use
+`GLTS_E2E_PORT=5187 pnpm test:e2e` to select another port.
+
 ## Agent skill
 
 Install the GLTS authoring guidance for your coding agent:
@@ -381,3 +390,98 @@ Install the GLTS authoring guidance for your coding agent:
 ```sh
 npx skills add drawcall-ai/glts --skill glts
 ```
+
+## Physics and USD
+
+Physics authoring lives in the separate `@drawcall/physics` library:
+
+```ts
+import * as THREE from "three"
+import { scene } from "@drawcall/glts"
+import { RigidBody } from "@drawcall/physics"
+
+const body = new RigidBody({ mass: 2 })
+body.add(new THREE.Mesh(
+  new THREE.BoxGeometry(),
+  new THREE.MeshStandardMaterial(),
+))
+scene.add(body)
+```
+
+The host sets up a world before loading a physical asset:
+
+```ts
+import { setupWorld } from "@drawcall/physics-rapier"
+import { GLTSLoader } from "@drawcall/glts"
+
+const world = await setupWorld()
+const loader = new GLTSLoader(manager)
+const asset = await loader.loadAsync("/body.glts")
+// Each frame: world.update(delta), asset.update(delta), then render.
+```
+
+For authoring/export without simulation, create an `AuthoringWorld` from
+`@drawcall/physics` and pass `{ physicsWorld: world }` as the loader's second
+argument. The same option selects a particular simulation world when a host
+uses several worlds.
+
+GLTS lazily loads the authoring library. Each execution gets constructors bound
+to its selected world; objects retain the host library's `instanceof` behavior.
+The world is selected when the first physics dependency resolves, inherited by
+nested loads, and retained across reloads and asynchronous/frame callbacks.
+Inside an asset, `getDefaultWorld()` returns that execution's world. Host world
+setup functions should be called outside asset scripts.
+
+CDN helpers importing physics get the same execution binding. Physics-dependent
+module instances are isolated per execution; fetched source and physics-free
+module instances remain cached. Missing world setup throws rather than silently
+creating a world.
+
+A scene owns every physics object constructed by its execution, including objects
+not added to the scene tree and objects created with `.clone()` or `clone(root)`.
+Disposal unregisters them automatically. Failed loads/reloads clean up their new
+objects while retaining the current asset. The host still owns the world and
+must dispose it when finished. Constructor options retain their identity; edit
+`body.options` and `joint.options` for live settings. `body.getColliders()` returns
+the actual explicit or automatically generated collider objects. Bodies and
+joints expose `.validate()`; `joint.getFrame(index, matrix)` writes a body-local
+joint frame into a Three.js `Matrix4`.
+
+Use ordinary Three.js groups to organize mechanisms. The `clone(root)` helper
+from `@drawcall/physics` clones the hierarchy and reconnects internal joint
+references to the cloned bodies, preserving references to bodies outside the
+hierarchy. Individual body/joint `.clone()` and `.copy()` methods retain their
+ordinary object-level roles; clones belong to the same world.
+
+A managed asset exposes read-only `asset.capabilities.physics`. This declares a
+runtime import dependency, not the presence of a particular body: even a
+side-effect-only physics import declares the capability. Transitive package
+imports and owned nested GLTS loads contribute to it. A nested reload updates
+the parent's effective declaration; a failed reload preserves the current
+revision. Type-only imports do not declare runtime physics. Manually inserted
+physics objects from host code do not declare a script dependency; use the
+physics exporter directly for such ordinary Three.js scenes.
+
+```ts
+import { GLTSUSDExporter } from "@drawcall/glts"
+
+const exporter = new GLTSUSDExporter()
+const usdz = await exporter.parseAsync(asset)
+```
+
+The exporter selects Three.js's native USDZ exporter for visual assets. A
+physics declaration lazily loads `@drawcall/physics-usd`, which exports the
+visuals and resolved physical shapes, bodies, materials, and joints. Export
+does not initialize a simulation backend. Export an authored/reset scene,
+not a scene currently displaying simulated poses. Import of the supported USD
+Physics subset is available separately through `PhysicsUSDLoader` from
+`@drawcall/physics-usd`.
+
+Simulation is provided by `@drawcall/physics-rapier`; it is not required for
+loading or exporting an asset. Physics instancing is currently rejected:
+load independent scenes until per-instance body ownership is supported.
+
+## Runnable physics example
+
+See [`examples/physics`](examples/physics) for a simulated ragdoll with automatic
+colliders, ball joints, limited elbows and knees, reset, and USDZ export.

@@ -19,7 +19,7 @@ export default defineConfig({
   webServer: {
     command: `pnpm --filter @drawcall/glts-example-viewer dev --host 127.0.0.1 --port ${port} --strictPort`,
     url: baseURL,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 30_000
   }
 });
