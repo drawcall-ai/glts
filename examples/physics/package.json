@@ -9,8 +9,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@drawcall/physics": "^0.1.0",
-    "@drawcall/physics-rapier": "^0.1.0",
+    "@drawcall/physics": "^0.1.2",
+    "@drawcall/physics-rapier": "^0.1.2",
     "three": "^0.185.1",
     "@drawcall/glts": "workspace:*"
   },
