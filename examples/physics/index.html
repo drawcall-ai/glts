@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Physics ragdoll example</title>
+    <style>
+      body {
+        margin: 0;
+        background: #18212c;
+        color: white;
+        font: 16px system-ui;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+      aside {
+        position: absolute;
+        top: 24px;
+        left: 24px;
+        max-width: 320px;
+      }
+      h1 {
+        font-size: 24px;
+        margin: 0;
+      }
+      button {
+        padding: 8px 14px;
+        cursor: pointer;
+      }
+      output {
+        display: block;
+        margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas></canvas>
+    <aside>
+      <h1>Ragdoll</h1>
+      <p>
+        Automatic colliders, ball joints, and limited elbows and knees. Drag to orbit;
+        scroll to zoom.
+      </p>
+      <button id="reset" disabled>Reset</button>
+      <button
+        id="export"
+        title="Resets the ragdoll and exports its authored pose"
+        disabled
+      >
+        Export USDZ
+      </button>
+      <output>Loading physics…</output>
+    </aside>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

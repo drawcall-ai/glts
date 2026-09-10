@@ -220,6 +220,32 @@ matrices immediately, and receives every later outer `setMatrixAt()`. The script
 still executes exactly once. `instanceCount` is `1` for a plain `loadAsync()`,
 so a native-instancing script stays valid when loaded as a single scene.
 
+## Physics
+
+Import physics objects from `@drawcall/physics`. Wrap authored meshes in a body;
+for example, given an existing `mesh`:
+
+```ts
+import { RigidBody } from "@drawcall/physics"
+import { scene } from "@drawcall/glts"
+
+const body = new RigidBody({ mass: 2 })
+body.add(mesh)
+scene.add(body)
+```
+
+The host must set up a simulation world or pass an `AuthoringWorld` through
+`GLTSLoader`'s `physicsWorld` option before loading. World setup, stepping, and
+disposal belong to the host. Scripts inherit that world through nested loads
+and reloads; `getDefaultWorld()` inside a script returns its bound world.
+
+GLTS automatically disposes bodies and joints created by the execution,
+including clones and unattached objects. Keep geometry, material, and texture
+cleanup in `onDispose`. Use `clone(root)` from `@drawcall/physics` to clone a
+mechanism and reconnect its internal joints. Physics assets cannot use
+`loadInstancesAsync()`; load separate scenes. Export the authored/reset pose,
+rather than a currently simulated pose, through the host's `GLTSUSDExporter`.
+
 ## Frame updates
 
 `onFrame((delta) => ...)` runs when the host calls `update(delta)` on the loaded

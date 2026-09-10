@@ -1,3 +1,5 @@
+import { LoadingManager } from "three";
+
 import type {
   GLTSDisposeCallback,
   GLTSFrameCallback,
@@ -7,7 +9,7 @@ import type {
   GLTSScriptLoader,
   GLTSURL
 } from "./types.js";
-import { createScene, type GLTSScriptScene } from "./rendering.js";
+import { createScriptScene, type GLTSScriptScene } from "./scene/state.js";
 
 function unavailable(name: string): never {
   throw new Error(
@@ -15,9 +17,14 @@ function unavailable(name: string): never {
   );
 }
 
-export const scene: GLTSScriptScene = new Proxy(createScene(), {
+export const scene: GLTSScriptScene = new Proxy(createScriptScene(), {
   get: () => unavailable("scene"),
   set: () => unavailable("scene")
+});
+
+export const loadingManager: LoadingManager = new Proxy(new LoadingManager(), {
+  get: () => unavailable("loadingManager"),
+  set: () => unavailable("loadingManager")
 });
 
 class UnavailableScriptLoader implements GLTSScriptLoader {
