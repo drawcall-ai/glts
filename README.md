@@ -437,6 +437,15 @@ module instances are isolated per execution; fetched source and physics-free
 module instances remain cached. Missing world setup throws rather than silently
 creating a world.
 
+Bodies and joints stay outside the simulation while an asset or its nested loads
+are being constructed. A successful load registers the complete hierarchy; a
+reload keeps the previous physics active until replacement commits. Attach and
+configure the returned scene synchronously after `await loader.loadAsync(...)`,
+before the next physics step. Do not step the world inside the asset's construction
+script. With a backend that captures scale on its first step, this includes the
+host's final parent transform. Objects created later by `onFrame()` register
+normally for the next step.
+
 A scene owns every physics object constructed by its execution, including objects
 not added to the scene tree and objects created with `.clone()` or `clone(root)`.
 Disposal unregisters them automatically. Failed loads/reloads clean up their new
