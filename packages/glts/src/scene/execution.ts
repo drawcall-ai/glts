@@ -45,6 +45,7 @@ export class Execution {
   readonly #worldSource: (() => Promise<PhysicsWorld>) | undefined;
   readonly #physicsObjects = new Set<RigidBody | Joint>();
   #disposed = false;
+  #committed = false;
   #bindScene: ((scene: GLTSScene) => void) | undefined;
 
   constructor(
@@ -76,6 +77,22 @@ export class Execution {
     );
   }
 
+  get committed(): boolean {
+    return this.#committed;
+  }
+
+  commit(): void {
+    this.#assertActive();
+    if (this.#committed) return;
+    for (const object of this.#physicsObjects) {
+      const options = object.options;
+      if ("body1" in options && (options.body0?.disposed || options.body1.disposed))
+        object.dispose();
+      if (!object.disposed) object.world.register(object);
+    }
+    this.#committed = true;
+  }
+
   get animated(): boolean {
     return this.#frames.length > 0;
   }
@@ -101,6 +118,7 @@ export class Execution {
           throw new Error("GLTS execution has been disposed");
         }
         this.#physicsObjects.add(object);
+        if (!this.#committed) object.world.unregister(object);
       },
       bindScene: (bind) => {
         assertCallback(bind, "Internal scene binding");

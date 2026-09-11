@@ -90,6 +90,13 @@ export class ManagedNodes {
     return this.#records.get(node);
   }
 
+  commit(node: THREE.Object3D): void {
+    this.getRecord(node).revision.execution.commit();
+    for (const descendant of this.#descendants(node)) {
+      descendant.revision.execution.commit();
+    }
+  }
+
   update(node: THREE.Object3D, delta: number): void {
     const record = this.getRecord(node);
     if (!Number.isFinite(delta) || delta < 0) {

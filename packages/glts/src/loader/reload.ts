@@ -68,7 +68,7 @@ export async function reloadRecords(
     }
 
     try {
-      replaceRevision(record, prepared);
+      replaceRevision(record, prepared, nodes);
     } catch (error) {
       disposalErrors.push(error);
     }
@@ -105,7 +105,8 @@ function discardRevisionsAndRethrow(
   throw error;
 }
 
-function replaceRevision(record: NodeRecord, prepared: Revision): void {
+function replaceRevision(record: NodeRecord, prepared: Revision, nodes: ManagedNodes): void {
+  const committed = record.revision.execution.committed;
   const oldChildren = new THREE.Group();
   while (record.node.children.length > 0) {
     const child = record.node.children[0];
@@ -144,6 +145,7 @@ function replaceRevision(record: NodeRecord, prepared: Revision): void {
     record.node.add(child);
   }
   prepared.execution.bindScene(record.node);
+  if (committed) nodes.commit(record.node);
 
   if (disposalErrors.length > 0) {
     throw new AggregateError(disposalErrors, "GLTS revision disposal failed");

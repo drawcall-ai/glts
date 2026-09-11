@@ -110,6 +110,8 @@ it("retains host instanceof identity and disposes unparented bodies, joints and 
   expect(bodyClone.world).toBe(world);
   expect(bodyClone).toBeInstanceOf(bound.RigidBody);
   bodyClone.dispose();
+  expect(world.objects.size).toBe(0);
+  scope.owner.commit();
   expect(world.objects.size).toBe(6);
   scope.dispose();
   expect(world.objects.size).toBe(0);

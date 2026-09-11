@@ -88,7 +88,18 @@ export class LoaderRuntime {
       });
       this.#operations.assertActive(url);
       try {
-        return create(revision, matrices);
+        const node = create(revision, matrices);
+        try {
+          if (!parent) this.#nodes.commit(node);
+        } catch (error) {
+          try {
+            this.#nodes.dispose(node);
+          } catch (cleanup) {
+            throw new AggregateError([error, cleanup], "GLTS activation and cleanup failed");
+          }
+          throw error;
+        }
+        return node;
       } catch (error) {
         throw toGLTSError(error, `Unable to construct GLTS ${options.instances ? "instances" : "scene"}`, {
           phase: "construct", url
