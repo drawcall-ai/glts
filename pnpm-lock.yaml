@@ -27,11 +27,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/glts
       '@drawcall/physics':
-        specifier: ^0.1.2
-        version: 0.1.2(three@0.185.1)
+        specifier: ^0.1.3
+        version: 0.1.3(three@0.185.1)
       '@drawcall/physics-rapier':
-        specifier: ^0.1.2
-        version: 0.1.2(@drawcall/physics@0.1.2(three@0.185.1))(three@0.185.1)
+        specifier: ^0.1.3
+        version: 0.1.3(@drawcall/physics@0.1.3(three@0.185.1))(three@0.185.1)
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -59,8 +59,8 @@ importers:
         version: 0.185.1
     devDependencies:
       '@drawcall/physics':
-        specifier: ^0.1.2
-        version: 0.1.2(three@0.185.1)
+        specifier: ^0.1.3
+        version: 0.1.3(three@0.185.1)
       '@types/three':
         specifier: ^0.185.0
         version: 0.185.4
@@ -77,11 +77,11 @@ importers:
         specifier: ^8.0.4
         version: 8.0.4
       '@drawcall/physics':
-        specifier: ^0.1.2
-        version: 0.1.2(three@0.185.1)
+        specifier: ^0.1.3
+        version: 0.1.3(three@0.185.1)
       '@drawcall/physics-usd':
-        specifier: ^0.1.2
-        version: 0.1.2(@drawcall/physics@0.1.2(three@0.185.1))(three@0.185.1)
+        specifier: ^0.1.3
+        version: 0.1.3(@drawcall/physics@0.1.3(three@0.185.1))(three@0.185.1)
       es-module-lexer:
         specifier: ^2.0.0
         version: 2.3.1
@@ -127,22 +127,22 @@ packages:
   '@dimforge/rapier3d-compat@0.20.0':
     resolution: {integrity: sha512-X4W9pJBdGRX5CO3c/gUNjBFEFG2fn4nYxp9k8STdBDaLa0/w5XTW2ArpayS+9jGFojTi3uFSOWAElCd4rkpekA==}
 
-  '@drawcall/physics-rapier@0.1.2':
-    resolution: {integrity: sha512-zNJ37N4GPzEHfSVdLyb6DoiAVdBIiaUQ4aYn/eAXu58RbtYl2qhnWZWS+DVhYYXHd5QktpYaKAhWY3luXkkjEA==}
+  '@drawcall/physics-rapier@0.1.3':
+    resolution: {integrity: sha512-0Jh36OQjAVwE1UhlXjKGJAHRBrD7YS1mJuNt+H8paDzuASeM4ioHfMoesg1T2AcujD6a97dWqTUlBILLIWqrJA==}
     peerDependencies:
-      '@drawcall/physics': ^0.1.2
+      '@drawcall/physics': ^0.1.3
       three: '>=0.180.0'
 
-  '@drawcall/physics-usd@0.1.2':
-    resolution: {integrity: sha512-rEYeNCg96/mikV8hjONhz9wtIZFTkGXrMrECjvpgYZG8wsiZADZS8Zsw2l5Mpc96L25lKtKn3L/UPNbrMha7Dw==}
+  '@drawcall/physics-usd@0.1.3':
+    resolution: {integrity: sha512-s//FWTea90dLhdimxVSrRqz5tpYnQh03Z0n5yjWp0Ttn/98jzhBn+7DGpvEKykWTmsZC30DJZSBowqelzWIdNA==}
     peerDependencies:
-      '@drawcall/physics': ^0.1.2
-      three: '>=0.185.0 <0.186.0'
+      '@drawcall/physics': ^0.1.3
+      three: '>=0.185.0'
 
-  '@drawcall/physics@0.1.2':
-    resolution: {integrity: sha512-3ov0iudgWbx9+nHlSUBVVDbyv4tq/860n/LBz24cV/a3Em9+OmLbezfAXSIY2K3mQv38KKa6zwnFniGcq97OUg==}
+  '@drawcall/physics@0.1.3':
+    resolution: {integrity: sha512-X+TxUJOkUYwmp8+uf+6ljNGD+NigMtfu+YrrXIqQ6V1j98BY18CpHldEop9UrwIFP0k0WzT50lHfvDatBP5GRQ==}
     peerDependencies:
-      three: '>=0.185.0 <0.186.0'
+      three: '>=0.185.0'
 
   '@fontsource-variable/newsreader@5.3.0':
     resolution: {integrity: sha512-rrzYi43qMpbzwuFtf9OkWH8sxAPVPcQQQEwXpPtwaKYeJ8yVg5aLs5kawmo1f2Q1t1M38TLmEKCkGVDsYwgdFw==}
@@ -655,19 +655,19 @@ snapshots:
 
   '@dimforge/rapier3d-compat@0.20.0': {}
 
-  '@drawcall/physics-rapier@0.1.2(@drawcall/physics@0.1.2(three@0.185.1))(three@0.185.1)':
+  '@drawcall/physics-rapier@0.1.3(@drawcall/physics@0.1.3(three@0.185.1))(three@0.185.1)':
     dependencies:
       '@dimforge/rapier3d-compat': 0.20.0
-      '@drawcall/physics': 0.1.2(three@0.185.1)
+      '@drawcall/physics': 0.1.3(three@0.185.1)
       three: 0.185.1
 
-  '@drawcall/physics-usd@0.1.2(@drawcall/physics@0.1.2(three@0.185.1))(three@0.185.1)':
+  '@drawcall/physics-usd@0.1.3(@drawcall/physics@0.1.3(three@0.185.1))(three@0.185.1)':
     dependencies:
-      '@drawcall/physics': 0.1.2(three@0.185.1)
+      '@drawcall/physics': 0.1.3(three@0.185.1)
       fflate: 0.8.3
       three: 0.185.1
 
-  '@drawcall/physics@0.1.2(three@0.185.1)':
+  '@drawcall/physics@0.1.3(three@0.185.1)':
     dependencies:
       three: 0.185.1
 
