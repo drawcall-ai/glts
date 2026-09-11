@@ -49,8 +49,6 @@ viewport. The camera need not be in the scene graph unless it depends on an
 authored parent; a camera in the hierarchy makes automatic instancing
 ineligible. GLTS does not search the hierarchy for cameras. The same loaded
 scene can be added beneath another Three.js scene or rendered as the root.
-`defaultCamera` is qualified because the host renderer accepts a competing
-camera argument; native scene properties have no competing argument.
 
 The host owns the root `scene` transform. Put authored placement under a child
 group; do not set `scene.position`, rotation, quaternion, scale, or matrix.
@@ -62,40 +60,14 @@ renderer, display canvas, resize handler, animation loop, or controls. The
 application owns those and may select another camera on every render.
 
 ```ts
-import * as THREE from "three"
-import { isPreview, onDispose, scene } from "@drawcall/glts"
+import { isPreview, scene } from "@drawcall/glts"
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
-
-scene.defaultCamera = new THREE.PerspectiveCamera(35, 1, 0.1, 100)
-scene.defaultCamera.position.set(4, 3, 6)
-scene.defaultCamera.lookAt(0, 1, 0)
+import { Vector2 } from "three"
 
 if (isPreview) {
-  const floorGeometry = new THREE.CircleGeometry(20)
-  const floorMaterial = new THREE.MeshStandardMaterial({ color: "#333333" })
-  const floor = new THREE.Mesh(floorGeometry, floorMaterial)
-  floor.rotation.x = -Math.PI / 2
-  floor.receiveShadow = true
-
-  const light = new THREE.DirectionalLight("white", 3)
-  light.position.set(4, 6, 3)
-  light.castShadow = true
-
-  scene.background = new THREE.Color("#171b2b")
-  scene.fog = new THREE.Fog("#171b2b", 8, 40)
-  scene.add(light, light.target, floor)
-  scene.rendering.shadows = true
-  scene.rendering.toneMapping = THREE.ACESFilmicToneMapping
-  scene.rendering.toneMappingExposure = 1.1
   scene.rendering.effects.push(({ height, width }) =>
-    new UnrealBloomPass(new THREE.Vector2(width, height), 0.3, 0.4, 0.85),
+    new UnrealBloomPass(new Vector2(width, height), 0.3, 0.4, 0.85),
   )
-
-  onDispose(() => {
-    light.dispose()
-    floorGeometry.dispose()
-    floorMaterial.dispose()
-  })
 }
 ```
 
@@ -222,37 +194,38 @@ so a native-instancing script stays valid when loaded as a single scene.
 
 ## Physics
 
-Import physics objects from `@drawcall/physics`. Wrap authored meshes in a body;
-for example, given an existing `mesh`:
+Import bodies, colliders, and joints from `@drawcall/physics`. A `RigidBody`
+without explicit colliders generates one collider per child mesh: primitives
+keep their shape, other dynamic geometry uses convex hulls, and other static
+geometry uses triangle meshes. Triangle colliders require static bodies. Explicit
+colliders replace all automatic colliders on that body.
 
-```ts
-import { RigidBody } from "@drawcall/physics"
-import { scene } from "@drawcall/glts"
+Scripts inherit the host's physics world, including through nested loads and
+reloads. World setup, stepping, and disposal belong to the host.
 
-const body = new RigidBody({ mass: 2 })
-body.add(mesh)
-scene.add(body)
-```
+Author body and collider scale during construction. Changing scale during
+simulation requires recreating the affected bodies and joints; do not animate
+physics scale. Use body options for initial linear and angular velocity.
 
-The host must set up a simulation world or pass an `AuthoringWorld` through
-`GLTSLoader`'s `physicsWorld` option before loading. World setup, stepping, and
-disposal belong to the host. Scripts inherit that world through nested loads
-and reloads; `getDefaultWorld()` inside a script returns its bound world.
+Positive uniform scale works for all collider types. Boxes and mesh colliders
+also support nonuniform scale; cylinders require equal X/Z scale, and spheres
+and capsules require uniform scale. Dynamic and kinematic bodies need uniformly
+scaled ancestors even when their own shape permits nonuniform scale. Zero or
+negative scale and shear are rejected. For a stretched sphere or capsule, use
+an explicit convex hull collider. Scaling changes collider dimensions and joint
+anchor positions, not numeric mass, velocity, or joint-limit values. Explicit
+mass stays fixed; density-derived mass and inertia follow the scaled shapes.
 
 GLTS automatically disposes bodies and joints created by the execution,
 including clones and unattached objects. Keep geometry, material, and texture
 cleanup in `onDispose`. Use `clone(root)` from `@drawcall/physics` to clone a
 mechanism and reconnect its internal joints. Physics assets cannot use
-`loadInstancesAsync()`; load separate scenes. Export the authored/reset pose,
-rather than a currently simulated pose, through the host's `GLTSUSDExporter`.
+`loadInstancesAsync()`; load separate scenes.
 
 ## Frame updates
 
 `onFrame((delta) => ...)` runs when the host calls `update(delta)` on the loaded
 root; updating a root also updates its managed descendants.
-
-Animate objects the script owns. The host owns the loaded root's transform, so
-put animation transforms on a child group rather than on `scene`.
 
 ## Reload-safe code
 
@@ -262,8 +235,7 @@ instance matrices. It replaces children and refreshes authored scene,
 
 The imported `scene` is a live binding that follows the stable node after
 reload. Frame callbacks may reference it directly. Do not alias it; the alias
-would retain the temporary revision scene. Disposal callbacks must close over
-the owned resources themselves.
+would retain the temporary revision scene.
 
 A failed reload leaves current content mounted.
 
