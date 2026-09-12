@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { deferred } from "./deferred.js";
-import { fulfillGLTS, routeGLTS, routeGLTSRevisions } from "./routes.js";
+import { assetSource, fulfillGLTS, routeGLTS, routeGLTSRevisions } from "./routes.js";
 
 test("completes concurrent loads of the same URL", async ({ page }) => {
   await routeGLTS(page, "**/assets/concurrent.glts", `
@@ -159,25 +159,14 @@ test("rejects concurrent cyclic roots instead of deadlocking", async ({ page }) 
 });
 
 test("serializes mutually recursive reloads without deadlocking", async ({ page }) => {
+  // Invalidated source is fetched again for nested loads after a failed reload.
+  const a2 = assetSource("a2", "./reload-cycle-b.glts");
+  const b2 = assetSource("b2", "./reload-cycle-a.glts");
   await routeGLTSRevisions(page, "**/assets/reload-cycle-a.glts", [
-    'import { scene } from "@drawcall/glts"; scene.name = "a1"',
-    `
-      import { gltsLoader, scene } from "@drawcall/glts"
-      scene.name = "a2"
-      scene.add(await gltsLoader.loadAsync(
-        new URL("./reload-cycle-b.glts", import.meta.url),
-      ))
-    `
+    assetSource("a1"), a2, a2
   ]);
   await routeGLTSRevisions(page, "**/assets/reload-cycle-b.glts", [
-    'import { scene } from "@drawcall/glts"; scene.name = "b1"',
-    `
-      import { gltsLoader, scene } from "@drawcall/glts"
-      scene.name = "b2"
-      scene.add(await gltsLoader.loadAsync(
-        new URL("./reload-cycle-a.glts", import.meta.url),
-      ))
-    `
+    assetSource("b1"), b2, b2
   ]);
 
   await page.goto("/test-harness.html");
@@ -205,21 +194,12 @@ test("serializes mutually recursive reloads without deadlocking", async ({ page 
 });
 
 test("does not deadlock a mutually recursive load and reload", async ({ page }) => {
+  const a2 = assetSource("a2", "./mixed-cycle-b.glts");
   await routeGLTSRevisions(page, "**/assets/mixed-cycle-a.glts", [
-    'import { scene } from "@drawcall/glts"; scene.name = "a1"',
-    `
-      import { gltsLoader, scene } from "@drawcall/glts"
-      scene.add(await gltsLoader.loadAsync(
-        new URL("./mixed-cycle-b.glts", import.meta.url),
-      ))
-    `
+    assetSource("a1"), a2, a2
   ]);
-  await routeGLTS(page, "**/assets/mixed-cycle-b.glts", `
-    import { gltsLoader, scene } from "@drawcall/glts"
-    scene.add(await gltsLoader.loadAsync(
-      new URL("./mixed-cycle-a.glts", import.meta.url),
-    ))
-  `);
+  await routeGLTS(page, "**/assets/mixed-cycle-b.glts",
+    assetSource("b", "./mixed-cycle-a.glts"));
 
   await page.goto("/test-harness.html");
   const statuses = await page.evaluate(async () => {

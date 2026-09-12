@@ -113,6 +113,7 @@ export class GLTSLoader extends Loader {
     return this.#runtime.loadInstances(this.#resolveURL(url), count, this.#isPreview);
   }
 
+  /** Invalidates source and reloads live nodes. Inactive source is fetched on the next load. */
   reload(url: GLTSURL): Promise<void> {
     return this.#runtime.reload(this.#resolveURL(url));
   }
