@@ -441,10 +441,10 @@ Bodies and joints stay outside the simulation while an asset or its nested loads
 are being constructed. A successful load registers the complete hierarchy; a
 reload keeps the previous physics active until replacement commits. Attach and
 configure the returned scene synchronously after `await loader.loadAsync(...)`,
-before the next physics step. Do not step the world inside the asset's construction
-script. With a backend that captures scale on its first step, this includes the
-host's final parent transform. Objects created later by `onFrame()` register
-normally for the next step.
+before the next `world.update()` or `world.step()`, including `update(0)`.
+Rapier captures scale during preparation, including the host's final parent
+transform. Do not step the world inside the asset's construction script. Objects
+created later by `onFrame()` register normally for the next preparation boundary.
 
 A scene owns every physics object constructed by its execution, including objects
 not added to the scene tree and objects created with `.clone()` or `clone(root)`.

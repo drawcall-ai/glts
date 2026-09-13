@@ -203,9 +203,29 @@ colliders replace all automatic colliders on that body.
 Scripts inherit the host's physics world, including through nested loads and
 reloads. World setup, stepping, and disposal belong to the host.
 
+Use `body.getVelocity()`, `body.setVelocity({ linear, angular })`,
+`body.teleport(pose)`, and `joint.getState()` directly, including during
+construction before backend preparation. Initial velocity defaults to zero
+unless supplied in body options or set explicitly. After initialization, use
+`teleport` to move a simulated body; editing its Three.js position alone does
+not move the backend.
+
+Read `body.matrixWorld` directly after physics writeback or teleportation;
+no additional refresh is needed. GLTS itself does not refresh matrices before
+`onFrame`: rely on the host's update contract, or refresh with
+`body.updateWorldMatrix(true, false)` when reading after authoring or hierarchy
+changes. `matrixWorld` includes scale;
+teleportation and kinematic targets require a rigid pose, available as
+`splitTransform(body.matrixWorld).pose` from `@drawcall/physics`.
+
+In Rapier, forces, impulses, kinematic targets and sleep/wake require a prepared
+backend; use initial velocity for construction-time launches. In a static
+`AuthoringWorld`, these simulation-only operations are inert, while state reads,
+velocity writes and teleportation remain available for a preview callback.
+
 Author body and collider scale during construction. Changing scale during
 simulation requires recreating the affected bodies and joints; do not animate
-physics scale. Use body options for initial linear and angular velocity.
+physics scale.
 
 Positive uniform scale works for all collider types. Boxes and mesh colliders
 also support nonuniform scale; cylinders require equal X/Z scale, and spheres
