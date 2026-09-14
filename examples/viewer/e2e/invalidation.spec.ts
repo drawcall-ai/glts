@@ -131,7 +131,15 @@ test("invalidates inactive instances through the same path and URL modifier as l
       baseURL: new URL("/assets/", location.href),
       fetch: async () => {
         requests++;
-        return new Response(`import { scene, onMatrixUpdateAt } from "@drawcall/glts"; onMatrixUpdateAt(() => {}); scene.name = "v${version}"`);
+        const response = new Response(`
+          import { scene, onMatrixUpdateAt } from "@drawcall/glts"
+          onMatrixUpdateAt(() => {})
+          scene.name = "v${version}"
+        `);
+        Object.defineProperty(response, "url", {
+          value: new URL("/actual/redirected.glts", location.href).href
+        });
+        return response;
       }
     }).setPath("/logical/");
     const first = await loader.loadInstancesAsync("scene.glts", 2);
@@ -140,9 +148,11 @@ test("invalidates inactive instances through the same path and URL modifier as l
     await loader.reload("./scene.glts#changed");
     const idleRequests = requests;
     const second = await loader.loadInstancesAsync("scene.glts", 2);
+    const redirected = await loader.loadAsync(new URL("/actual/redirected.glts", location.href));
     const snapshot = { idleRequests, requests, name: second.name, count: second.count, url: second.url };
+    redirected.dispose();
     loader.dispose();
     return snapshot;
   });
-  expect(result).toEqual({ idleRequests: 1, requests: 2, name: "v2", count: 2, url: new URL("/actual/scene.glts", page.url()).href });
+  expect(result).toEqual({ idleRequests: 1, requests: 3, name: "v2", count: 2, url: new URL("/actual/scene.glts", page.url()).href });
 });

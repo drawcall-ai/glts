@@ -343,17 +343,11 @@ The node's identity and application-owned transform survive successful reload;
 authored root metadata, default camera, and render state refresh with the new
 revision.
 
-`loader.reload(url)` invalidates cached source immediately and updates every live
-node loaded from that URL. Call it for every changed source path, including nested
-assets and files with no live nodes. With no live nodes it does no fetch, execution,
-construction, or disposal; the next load fetches fresh source. Unchanged files stay
-cached. URL resolution is the same as for loading, including path, loading-manager
-URL modifiers, relative paths, and ignored fragments.
-
-Loads already in progress may finish with their original source; reload waits for
-them and updates any resulting live nodes. Preparations started before invalidation
-cannot restore stale cache entries. Failed reloads preserve live content but leave
-the previous source invalidated, so a later load retries fetching current source.
+`loader.reload(url)` clears cached source and updates every undisposed node loaded
+from that URL. If there are none, it does no fetching or scene work; the next load
+fetches current source. Pending loads finish before invalidation. URLs use the same
+resolution as loading, and each resolved request URL has its own cache entry.
+The application decides when a preview is inactive and disposes its nodes.
 
 Failures are `GLTSError` values with `url`, `phase`, and `cause`. GLTS reports
 source and resource requests through the supplied Three.js loading manager.

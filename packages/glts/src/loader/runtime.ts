@@ -47,7 +47,7 @@ export class LoaderRuntime {
     this.#modules = options.modules;
     this.#operations = new Operations(options.manager);
     this.#nodes = new ManagedNodes((record) =>
-      this.#runReload(
+      this.#operations.runReload(
         record.url,
         () => this.#reloadRecords(record.url, [record])
       )
@@ -109,18 +109,15 @@ export class LoaderRuntime {
   }
 
   reload(url: string): Promise<void> {
-    return this.#runReload(url, async () => {
+    this.#operations.assertActive(url);
+    return this.#operations.runReload(url, async () => {
+      // The write lock lets pending loads finish before their source is invalidated.
+      this.#modules.invalidateScript(url);
       const records = this.#nodes.recordsForURL(url);
       if (records.length > 0) {
         await this.#reloadRecords(url, records);
       }
     });
-  }
-
-  #runReload(url: string, operation: () => Promise<void>): Promise<void> {
-    this.#operations.assertActive(url);
-    this.#modules.invalidateScript(url);
-    return this.#operations.runReload(url, operation);
   }
 
   dispose(): void {

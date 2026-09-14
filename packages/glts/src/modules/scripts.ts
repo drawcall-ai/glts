@@ -31,10 +31,7 @@ export class ScriptModules {
   readonly #moduleURLs: ModuleURLStore;
   readonly #bridge: ModuleBridge;
   readonly #scriptLoads = new Map<string, Promise<CompiledScript>>();
-  readonly #scripts = new Map<string, CompiledScript>();
-  readonly #invalidations = new Map<string, number>();
-  readonly #preparations = new WeakMap<CompiledScript, number>();
-  #generation = 0;
+  readonly #scripts = new Map<string, CompiledScript | undefined>();
 
   constructor(options: ScriptModulesOptions) {
     this.#fetch = options.fetch;
@@ -55,7 +52,7 @@ export class ScriptModules {
     const key = `${reload ? "reload" : "load"}:${url}`;
     let loading = this.#scriptLoads.get(key);
     if (!loading) {
-      loading = this.#fetchScript(url, reload, this.#generation);
+      loading = this.#fetchScript(url, reload);
       this.#scriptLoads.set(key, loading);
       void loading
         .finally(() => {
@@ -69,36 +66,12 @@ export class ScriptModules {
   }
 
   cacheScript(url: string, script: CompiledScript): void {
-    const generation = this.#preparations.get(script);
-    if (generation === undefined) {
-      throw new Error("Cannot cache a script that was not prepared by this loader");
-    }
-    const invalidated = Math.max(
-      this.#invalidations.get(url) ?? 0,
-      this.#invalidations.get(script.url) ?? 0
-    );
-    if (invalidated > generation) {
-      // A late redirect can reveal another request URL that needs revalidation.
-      this.#invalidations.set(url, invalidated);
-      return;
-    }
     this.#scripts.set(url, script);
-    this.#scripts.set(script.url, script);
   }
 
   invalidateScript(url: string): void {
-    const sourceURL = this.#scripts.get(url)?.url ?? url;
-    const aliases = new Set([url, sourceURL]);
-    for (const [key, script] of this.#scripts) {
-      if (script.url === sourceURL) aliases.add(key);
-    }
-    const generation = ++this.#generation;
-    for (const alias of aliases) {
-      this.#invalidations.set(alias, generation);
-      this.#scripts.delete(alias);
-      this.#scriptLoads.delete(`load:${alias}`);
-      this.#scriptLoads.delete(`reload:${alias}`);
-    }
+    // Keep a marker so the next load also revalidates the HTTP cache.
+    this.#scripts.set(url, undefined);
   }
 
   async executeScript(script: CompiledScript, context: ScriptContext): Promise<void> {
@@ -141,17 +114,14 @@ export class ScriptModules {
     }
   }
 
-  async #fetchScript(url: string, reload: boolean, generation: number): Promise<CompiledScript> {
-    const fetched = await fetchSource(this.#fetch, url, reload || this.#invalidations.has(url), [url]);
+  async #fetchScript(url: string, reload: boolean): Promise<CompiledScript> {
+    const fetched = await fetchSource(this.#fetch, url, reload || this.#scripts.has(url), [url]);
     const source = compileScript(fetched.source, {
       importChain: [fetched.url],
       url: fetched.url,
     });
 
     const script = { source, url: fetched.url };
-    // Invalidation also fences late fetches and reload commits, including redirects
-    // whose final URL was unknown when the request started.
-    this.#preparations.set(script, generation);
     if (!reload) {
       this.cacheScript(url, script);
     }
