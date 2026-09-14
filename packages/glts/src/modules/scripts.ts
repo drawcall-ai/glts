@@ -30,9 +30,7 @@ export class ScriptModules {
   readonly #fetch: GLTSFetch;
   readonly #moduleURLs: ModuleURLStore;
   readonly #bridge: ModuleBridge;
-  readonly #pendingScripts = new Map<string, Promise<CompiledScript>>();
-  readonly #compiledScripts = new Map<string, CompiledScript>();
-  readonly #invalidatedURLs = new Set<string>();
+  readonly #scriptCache = new Map<string, Promise<CompiledScript> | "invalidated">();
 
   constructor(options: ScriptModulesOptions) {
     this.#fetch = options.fetch;
@@ -45,41 +43,36 @@ export class ScriptModules {
     requestedURL: string,
     { reload = false }: { readonly reload?: boolean } = {},
   ): Promise<CompiledScript> {
-    const cached = this.#compiledScripts.get(requestedURL);
-    if (cached && !reload) {
+    // Reloads hold the write lock and cache only after scene changes commit.
+    if (reload) return this.#fetchScript(requestedURL, true);
+
+    const cached = this.#scriptCache.get(requestedURL);
+    if (cached !== undefined && cached !== "invalidated") {
       return cached;
     }
 
-    const key = `${reload ? "reload" : "load"}:${requestedURL}`;
-    let loading = this.#pendingScripts.get(key);
-    if (!loading) {
-      const revalidateSource = reload || this.#invalidatedURLs.has(requestedURL);
-      loading = this.#fetchScript(requestedURL, revalidateSource).then((script) => {
-        // Reloads cache the replacement only after the scene changes commit.
-        if (!reload) this.cacheScript(requestedURL, script);
-        return script;
-      });
-      this.#pendingScripts.set(key, loading);
-      void loading
-        .finally(() => {
-          if (this.#pendingScripts.get(key) === loading) {
-            this.#pendingScripts.delete(key);
-          }
-        })
-        .catch(() => undefined);
+    const loading = this.#fetchScript(requestedURL, cached === "invalidated");
+    // The promise shares both pending work and its completed result.
+    this.#scriptCache.set(requestedURL, loading);
+    try {
+      return await loading;
+    } catch (error) {
+      if (cached === "invalidated") {
+        this.#scriptCache.set(requestedURL, "invalidated");
+      } else {
+        this.#scriptCache.delete(requestedURL);
+      }
+      throw error;
     }
-    return loading;
   }
 
-  cacheScript(requestedURL: string, script: CompiledScript): void {
+  commitScript(requestedURL: string, script: CompiledScript): void {
     // script.url may be a redirect target; cache and lock keys use the request URL.
-    this.#compiledScripts.set(requestedURL, script);
-    this.#invalidatedURLs.delete(requestedURL);
+    this.#scriptCache.set(requestedURL, Promise.resolve(script));
   }
 
   invalidateScript(requestedURL: string): void {
-    this.#compiledScripts.delete(requestedURL);
-    this.#invalidatedURLs.add(requestedURL);
+    this.#scriptCache.set(requestedURL, "invalidated");
   }
 
   async executeScript(script: CompiledScript, context: ScriptContext): Promise<void> {
