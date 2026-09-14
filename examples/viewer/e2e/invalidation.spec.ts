@@ -5,10 +5,12 @@ test("reopens inactive root, nested and cross-frame sources after canonical relo
   const result = await page.evaluate(async () => {
     let version = 1;
     const requests: string[] = [];
+    const cacheModes: (RequestCache | undefined)[] = [];
     const loader = new window.GLTSLoader(new window.LoadingManager(), {
-      fetch: async (input) => {
+      fetch: async (input, options) => {
         const path = new URL(String(input)).pathname;
         requests.push(path);
+        cacheModes.push(options?.cache);
         const child = path === "/frame/root.glts" ? `
           import { gltsLoader } from "@drawcall/glts"
           scene.add(await gltsLoader.loadAsync(new URL("./nested.glts", import.meta.url)))
@@ -43,7 +45,7 @@ test("reopens inactive root, nested and cross-frame sources after canonical relo
     await loader.reload("/other/shared.glts");
     const future = await loader.loadAsync("/other/shared.glts");
     const activeNames = [reopened.name, ...reopened.children.map((node) => node.name), future.name];
-    const snapshot = { before, after, names, activeNames, requests };
+    const snapshot = { before, after, names, activeNames, requests, cacheModes };
     loader.dispose();
     return snapshot;
   });
@@ -51,6 +53,7 @@ test("reopens inactive root, nested and cross-frame sources after canonical relo
   expect(result.names).toEqual(["/frame/root.glts v2", "/frame/nested.glts v2", "/other/shared.glts v2", "/unchanged.glts v1"]);
   expect(result.activeNames).toEqual(["/frame/root.glts v2", "/frame/nested.glts v2", "/other/shared.glts v3", "/other/shared.glts v3"]);
   expect(result.requests).toEqual(["/frame/root.glts", "/frame/nested.glts", "/other/shared.glts", "/unchanged.glts", "/frame/root.glts", "/frame/nested.glts", "/other/shared.glts", "/other/shared.glts"]);
+  expect(result.cacheModes).toEqual(["default", "default", "default", "default", "no-cache", "no-cache", "no-cache", "no-cache"]);
 });
 
 for (const { failure, phase } of [
@@ -63,8 +66,10 @@ for (const { failure, phase } of [
     const result = await page.evaluate(async (failure) => {
       let version = 1;
       let broken = false;
+      const cacheModes: (RequestCache | undefined)[] = [];
       const loader = new window.GLTSLoader(new window.LoadingManager(), {
-        fetch: async () => {
+        fetch: async (_input, options) => {
+          cacheModes.push(options?.cache);
           if (broken && failure === "fetch") return new Response("unavailable", { status: 503 });
           if (broken && failure === "compile") return new Response("const =");
           if (broken && failure === "execute") return new Response('throw new Error("broken source")');
@@ -83,11 +88,12 @@ for (const { failure, phase } of [
       const next = await loader.loadAsync("/root.glts");
       const name = next.name;
       loader.dispose();
-      return { phase, preserved, name };
+      return { phase, preserved, name, cacheModes };
     }, failure);
     expect(result.phase).toBe(phase);
     expect(result.preserved).toBe("v1");
     expect(result.name).toBe("v2");
+    expect(result.cacheModes).toEqual(["default", "no-cache", "no-cache"]);
   });
 }
 

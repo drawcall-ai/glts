@@ -30,8 +30,9 @@ export class ScriptModules {
   readonly #fetch: GLTSFetch;
   readonly #moduleURLs: ModuleURLStore;
   readonly #bridge: ModuleBridge;
-  readonly #scriptLoads = new Map<string, Promise<CompiledScript>>();
-  readonly #scripts = new Map<string, CompiledScript | undefined>();
+  readonly #pendingScripts = new Map<string, Promise<CompiledScript>>();
+  readonly #compiledScripts = new Map<string, CompiledScript>();
+  readonly #invalidatedURLs = new Set<string>();
 
   constructor(options: ScriptModulesOptions) {
     this.#fetch = options.fetch;
@@ -41,23 +42,28 @@ export class ScriptModules {
   }
 
   async prepareScript(
-    url: string,
+    requestedURL: string,
     { reload = false }: { readonly reload?: boolean } = {},
   ): Promise<CompiledScript> {
-    const cached = this.#scripts.get(url);
+    const cached = this.#compiledScripts.get(requestedURL);
     if (cached && !reload) {
       return cached;
     }
 
-    const key = `${reload ? "reload" : "load"}:${url}`;
-    let loading = this.#scriptLoads.get(key);
+    const key = `${reload ? "reload" : "load"}:${requestedURL}`;
+    let loading = this.#pendingScripts.get(key);
     if (!loading) {
-      loading = this.#fetchScript(url, reload);
-      this.#scriptLoads.set(key, loading);
+      const revalidateSource = reload || this.#invalidatedURLs.has(requestedURL);
+      loading = this.#fetchScript(requestedURL, revalidateSource).then((script) => {
+        // Reloads cache the replacement only after the scene changes commit.
+        if (!reload) this.cacheScript(requestedURL, script);
+        return script;
+      });
+      this.#pendingScripts.set(key, loading);
       void loading
         .finally(() => {
-          if (this.#scriptLoads.get(key) === loading) {
-            this.#scriptLoads.delete(key);
+          if (this.#pendingScripts.get(key) === loading) {
+            this.#pendingScripts.delete(key);
           }
         })
         .catch(() => undefined);
@@ -65,13 +71,15 @@ export class ScriptModules {
     return loading;
   }
 
-  cacheScript(url: string, script: CompiledScript): void {
-    this.#scripts.set(url, script);
+  cacheScript(requestedURL: string, script: CompiledScript): void {
+    // script.url may be a redirect target; cache and lock keys use the request URL.
+    this.#compiledScripts.set(requestedURL, script);
+    this.#invalidatedURLs.delete(requestedURL);
   }
 
-  invalidateScript(url: string): void {
-    // Keep a marker so the next load also revalidates the HTTP cache.
-    this.#scripts.set(url, undefined);
+  invalidateScript(requestedURL: string): void {
+    this.#compiledScripts.delete(requestedURL);
+    this.#invalidatedURLs.add(requestedURL);
   }
 
   async executeScript(script: CompiledScript, context: ScriptContext): Promise<void> {
@@ -114,20 +122,15 @@ export class ScriptModules {
     }
   }
 
-  async #fetchScript(url: string, reload: boolean): Promise<CompiledScript> {
-    const fetched = await fetchSource(this.#fetch, url, reload || this.#scripts.has(url), [url]);
+  async #fetchScript(url: string, revalidateSource: boolean): Promise<CompiledScript> {
+    const fetched = await fetchSource(this.#fetch, url, revalidateSource, [url]);
     const source = compileScript(fetched.source, {
       importChain: [fetched.url],
       url: fetched.url,
     });
 
-    const script = { source, url: fetched.url };
-    if (!reload) {
-      this.cacheScript(url, script);
-    }
-    return script;
+    return { source, url: fetched.url };
   }
-
 }
 
 export function canonicalGLTSURL(input: string | URL, baseURL: URL): string {
