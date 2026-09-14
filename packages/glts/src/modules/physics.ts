@@ -14,11 +14,11 @@ export function bindPhysics(
     }
     constructor(options: Physics.RigidBodyOptions = {}) {
       context.assertActive();
-      super(options, options.world ?? world);
+      super({ ...options, world: options.world ?? world });
       context.ownPhysics(this);
     }
   }
-  class Joint<
+  abstract class Joint<
     Options extends Physics.JointOptions = Physics.JointOptions,
   > extends physics.Joint<Options> {
     static override [Symbol.hasInstance](value: unknown): boolean {
@@ -32,7 +32,7 @@ export function bindPhysics(
       context.ownPhysics(this);
     }
   }
-  class AxisJoint extends physics.AxisJoint {
+  abstract class AxisJoint extends physics.AxisJoint {
     static override [Symbol.hasInstance](value: unknown): boolean {
       return this === AxisJoint
         ? value instanceof physics.AxisJoint
