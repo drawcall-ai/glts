@@ -81,7 +81,10 @@ it("retains host instanceof identity and disposes unparented bodies, joints and 
   const bound = bindPhysics(physics, scope.context, world);
   const options: physics.RigidBodyOptions = { mass: 2 };
   const body = new bound.RigidBody(options);
-  expect(body.options).toBe(options);
+  expect(body.options).toEqual({ ...options, world });
+  expect(options.world).toBeUndefined();
+  body.options.mass = 3;
+  expect(options.mass).toBe(2);
   expect(bound.getDefaultWorld()).toBe(world);
   class SpecializedBody extends bound.RigidBody {}
   expect(body).not.toBeInstanceOf(SpecializedBody);
@@ -179,5 +182,29 @@ it("shares redirect aliases within an execution while isolating physics across e
     second.dispose();
     world.dispose();
     bridge.dispose();
+  }
+});
+
+it("injects the captured world without mutating reusable options and honors explicit ownership", () => {
+  const captured = new physics.AuthoringWorld();
+  const other = new physics.AuthoringWorld();
+  const scope = execution(captured);
+  const bound = bindPhysics(physics, scope.context, captured);
+  physics.setDefaultWorld(other);
+  try {
+    const options: physics.RigidBodyOptions = Object.freeze({ mass: 2 });
+    const body = new bound.RigidBody(options);
+    expect(body.world).toBe(captured);
+    expect(body.options.world).toBe(captured);
+    expect(options.world).toBeUndefined();
+    const explicit = new bound.RigidBody({ ...options, world: other });
+    expect(explicit.world).toBe(other);
+    body.options.mass = 3;
+    expect(options.mass).toBe(2);
+    expect(explicit.options.mass).toBe(2);
+  } finally {
+    scope.dispose();
+    captured.dispose();
+    other.dispose();
   }
 });
