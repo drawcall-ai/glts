@@ -111,6 +111,8 @@ export class LoaderRuntime {
   reload(url: string): Promise<void> {
     this.#operations.assertActive(url);
     return this.#operations.runReload(url, async () => {
+      // The write lock lets pending loads finish before their source is invalidated.
+      this.#modules.invalidateScript(url);
       const records = this.#nodes.recordsForURL(url);
       if (records.length > 0) {
         await this.#reloadRecords(url, records);

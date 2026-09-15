@@ -7,7 +7,8 @@ import * as THREE from "three";
 import { GLTSError } from "../errors.js";
 import { createContextLoader } from "./context.js";
 import { LoaderRuntime } from "./runtime.js";
-import { canonicalGLTSURL, ScriptModules } from "../modules/scripts.js";
+import { ScriptModules } from "../modules/scripts.js";
+import { canonicalize } from "../modules/fetch.js";
 import { ModuleBridge } from "../modules/bridge.js";
 import { ModuleURLStore } from "../modules/urls.js";
 import type {
@@ -113,6 +114,7 @@ export class GLTSLoader extends Loader {
     return this.#runtime.loadInstances(this.#resolveURL(url), count, this.#isPreview);
   }
 
+  /** Invalidates source and reloads undisposed nodes. Unloaded source is fetched on the next load. */
   reload(url: GLTSURL): Promise<void> {
     return this.#runtime.reload(this.#resolveURL(url));
   }
@@ -144,7 +146,7 @@ export class GLTSLoader extends Loader {
   #resolveURL(url: GLTSURL, path = this.path): string {
     const input = url instanceof URL ? url.href : `${path}${url}`;
     const managedURL = this.manager.resolveURL(input);
-    return canonicalGLTSURL(managedURL, this.#baseURL);
+    return canonicalize(new URL(managedURL, this.#baseURL));
   }
 
   #fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

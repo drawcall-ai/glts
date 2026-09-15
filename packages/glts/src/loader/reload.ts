@@ -73,7 +73,7 @@ export async function reloadRecords(
       disposalErrors.push(error);
     }
   }
-  modules.cacheScript(url, script);
+  modules.commitScript(url, script);
 
   if (disposalErrors.length > 0) {
     throw new GLTSError(
