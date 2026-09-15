@@ -343,15 +343,9 @@ The node's identity and application-owned transform survive successful reload;
 authored root metadata, default camera, and render state refresh with the new
 revision.
 
-`loader.reload(url)` clears cached source and updates every undisposed node loaded
-from that URL. If there are none, it does no fetching or scene work; the next load
-fetches current source. Pending loads finish before invalidation. URLs use the same
-resolution as loading, and each resolved request URL has its own cache entry.
-The application decides when a preview is inactive and disposes its nodes.
+`loader.reload(url)` clears cached source and updates every undisposed node loaded from that URL. If there are none, it does no fetching or scene work; the next load fetches current source. Pending loads finish before invalidation. URLs use the same resolution as loading, and each resolved request URL has its own cache entry. The application decides when a preview is inactive and disposes its nodes.
 
-Uncached GLTS source requests use HTTP `no-cache`, including the first load, so
-the server validates freshness before source enters the loader's cache. Subsequent
-loads share the cached promise until invalidation. External module caching is unchanged.
+Uncached GLTS source requests use HTTP `no-cache`, including the first load, so the server validates freshness before source enters the loader's cache. Subsequent loads share the cached promise until invalidation. External module caching is unchanged.
 
 Failures are `GLTSError` values with `url`, `phase`, and `cause`. GLTS reports
 source and resource requests through the supplied Three.js loading manager.
