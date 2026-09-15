@@ -1,7 +1,7 @@
 import type { ScriptContext } from "../scene/execution.js";
 import { toGLTSError } from "../errors.js";
 import { ExternalModules } from "./external.js";
-import { canonicalize, fetchSource } from "./fetch.js";
+import { fetchSource } from "./fetch.js";
 import type { ModuleURLStore } from "./urls.js";
 import { rewriteModule } from "./rewrite.js";
 import type { ModuleBridge } from "./bridge.js";
@@ -21,63 +21,52 @@ interface ScriptModulesOptions {
   readonly threeRevision: string;
 }
 
-async function importModule(moduleURL: string): Promise<unknown> {
-  return import(/* @vite-ignore */ moduleURL);
-}
-
 export class ScriptModules {
-  readonly #external: ExternalModules;
-  readonly #fetch: GLTSFetch;
-  readonly #moduleURLs: ModuleURLStore;
-  readonly #bridge: ModuleBridge;
-  readonly #scriptCache = new Map<string, Promise<CompiledScript> | "invalidated">();
+  private readonly external: ExternalModules;
+  private readonly scriptCache = new Map<string, Promise<CompiledScript>>();
 
-  constructor(options: ScriptModulesOptions) {
-    this.#fetch = options.fetch;
-    this.#moduleURLs = options.moduleURLs;
-    this.#bridge = options.bridge;
-    this.#external = new ExternalModules(options);
+  constructor(private readonly options: ScriptModulesOptions) {
+    this.external = new ExternalModules(options);
   }
 
   async prepareScript(
     requestedURL: string,
     { reload = false }: { readonly reload?: boolean } = {},
   ): Promise<CompiledScript> {
-    // Reloads hold the write lock and cache only after scene changes commit.
-    if (reload) return this.#fetchScript(requestedURL, true);
-
-    const cached = this.#scriptCache.get(requestedURL);
-    if (cached !== undefined && cached !== "invalidated") {
+    const cached = this.scriptCache.get(requestedURL);
+    if (cached && !reload) {
       return cached;
     }
 
-    const loading = this.#fetchScript(requestedURL, cached === "invalidated");
-    // The promise shares both pending work and its completed result.
-    this.#scriptCache.set(requestedURL, loading);
+    const loading = fetchSource(this.options.fetch, requestedURL, true, [requestedURL])
+      .then(({ source, url }) => ({
+        source: compileScript(source, { importChain: [url], url }),
+        url,
+      }));
+    // Reloads cache the replacement only after scene changes commit.
+    if (reload) return loading;
+
+    this.scriptCache.set(requestedURL, loading);
     try {
       return await loading;
     } catch (error) {
-      if (cached === "invalidated") {
-        this.#scriptCache.set(requestedURL, "invalidated");
-      } else {
-        this.#scriptCache.delete(requestedURL);
-      }
+      this.scriptCache.delete(requestedURL);
       throw error;
     }
   }
 
   commitScript(requestedURL: string, script: CompiledScript): void {
     // script.url may be a redirect target; cache and lock keys use the request URL.
-    this.#scriptCache.set(requestedURL, Promise.resolve(script));
+    this.scriptCache.set(requestedURL, Promise.resolve(script));
   }
 
   invalidateScript(requestedURL: string): void {
-    this.#scriptCache.set(requestedURL, "invalidated");
+    this.scriptCache.delete(requestedURL);
   }
 
   async executeScript(script: CompiledScript, context: ScriptContext): Promise<void> {
-    const contextModule = this.#bridge.createContextModule(context);
-    const external = this.#external.forContext(context);
+    const contextModule = this.options.bridge.createContextModule(context);
+    const external = this.external.forContext(context);
     let transformed: string;
     try {
       transformed = await rewriteModule({
@@ -100,9 +89,9 @@ export class ScriptModules {
       });
     }
 
-    const moduleURL = this.#moduleURLs.create(transformed);
+    const moduleURL = this.options.moduleURLs.create(transformed);
     try {
-      await importModule(moduleURL);
+      await import(/* @vite-ignore */ moduleURL);
     } catch (error) {
       throw toGLTSError(error, "Unable to execute GLTS script", {
         importChain: [script.url],
@@ -110,22 +99,8 @@ export class ScriptModules {
         url: script.url,
       });
     } finally {
-      this.#moduleURLs.release(moduleURL);
+      this.options.moduleURLs.release(moduleURL);
       contextModule.release();
     }
   }
-
-  async #fetchScript(url: string, revalidateSource: boolean): Promise<CompiledScript> {
-    const fetched = await fetchSource(this.#fetch, url, revalidateSource, [url]);
-    const source = compileScript(fetched.source, {
-      importChain: [fetched.url],
-      url: fetched.url,
-    });
-
-    return { source, url: fetched.url };
-  }
-}
-
-export function canonicalGLTSURL(input: string | URL, baseURL: URL): string {
-  return canonicalize(new URL(input, baseURL));
 }

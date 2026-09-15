@@ -53,7 +53,7 @@ test("reopens inactive root, nested and cross-frame sources after canonical relo
   expect(result.names).toEqual(["/frame/root.glts v2", "/frame/nested.glts v2", "/other/shared.glts v2", "/unchanged.glts v1"]);
   expect(result.activeNames).toEqual(["/frame/root.glts v2", "/frame/nested.glts v2", "/other/shared.glts v3", "/other/shared.glts v3"]);
   expect(result.requests).toEqual(["/frame/root.glts", "/frame/nested.glts", "/other/shared.glts", "/unchanged.glts", "/frame/root.glts", "/frame/nested.glts", "/other/shared.glts", "/other/shared.glts"]);
-  expect(result.cacheModes).toEqual(["default", "default", "default", "default", "no-cache", "no-cache", "no-cache", "no-cache"]);
+  expect(result.cacheModes).toEqual(["no-cache", "no-cache", "no-cache", "no-cache", "no-cache", "no-cache", "no-cache", "no-cache"]);
 });
 
 for (const { failure, phase } of [
@@ -93,7 +93,7 @@ for (const { failure, phase } of [
     expect(result.phase).toBe(phase);
     expect(result.preserved).toBe("v1");
     expect(result.name).toBe("v2");
-    expect(result.cacheModes).toEqual(["default", "no-cache", "no-cache"]);
+    expect(result.cacheModes).toEqual(["no-cache", "no-cache", "no-cache"]);
   });
 }
 
@@ -101,39 +101,34 @@ for (const { failure, phase } of [
   { failure: "fetch", phase: "fetch" },
   { failure: "compile", phase: "transform" }
 ]) {
-  test(`retries shared ${failure} failures with the original HTTP cache policy`, async ({ page }) => {
+  test(`retries shared ${failure} failures and caches the successful result`, async ({ page }) => {
     await page.goto("/test-harness.html");
-    const results = await page.evaluate(async (failure) => {
-      const results = [];
-      for (const invalidated of [false, true]) {
-        let broken = true;
-        const cacheModes: (RequestCache | undefined)[] = [];
-        const loader = new window.GLTSLoader(new window.LoadingManager(), {
-          fetch: async (_input, options) => {
-            cacheModes.push(options?.cache);
-            if (broken && failure === "fetch") return new Response("unavailable", { status: 503 });
-            if (broken) return new Response("const =");
-            return new Response('import { scene } from "@drawcall/glts"; scene.name = "recovered"');
-          }
-        });
-        if (invalidated) await loader.reload("/retry.glts");
-        const attempts = await Promise.allSettled([
-          loader.loadAsync("/retry.glts"), loader.loadAsync("/retry.glts")
-        ]);
-        const phases = attempts.map((result) => result.status === "rejected"
-          ? window.readErrorField(result.reason, "phase") : "unexpected success");
-        broken = false;
-        const recovered = await loader.loadAsync("/retry.glts");
-        const cached = await loader.loadAsync("/retry.glts");
-        results.push({ phases, names: [recovered.name, cached.name], cacheModes });
-        loader.dispose();
-      }
-      return results;
+    const result = await page.evaluate(async (failure) => {
+      let broken = true;
+      const cacheModes: (RequestCache | undefined)[] = [];
+      const loader = new window.GLTSLoader(new window.LoadingManager(), {
+        fetch: async (_input, options) => {
+          cacheModes.push(options?.cache);
+          if (broken && failure === "fetch") return new Response("unavailable", { status: 503 });
+          if (broken) return new Response("const =");
+          return new Response('import { scene } from "@drawcall/glts"; scene.name = "recovered"');
+        }
+      });
+      const attempts = await Promise.allSettled([
+        loader.loadAsync("/retry.glts"), loader.loadAsync("/retry.glts")
+      ]);
+      const phases = attempts.map((result) => result.status === "rejected"
+        ? window.readErrorField(result.reason, "phase") : "unexpected success");
+      broken = false;
+      const recovered = await loader.loadAsync("/retry.glts");
+      const cached = await loader.loadAsync("/retry.glts");
+      const snapshot = { phases, names: [recovered.name, cached.name], cacheModes };
+      loader.dispose();
+      return snapshot;
     }, failure);
-    expect(results).toEqual([
-      { phases: [phase, phase], names: ["recovered", "recovered"], cacheModes: ["default", "default"] },
-      { phases: [phase, phase], names: ["recovered", "recovered"], cacheModes: ["no-cache", "no-cache"] }
-    ]);
+    expect(result).toEqual({
+      phases: [phase, phase], names: ["recovered", "recovered"], cacheModes: ["no-cache", "no-cache"]
+    });
   });
 }
 
