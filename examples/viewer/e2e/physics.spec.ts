@@ -187,17 +187,23 @@ test("loads and exports the complete ragdoll example", async ({
       const asset = await loader.loadAsync("/ragdoll.glts");
       const { RigidBody, Joint } = await window.physicsModule();
       const colliders: number[] = [];
+      const contacts: boolean[] = [];
       let joints = 0;
       asset.traverse((object) => {
         if (object instanceof RigidBody)
           colliders.push(object.getColliders().length);
         if (object instanceof Joint) {
           object.validate();
+          contacts.push(object.collideConnected);
           joints++;
         }
       });
+      const pelvis = asset.getObjectByName("Pelvis");
+      if (!(pelvis instanceof RigidBody)) throw new Error("Missing pelvis");
       const output = await new window.GLTSUSDExporter().parseAsync(asset);
       return {
+        velocity: pelvis.getVelocity().linear.toArray(),
+        contacts,
         bodies: colliders.length,
         colliders,
         joints,
@@ -210,6 +216,8 @@ test("loads and exports the complete ragdoll example", async ({
     }
   });
   expect(result).toEqual({
+    velocity: [0.6, 0, 0.8],
+    contacts: Array(10).fill(true),
     bodies: 12,
     colliders: Array(12).fill(1),
     joints: 10,

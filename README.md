@@ -442,7 +442,7 @@ Bodies and joints stay outside the simulation while an asset or its nested loads
 are being constructed. A successful load registers the complete hierarchy; a
 reload keeps the previous physics active until replacement commits. Attach and
 configure the returned scene synchronously after `await loader.loadAsync(...)`,
-before the next `world.update()` or `world.step()`, including `update(0)`.
+before the next `world.update()`, including `update(0)`.
 Rapier captures scale during preparation, including the host's final parent
 transform. Do not step the world inside the asset's construction script. Objects
 created later by `onFrame()` register normally for the next preparation boundary.
@@ -451,9 +451,11 @@ A scene owns every physics object constructed by its execution, including object
 not added to the scene tree and objects created with `.clone()` or `clone(root)`.
 Disposal unregisters them automatically. Failed loads/reloads clean up their new
 objects while retaining the current asset. The host still owns the world and
-must dispose it when finished. Constructor options retain their identity; edit
-`body.options` and `joint.options` for live settings. `body.getColliders()` returns
-the actual explicit or automatically generated collider objects. Bodies and
+must dispose it when finished. Constructor options are copied and readonly;
+recreate objects to change body mass/type or joint frames/limits. Use methods
+such as `setVelocity`, `setMaterial`, and `setCollideConnected` for mutable
+settings. `body.getColliders()` returns the actual explicit or automatically
+generated collider objects. Bodies and
 joints expose `.validate()`; `joint.getFrame(index, matrix)` writes a body-local
 joint frame into a Three.js `Matrix4`.
 
