@@ -194,103 +194,95 @@ so a native-instancing script stays valid when loaded as a single scene.
 
 ## Physics
 
-Import physics objects from `@drawcall/physics`. Bodies are Three.js groups;
-colliders and joints are scene objects. Add visual meshes beneath a body and
-add bodies and joints beneath `scene`. Units are meters, kilograms, seconds,
-and radians.
+Scripts inherit the host's world through nested loads and reloads. Access it
+with `getDefaultWorld()` or `body.world`; setup, stepping, reset, and disposal
+belong to the host.
 
-| Object | Configure at construction | Change through methods |
+Import from `@drawcall/physics`. Put meshes and colliders beneath `RigidBody`
+groups, and bodies and joints beneath `scene`. Units: meters, kilograms,
+seconds, radians.
+
+| Object | Constructor | Setters |
 | --- | --- | --- |
-| `RigidBody` | `type` (`"dynamic"` by default, `"static"`, or `"kinematic"`), `mass`, `canSleep`, `colliders` (`"auto"`, `"box"`, `"convexHull"`, `"trimesh"`, or `false`); optional complete mass properties below | `setVelocity({ linear, angular })`, `setLinearDamping(value)`, `setAngularDamping(value)`, `setGravityScale(value)`, `setMaterial(material)` |
-| Colliders | `BoxCollider({ size: [x, y, z] })`, `SphereCollider({ radius })`, `CapsuleCollider({ radius, length })`, `CylinderCollider({ radius, height })`, `MeshCollider({ approximation })` (`"convexHull"` or `"trimesh"`) | `setMaterial(material)`, `setSensor(boolean)`, `setCollisionGroups({ membership, filter })`; mesh colliders also have `setGeometry(bufferGeometry)` |
-| Joints | `FixedJoint`, `SphericalJoint`, `RevoluteJoint`, `PrismaticJoint`, or `DistanceJoint` with `{ body0, body1 }`; optional paired `frame0`/`frame1`; revolute/prismatic joints also accept `axis` (`"X"`, `"Y"`, or `"Z"`, default Y) and `limits: [min, max]`; distance joints accept distance `limits` | `setEnabled(boolean)`, `setCollideConnected(boolean)`; revolute/prismatic joints also have `setEffort(value)` |
-| `JointMotor` | `{ joint, stiffness, damping, maxForce, model }` for one revolute/prismatic joint; `model` is `"force"` (default) or `"acceleration"` | `setTarget({ position, velocity })`, `setEnabled(boolean)`, `dispose()` |
+| `RigidBody` | `type` (`"dynamic"` by default, `"static"`, or `"kinematic"`), `mass`, `canSleep`, `colliders` (`"auto"`, `"box"`, `"convexHull"`, `"trimesh"`, or `false`) | `setVelocity({ linear, angular })`, `setLinearDamping(value)`, `setAngularDamping(value)`, `setGravityScale(value)`, `setMaterial(material)` |
+| Colliders | `BoxCollider({ size: [x, y, z] })`, `SphereCollider({ radius })`, `CapsuleCollider({ radius, length })`, `CylinderCollider({ radius, height })`, `MeshCollider({ approximation })` (`"convexHull"` or `"trimesh"`) | `setMaterial(material)`, `setSensor(boolean)`, `setCollisionGroups({ membership, filter })`; mesh: `setGeometry(bufferGeometry)` |
+| Joints | `FixedJoint`, `SphericalJoint`, `RevoluteJoint`, `PrismaticJoint`, or `DistanceJoint`: `{ body0, body1, frame0?, frame1? }`; revolute/prismatic: `axis` (X/Y/Z, default Y), `limits: [min, max]`; distance: `limits` (default `[0, 0]`) | `setEnabled(boolean)`, `setCollideConnected(boolean)`; revolute/prismatic: `setEffort(value)` |
+| `JointMotor` | `{ joint, stiffness?, damping?, maxForce?, model? }`; `joint` is revolute/prismatic, `model` is `"force"` (default) or `"acceleration"` | `setTarget({ position, velocity })`, `setEnabled(boolean)` |
 
-Without explicit colliders, each child mesh generates a collider: primitives
-keep their shape, other dynamic geometry uses convex hulls, and other static
-geometry uses triangle meshes. Explicit colliders replace automatic colliders;
-triangle colliders require static bodies. Capsules and cylinders extend along Y;
-capsule `length` excludes the hemispheres. Collision-group membership/filter are
-unsigned 16-bit masks. Materials accept `staticFriction`, `dynamicFriction`,
-`restitution`, and `density`; collider settings override body settings.
+Automatic colliders follow each mesh: unchanged primitives retain their shape;
+other dynamic/kinematic geometry uses convex hulls, static geometry uses triangle meshes.
+Explicit colliders replace automatic ones. Triangle meshes require static bodies;
+instanced, skinned, or morph-deformed meshes need explicit colliders. Bodies cannot
+nest. Collision geometry requires full draw ranges. Capsules/cylinders extend along Y; capsule `length` excludes hemispheres.
+Materials accept `staticFriction`, `dynamicFriction`, `restitution`, and `density`;
+collider values override body values. Collision-group masks are unsigned 16-bit.
 
-Mass can come from collider density, a total `mass`, or complete
-`{ mass, centerOfMass, diagonalInertia, principalAxes? }`. COM and inertia are
-body-local triples; optional principal axes are a quaternion `[x, y, z, w]`.
-A dynamic body without colliders needs complete positive mass/inertia.
+Mass comes from collider density, a total `mass`, or complete constructor
+properties `{ mass, centerOfMass, diagonalInertia, principalAxes? }`: COM/inertia
+are body-local triples, axes a quaternion `[x, y, z, w]` (default identity).
+Colliderless dynamic bodies need complete positive mass/inertia.
 
-Velocity methods use Three.js `Vector3` values; `getVelocity()` returns
-`{ linear, angular }`. Velocity starts at zero; partial `setVelocity` writes
-preserve the other component. Use `teleport(pose)` to reposition a simulated body
-and `setKinematicTarget(pose)` to move a kinematic body. `applyImpulse(vector,
-point?)`, `applyForce(vector, point?)`, `sleep()`, and `wake()` control motion.
-Vectors and optional application points are world-space; linear velocity is
-measured at the center of mass. Forces last one solver
-substep; impulses change velocity once.
+`getVelocity()` returns `{ linear, angular }` as world-space `Vector3`s; linear
+velocity is measured at the center of mass. Velocity starts at zero; partial
+`setVelocity` preserves the omitted component. `teleport(pose)` repositions a
+body; `setKinematicTarget(pose)` moves a kinematic body. Both take rigid world-space
+`Matrix4`s: `splitTransform(body.matrixWorld).pose` removes scale.
+`applyImpulse(vector, point?)` changes velocity once; `applyForce(vector, point?)`
+lasts one solver substep. Vectors and application points are world-space.
+Bodies also expose `sleep()` and `wake()`.
 
-`body0: null` anchors a joint to the world. Joint placement defines its initial
-anchors; alternatively supply both body-local `Matrix4` frames (`frame0` is
-world-space for a world anchor). Axis `getState()` returns `{ position, velocity }`
-in radians/radians per second for hinges and meters/meters per second for sliders.
-Other joints return `{ angle, angularVelocity, position, distance }`.
+Joint placement defines initial anchors; explicit `frame0` and `frame1` must be
+supplied together as body-local `Matrix4`s. `body0: null` anchors to the world,
+with world-space `frame0`. Axis `getState()` returns `{ position, velocity }`
+(radians and rad/s for hinges, meters and m/s for sliders); other joints return
+`{ angle, angularVelocity, position, distance }`.
 
-Motors start untargeted. `setTarget` accepts either coordinate or both and replaces
-omitted coordinates with zero. Zero stiffness gives velocity control; zero
-velocity with damping brakes. `maxForce` is N for sliders or N·m for hinges.
-`joint.setEffort(value)` applies force/torque for one substep; the last call wins.
-Disable an active motor before applying effort. For sustained effort, use
-`world.onBeforeStep(callback)` rather than a render-frame callback.
+One motor per axis joint; it starts untargeted. `setTarget` accepts either
+coordinate or both, replacing omissions with zero. Zero stiffness gives velocity
+control; zero velocity with damping brakes. `maxForce` is N for sliders or N·m
+for hinges, unbounded when omitted. `setEffort` applies force/torque for one
+substep; last call wins. An active motor must be disabled before applying effort.
+Use `world.onBeforeStep` for sustained effort so every substep receives it.
 
-`getDefaultWorld()` returns the execution's world, also available as `body.world`.
-`world.fixedDelta` is the simulation step; `world.time` counts simulated seconds.
-`onBeforeStep(delta => ...)` and `onAfterStep(delta => ...)` return unsubscribe
-functions: register them with `onDispose`. `world.raycast(origin, direction,
-maxDistance, { collisionGroups?, includeSensors?, excludeBodies? })` returns
-`null` or `{ distance, point, normal, body, collider }`; inputs use `Vector3`,
-hits are world-space, and sensors are excluded by default.
+`world.fixedDelta` is the step duration; `world.time` counts simulated seconds.
+`world.onBeforeStep(delta => ...)` and `world.onAfterStep(delta => ...)` return
+unsubscribe functions; pass them to `onDispose`. `world.raycast(origin, direction,
+maxDistance, options?)` accepts `Vector3`s and options `collisionGroups`,
+`includeSensors` (default false), and `excludeBodies`. It returns `null` or
+`{ distance, point, normal, body, collider }` in world space.
 
-For inspection, `body.getColliders()` returns explicit or generated colliders,
-`body.getMaterial(collider)` resolves material defaults, `collider.shape()` returns
-its shape, and `joint.getFrame(0 | 1, matrix)` writes a body-local anchor.
-Bodies and joints expose `validate()`. See the
-[physics API](https://github.com/drawcall-ai/physics#readme) for detailed constraints.
+Inspect settings through matching properties (`linearDamping`, `sensor`, `enabled`,
+`motor.target`, etc.). `body.getColliders()` returns colliders;
+`body.getMaterial(collider)` resolves defaults; `collider.shape()` describes its
+shape; `joint.getFrame(0 | 1, matrix)` writes an anchor in the corresponding frame
+space. Bodies and joints expose `validate()`.
 
-Scripts inherit the host's physics world, including through nested loads and
-reloads. World setup, stepping, reset, and disposal belong to the host.
+Author scale before simulation; later changes require recreating affected bodies
+and joints. Positive uniform scale works for all shapes. Boxes/meshes allow
+nonuniform scale; cylinders need equal X/Z scale; spheres/capsules need uniform
+scale (use a convex hull to stretch them). Dynamic/kinematic bodies need uniformly scaled
+ancestors. Zero/negative scale and shear are rejected. Scale affects shapes and
+anchors, not velocity or joint limits. Explicit mass properties stay fixed;
+density-derived mass/inertia follow shape scale.
 
-Read `body.matrixWorld` directly after physics writeback or teleportation;
-no additional refresh is needed. GLTS itself does not refresh matrices before
-`onFrame`: rely on the host's update contract, or refresh with
-`body.updateWorldMatrix(true, false)` when reading after authoring or hierarchy
-changes. `matrixWorld` includes scale;
-teleportation and kinematic targets require a rigid pose, available as
-`splitTransform(body.matrixWorld).pose` from `@drawcall/physics`.
+GLTS disposes execution-owned bodies and joints, including clones and unattached
+objects. `clone(root)` reconnects internal joints and motors; individual `.clone()`
+and `.copy()` retain body references, and `.copy()` requires matching construction
+settings. Disposing a body releases connected joints; disposing a joint releases
+its motor; `motor.dispose()` preserves the joint. Physics assets need separate
+scene loads; `loadInstancesAsync()` is unsupported.
+
+See the [physics API](https://github.com/drawcall-ai/physics#readme) for detailed
+constraints.
+
+Physics writeback and teleportation refresh `body.matrixWorld`. After authoring
+or hierarchy edits, refresh it with `body.updateWorldMatrix(true, false)` before
+reading. GLTS does not refresh matrices before `onFrame`; follow the host contract.
 
 State reads, velocity writes, and teleportation work during construction.
-In a static `AuthoringWorld`, simulation commands are inert, step callbacks do
-not run, and raycasts are unavailable.
-
-Author body and collider scale during construction. Changing scale during
-simulation requires recreating the affected bodies and joints; do not animate
-physics scale.
-
-Positive uniform scale works for all collider types. Boxes and mesh colliders
-also support nonuniform scale; cylinders require equal X/Z scale, and spheres
-and capsules require uniform scale. Dynamic and kinematic bodies need uniformly
-scaled ancestors even when their own shape permits nonuniform scale. Zero or
-negative scale and shear are rejected. For a stretched sphere or capsule, use
-an explicit convex hull collider. Scaling changes collider dimensions and joint
-anchor positions, not numeric mass, velocity, or joint-limit values. Explicit
-mass stays fixed; density-derived mass and inertia follow the scaled shapes.
-
-GLTS automatically disposes bodies and joints created by the execution,
-including clones and unattached objects. Keep geometry, material, and texture
-cleanup in `onDispose`. Use `clone(root)` from `@drawcall/physics` to clone a
-mechanism and reconnect its internal joints and motors. Individual `.clone()`
-and `.copy()` retain joint body references; `.copy()` requires matching
-construction settings. `body.dispose()` also releases connected joints; joint
-disposal releases its motor, while `motor.dispose()` preserves the joint.
-Physics assets cannot use `loadInstancesAsync()`; load separate scenes.
+In `AuthoringWorld`, simulation commands are inert, step callbacks never run,
+and raycasts are unavailable. There, a slider’s `getState()` needs complete mass
+properties when a connected body has angular velocity.
 
 ## Frame updates
 
