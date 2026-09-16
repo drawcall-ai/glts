@@ -454,7 +454,7 @@ objects while retaining the current asset. The host still owns the world and
 must dispose it when finished. Configure body mass/type and joint frames/limits through constructors.
 Set velocity, material, and connected-body contact through `setVelocity`,
 `setMaterial`, and `setCollideConnected`. The [authoring skill](skills/glts/SKILL.md#physics)
-covers constructors, setters, state, and queries. `body.getColliders()` returns the actual explicit or automatically
+covers physics asset construction and animation. `body.getColliders()` returns the actual explicit or automatically
 generated collider objects. Bodies and
 joints expose `.validate()`; `joint.getFrame(index, matrix)` writes a body-local
 joint frame into a Three.js `Matrix4`.
