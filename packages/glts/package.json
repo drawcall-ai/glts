@@ -48,8 +48,8 @@
     "es-module-lexer": "^2.0.0",
     "magic-string": "^0.30.21",
     "sucrase": "3.35.1",
-    "@drawcall/physics": "^0.3.0",
-    "@drawcall/physics-usd": "^0.3.0"
+    "@drawcall/physics": "^0.4.0",
+    "@drawcall/physics-usd": "^0.4.0"
   },
   "peerDependencies": {
     "three": ">=0.185.0"

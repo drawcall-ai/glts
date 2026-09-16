@@ -205,10 +205,23 @@ reloads. World setup, stepping, and disposal belong to the host.
 
 Use `body.getVelocity()`, `body.setVelocity({ linear, angular })`,
 `body.teleport(pose)`, and `joint.getState()` directly, including during
-construction before backend preparation. Initial velocity defaults to zero
-unless supplied in body options or set explicitly. After initialization, use
+construction before backend preparation. Velocity defaults to zero; set it
+with `setVelocity` using Three.js `Vector3` values. After initialization, use
 `teleport` to move a simulated body; editing its Three.js position alone does
 not move the backend.
+
+Constructor options are copied and readonly. Recreate objects to change body
+mass/type or joint frames/limits; use methods such as `setMaterial`,
+`setLinearDamping`, `setGravityScale`, and `setCollideConnected` for mutable settings.
+For an actuated hinge or slider, create `new JointMotor({ joint, stiffness,
+damping, maxForce })` and call `motor.setTarget({ position })` or
+`motor.setTarget({ velocity })`. Motors start untargeted; use zero stiffness
+for velocity-only control. Each target replaces both coordinates, with omissions
+defaulting to zero. Axis `joint.getState()` returns `{ position,
+velocity }` in radians/radians per second for hinges and meters/meters per second
+for sliders. Motors are released with their joints. See the
+[physics API](https://github.com/drawcall-ai/physics#readme) for motor constraints,
+step callbacks, effort, mass properties, and raycasts.
 
 Read `body.matrixWorld` directly after physics writeback or teleportation;
 no additional refresh is needed. GLTS itself does not refresh matrices before
@@ -218,9 +231,9 @@ changes. `matrixWorld` includes scale;
 teleportation and kinematic targets require a rigid pose, available as
 `splitTransform(body.matrixWorld).pose` from `@drawcall/physics`.
 
-In Rapier, forces, impulses, kinematic targets and sleep/wake require a prepared
-backend; use initial velocity for construction-time launches. In a static
-`AuthoringWorld`, these simulation-only operations are inert, while state reads,
+Rapier accepts forces, impulses, kinematic targets and sleep/wake during
+construction, replaying pending commands in order against the completed assembly.
+In a static `AuthoringWorld`, these simulation-only operations are inert, while state reads,
 velocity writes and teleportation remain available for a preview callback.
 
 Author body and collider scale during construction. Changing scale during

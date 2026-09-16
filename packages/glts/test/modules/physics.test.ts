@@ -83,7 +83,7 @@ it("retains host instanceof identity and disposes unparented bodies, joints and 
   const body = new bound.RigidBody(options);
   expect(body.options).toEqual({ ...options, world });
   expect(options.world).toBeUndefined();
-  body.options.mass = 3;
+  expect(body.options).not.toBe(options);
   expect(options.mass).toBe(2);
   expect(bound.getDefaultWorld()).toBe(world);
   class SpecializedBody extends bound.RigidBody {}
@@ -99,6 +99,8 @@ it("retains host instanceof identity and disposes unparented bodies, joints and 
   const hinge = new bound.RevoluteJoint({ body0: null, body1: body });
   expect(hinge).toBeInstanceOf(bound.AxisJoint);
   expect(hinge).toBeInstanceOf(bound.Joint);
+  const motor = new bound.JointMotor({ joint: hinge, stiffness: 100, damping: 10 });
+  motor.setTarget({ position: 0.5 });
   const assembly = new Group();
   assembly.add(body, joint, hinge);
   const cloned = bound.clone(assembly);
@@ -109,6 +111,14 @@ it("retains host instanceof identity and disposes unparented bodies, joints and 
   if (!(clonedJoint instanceof bound.FixedJoint))
     throw new Error("Expected cloned fixed joint");
   expect(clonedJoint.options.body1).toBe(cloned.children[0]);
+  const clonedHinge = cloned.children[2];
+  if (!(clonedHinge instanceof bound.RevoluteJoint))
+    throw new Error("Expected cloned hinge");
+  const clonedMotor = clonedHinge.motor;
+  expect(clonedMotor).toBeInstanceOf(physics.JointMotor);
+  expect(clonedMotor).not.toBe(motor);
+  expect(clonedMotor?.options.joint).toBe(clonedHinge);
+  expect(clonedMotor?.target).toEqual({ position: 0.5, velocity: 0 });
   const bodyClone = body.clone();
   expect(bodyClone.world).toBe(world);
   expect(bodyClone).toBeInstanceOf(bound.RigidBody);
@@ -119,6 +129,8 @@ it("retains host instanceof identity and disposes unparented bodies, joints and 
   scope.dispose();
   expect(world.objects.size).toBe(0);
   expect(body.disposed).toBe(true);
+  expect(motor.disposed).toBe(true);
+  expect(clonedMotor?.disposed).toBe(true);
   expect(() => new bound.RigidBody()).toThrow("disposed");
   expect(() => bound.clone(assembly)).toThrow("disposed");
   expect(() => bound.clone(new Group())).toThrow("disposed");
@@ -199,7 +211,7 @@ it("injects the captured world without mutating reusable options and honors expl
     expect(options.world).toBeUndefined();
     const explicit = new bound.RigidBody({ ...options, world: other });
     expect(explicit.world).toBe(other);
-    body.options.mass = 3;
+    expect(body.options).not.toBe(options);
     expect(options.mass).toBe(2);
     expect(explicit.options.mass).toBe(2);
   } finally {
