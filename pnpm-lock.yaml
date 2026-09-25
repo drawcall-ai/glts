@@ -102,6 +102,28 @@ importers:
         specifier: ^4.0.17
         version: 4.1.10(@types/node@24.13.3)(vite@8.2.1(@types/node@24.13.3))
 
+  preview:
+    dependencies:
+      '@drawcall/glts':
+        specifier: workspace:*
+        version: link:../packages/glts
+      '@drawcall/physics':
+        specifier: ^0.4.0
+        version: 0.4.0(three@0.185.1)
+      three:
+        specifier: ^0.185.1
+        version: 0.185.1
+    devDependencies:
+      '@types/three':
+        specifier: ^0.185.0
+        version: 0.185.4
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vite:
+        specifier: ^8.2.1
+        version: 8.2.1(@types/node@24.13.3)
+
 packages:
 
   '@babel/helper-string-parser@8.0.0':
