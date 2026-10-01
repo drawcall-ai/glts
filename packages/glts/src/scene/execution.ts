@@ -1,4 +1,4 @@
-import type { PhysicsWorld, RigidBody, Joint } from "@drawcall/physics";
+import type { Joint, registry, RigidBody, Trigger } from "@drawcall/physics";
 import type * as THREE from "three";
 
 import type {
@@ -11,10 +11,12 @@ import type {
 import { createScriptScene, type GLTSScriptScene } from "./state.js";
 import { NestedLoads } from "./nested.js";
 
+type PhysicsObject = RigidBody | Joint | Trigger;
+type PhysicsRegistry = typeof registry;
+
 export interface ScriptContext {
   readonly declarePhysics: () => void;
-  readonly physicsWorld: () => Promise<PhysicsWorld>;
-  readonly ownPhysics: (object: RigidBody | Joint) => void;
+  readonly ownPhysics: (object: PhysicsObject, registry: PhysicsRegistry) => void;
   readonly assertActive: () => void;
   readonly gltsLoader: GLTSScriptLoader;
   readonly instanceCount: number;
@@ -41,9 +43,8 @@ export class Execution {
   readonly #matrixUpdates: GLTSMatrixUpdateCallback[] = [];
   readonly #matrices: readonly THREE.Matrix4[];
   #physics = false;
-  #world: Promise<PhysicsWorld> | undefined;
-  readonly #worldSource: (() => Promise<PhysicsWorld>) | undefined;
-  readonly #physicsObjects = new Set<RigidBody | Joint>();
+  #registry: PhysicsRegistry | undefined;
+  readonly #physicsObjects = new Set<PhysicsObject>();
   #disposed = false;
   #committed = false;
   #bindScene: ((scene: GLTSScene) => void) | undefined;
@@ -52,21 +53,9 @@ export class Execution {
     matrices: readonly THREE.Matrix4[],
     urls: readonly string[],
     parent?: Execution,
-    worldSource?: () => Promise<PhysicsWorld>,
   ) {
     this.#matrices = matrices;
-    this.#worldSource =
-      worldSource ?? (parent ? () => parent.physicsWorld() : undefined);
     this.nested = new NestedLoads(urls, parent?.nested);
-  }
-
-  physicsWorld(): Promise<PhysicsWorld> {
-    this.#world ??= this.#worldSource
-      ? this.#worldSource()
-      : import("@drawcall/physics").then((physics) =>
-          physics.getDefaultWorld(),
-        );
-    return this.#world;
   }
 
   get physics(): boolean {
@@ -85,10 +74,11 @@ export class Execution {
     this.#assertActive();
     if (this.#committed) return;
     for (const object of this.#physicsObjects) {
-      const options = object.options;
-      if ("body1" in options && (options.body0?.disposed || options.body1.disposed))
-        object.dispose();
-      if (!object.disposed) object.world.register(object);
+      if ("connects" in object) {
+        const { body0, body1 } = object.options;
+        if (body0?.disposed || body1.disposed) object.dispose();
+      }
+      if (!object.disposed) this.#registry?.register(object);
     }
     this.#committed = true;
   }
@@ -110,15 +100,15 @@ export class Execution {
       declarePhysics: () => {
         this.#physics = true;
       },
-      physicsWorld: () => this.physicsWorld(),
       assertActive: () => this.#assertActive(),
-      ownPhysics: (object) => {
+      ownPhysics: (object, registry) => {
         if (this.#disposed) {
           object.dispose();
           throw new Error("GLTS execution has been disposed");
         }
+        this.#registry = registry;
         this.#physicsObjects.add(object);
-        if (!this.#committed) object.world.unregister(object);
+        if (!this.#committed) registry.unregister(object);
       },
       bindScene: (bind) => {
         assertCallback(bind, "Internal scene binding");

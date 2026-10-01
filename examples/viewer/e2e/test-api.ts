@@ -1,4 +1,5 @@
 import { GLTSLoader, GLTSRenderer, GLTSUSDExporter } from "@drawcall/glts";
+import { PhysicsUSDExporter } from "@drawcall/physics-usd";
 import {
   ArrayCamera,
   Group,
@@ -27,6 +28,7 @@ declare global {
     readonly ArrayCamera: typeof ArrayCamera;
     readonly GLTSLoader: typeof GLTSLoader;
     readonly GLTSUSDExporter: typeof GLTSUSDExporter;
+    readonly PhysicsUSDExporter: typeof PhysicsUSDExporter;
     readonly physicsModule: typeof physicsModule;
     readonly GLTSRenderer: typeof GLTSRenderer;
     readonly Group: typeof Group;
@@ -49,6 +51,7 @@ Object.defineProperties(window, {
   GLTSLoader: { value: GLTSLoader },
   GLTSRenderer: { value: GLTSRenderer },
   GLTSUSDExporter: { value: GLTSUSDExporter },
+  PhysicsUSDExporter: { value: PhysicsUSDExporter },
   physicsModule: { value: physicsModule },
   Group: { value: Group },
   HalfFloatType: { value: HalfFloatType },

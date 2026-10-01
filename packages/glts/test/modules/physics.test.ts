@@ -8,8 +8,8 @@ import { Execution } from "../../src/scene/execution.js";
 import { GLTSLoader } from "../../src/loader/index.js";
 import { bindPhysics } from "../../src/modules/physics.js";
 
-function execution(world: physics.PhysicsWorld) {
-  const owner = new Execution([], [], undefined, () => Promise.resolve(world));
+function execution() {
+  const owner = new Execution([], []);
   const loader = new GLTSLoader(new LoadingManager());
   const context = owner.context({
     gltsLoader: loader,
@@ -30,9 +30,8 @@ it("scopes transitive physics modules while sharing fetches and physics-free mod
   const urls = new ModuleURLStore();
   const bridge = new ModuleBridge(urls);
   const requests: string[] = [];
-  const world = new physics.AuthoringWorld();
-  const first = execution(world),
-    second = execution(world);
+  const first = execution(),
+    second = execution();
   const external = new ExternalModules({
     moduleURLs: urls,
     bridge,
@@ -70,22 +69,16 @@ it("scopes transitive physics modules while sharing fetches and physics-free mod
   } finally {
     first.dispose();
     second.dispose();
-    world.dispose();
-    bridge.dispose();
+      bridge.dispose();
   }
 });
 
 it("retains host instanceof identity and disposes unparented bodies, joints and clones", () => {
-  const world = new physics.AuthoringWorld();
-  const scope = execution(world);
-  const bound = bindPhysics(physics, scope.context, world);
+  const scope = execution();
+  const bound = bindPhysics(physics, scope.context);
   const options: physics.RigidBodyOptions = { mass: 2 };
   const body = new bound.RigidBody(options);
-  expect(body.options).toEqual({ ...options, world });
-  expect(options.world).toBeUndefined();
-  expect(body.options).not.toBe(options);
-  expect(options.mass).toBe(2);
-  expect(bound.getDefaultWorld()).toBe(world);
+  expect(body.options.mass).toBe(2);
   class SpecializedBody extends bound.RigidBody {}
   expect(body).not.toBeInstanceOf(SpecializedBody);
   const specialized = new SpecializedBody();
@@ -99,8 +92,8 @@ it("retains host instanceof identity and disposes unparented bodies, joints and 
   const hinge = new bound.RevoluteJoint({ body0: null, body1: body });
   expect(hinge).toBeInstanceOf(bound.AxisJoint);
   expect(hinge).toBeInstanceOf(bound.Joint);
-  const motor = new bound.JointMotor({ joint: hinge, stiffness: 100, damping: 10 });
-  motor.setTarget({ position: 0.5 });
+  const drive = new bound.JointDrive({ stiffness: 100, damping: 10 });
+  hinge.setDrive(drive.setTarget({ position: 0.5 }));
   const assembly = new Group();
   assembly.add(body, joint, hinge);
   const cloned = bound.clone(assembly);
@@ -114,34 +107,31 @@ it("retains host instanceof identity and disposes unparented bodies, joints and 
   const clonedHinge = cloned.children[2];
   if (!(clonedHinge instanceof bound.RevoluteJoint))
     throw new Error("Expected cloned hinge");
-  const clonedMotor = clonedHinge.motor;
-  expect(clonedMotor).toBeInstanceOf(physics.JointMotor);
-  expect(clonedMotor).not.toBe(motor);
-  expect(clonedMotor?.options.joint).toBe(clonedHinge);
-  expect(clonedMotor?.target).toEqual({ position: 0.5, velocity: 0 });
+  const clonedDrive = clonedHinge.drive;
+  expect(clonedDrive).toBeInstanceOf(physics.JointDrive);
+  expect(clonedDrive).not.toBe(drive);
+  expect(clonedDrive?.joint).toBe(clonedHinge);
+  expect(clonedDrive?.target).toEqual({ position: 0.5, velocity: 0, effort: 0 });
   const bodyClone = body.clone();
-  expect(bodyClone.world).toBe(world);
   expect(bodyClone).toBeInstanceOf(bound.RigidBody);
   bodyClone.dispose();
-  expect(world.objects.size).toBe(0);
+  expect(physics.registry.objects.size).toBe(0);
   scope.owner.commit();
-  expect(world.objects.size).toBe(6);
+  expect(physics.registry.objects.size).toBe(6);
   scope.dispose();
-  expect(world.objects.size).toBe(0);
+  expect(physics.registry.objects.size).toBe(0);
   expect(body.disposed).toBe(true);
-  expect(motor.disposed).toBe(true);
-  expect(clonedMotor?.disposed).toBe(true);
+  expect(drive.joint).toBeUndefined();
+  expect(clonedDrive?.joint).toBeUndefined();
   expect(() => new bound.RigidBody()).toThrow("disposed");
   expect(() => bound.clone(assembly)).toThrow("disposed");
   expect(() => bound.clone(new Group())).toThrow("disposed");
   expect(() => body.clone()).toThrow("disposed");
-  world.dispose();
 });
 
 it("reuses the bridge only within an execution and refuses loads after bridge disposal", async () => {
   const bridge = new ModuleBridge(new ModuleURLStore());
-  const world = new physics.AuthoringWorld();
-  const scope = execution(world);
+  const scope = execution();
   const [a, b] = await Promise.all([
     bridge.getPhysicsModuleURL(scope.context),
     bridge.getPhysicsModuleURL(scope.context),
@@ -152,7 +142,6 @@ it("reuses the bridge only within an execution and refuses loads after bridge di
     "disposed",
   );
   scope.dispose();
-  world.dispose();
 });
 
 
@@ -160,9 +149,8 @@ it("shares redirect aliases within an execution while isolating physics across e
   const urls = new ModuleURLStore();
   const release = vi.spyOn(urls, "release");
   const bridge = new ModuleBridge(urls);
-  const world = new physics.AuthoringWorld();
-  const first = execution(world);
-  const second = execution(world);
+  const first = execution();
+  const second = execution();
   const external = new ExternalModules({
     moduleURLs: urls,
     bridge,
@@ -192,31 +180,6 @@ it("shares redirect aliases within an execution while isolating physics across e
   } finally {
     first.dispose();
     second.dispose();
-    world.dispose();
-    bridge.dispose();
-  }
-});
-
-it("injects the captured world without mutating reusable options and honors explicit ownership", () => {
-  const captured = new physics.AuthoringWorld();
-  const other = new physics.AuthoringWorld();
-  const scope = execution(captured);
-  const bound = bindPhysics(physics, scope.context, captured);
-  physics.setDefaultWorld(other);
-  try {
-    const options: physics.RigidBodyOptions = Object.freeze({ mass: 2 });
-    const body = new bound.RigidBody(options);
-    expect(body.world).toBe(captured);
-    expect(body.options.world).toBe(captured);
-    expect(options.world).toBeUndefined();
-    const explicit = new bound.RigidBody({ ...options, world: other });
-    expect(explicit.world).toBe(other);
-    expect(body.options).not.toBe(options);
-    expect(options.mass).toBe(2);
-    expect(explicit.options.mass).toBe(2);
-  } finally {
-    scope.dispose();
-    captured.dispose();
-    other.dispose();
+      bridge.dispose();
   }
 });

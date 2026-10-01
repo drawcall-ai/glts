@@ -409,40 +409,31 @@ body.add(new THREE.Mesh(
 scene.add(body)
 ```
 
-The host sets up a world before loading a physical asset:
+Bodies and joints register in `@drawcall/physics`'s single registry, so loading
+and exporting need no simulation. To simulate, build a world once the asset is
+loaded:
 
 ```ts
-import { setupWorld } from "@drawcall/physics-rapier"
+import { buildWorld } from "@drawcall/physics-rapier"
 import { GLTSLoader } from "@drawcall/glts"
 
-const world = await setupWorld()
 const loader = new GLTSLoader(manager)
 const asset = await loader.loadAsync("/body.glts")
+const world = await buildWorld()
 // Each frame: world.update(delta), asset.update(delta), then render.
 ```
 
-For authoring/export without simulation, create an `AuthoringWorld` from
-`@drawcall/physics` and pass `{ physicsWorld: world }` as the loader's second
-argument. The same option selects a particular simulation world when a host
-uses several worlds.
-
 GLTS lazily loads the authoring library. Each execution gets constructors bound
-to its selected world; objects retain the host library's `instanceof` behavior.
-The world is selected when the first physics dependency resolves, inherited by
-nested loads, and retained across reloads and asynchronous/frame callbacks.
-Inside an asset, `getDefaultWorld()` returns that execution's world. Host world
-setup functions should be called outside asset scripts.
-
-CDN helpers importing physics get the same execution binding. Physics-dependent
-module instances are isolated per execution; fetched source and physics-free
-module instances remain cached. Missing world setup throws rather than silently
-creating a world.
+to it, so the scene owns what its script creates; objects retain the host
+library's `instanceof` behavior. CDN helpers importing physics get the same
+execution binding. Physics-dependent module instances are isolated per
+execution; fetched source and physics-free module instances remain cached.
 
 Bodies and joints stay outside the simulation while an asset or its nested loads
 are being constructed. A successful load registers the complete hierarchy; a
 reload keeps the previous physics active until replacement commits. Attach and
 configure the returned scene synchronously after `await loader.loadAsync(...)`,
-before the next `world.update()`, including `update(0)`.
+before the next `world.update()`, including `update(0)`, or `buildWorld()`.
 Physics captures scale during preparation, including the host's final parent
 transform. Do not step the world inside the asset's construction script. Objects
 created later by `onFrame()` register normally for the next preparation boundary.
@@ -450,7 +441,7 @@ created later by `onFrame()` register normally for the next preparation boundary
 A scene owns every physics object constructed by its execution, including objects
 not added to the scene tree and objects created with `.clone()` or `clone(root)`.
 Disposal unregisters them automatically. Failed loads/reloads clean up their new
-objects while retaining the current asset. The host still owns the world and
+objects while retaining the current asset. The host owns the built world and
 must dispose it when finished. Configure body mass/type and joint frames/limits through constructors.
 Set velocity, material, and connected-body contact through `setVelocity`,
 `setMaterial`, and `setCollideConnected`. The [authoring skill](skills/glts/SKILL.md#physics)
@@ -463,7 +454,7 @@ Use ordinary Three.js groups to organize mechanisms. The `clone(root)` helper
 from `@drawcall/physics` clones the hierarchy and reconnects internal joint
 references to the cloned bodies, preserving references to bodies outside the
 hierarchy. Individual body/joint `.clone()` and `.copy()` methods retain their
-ordinary object-level roles; clones belong to the same world.
+ordinary object-level roles.
 
 A managed asset exposes read-only `asset.capabilities.physics`. This declares a
 runtime import dependency, not the presence of a particular body: even a
@@ -476,14 +467,17 @@ physics exporter directly for such ordinary Three.js scenes.
 
 ```ts
 import { GLTSUSDExporter } from "@drawcall/glts"
+import { PhysicsUSDExporter } from "@drawcall/physics-usd"
 
-const exporter = new GLTSUSDExporter()
+const exporter = new GLTSUSDExporter({ physics: PhysicsUSDExporter })
 const usdz = await exporter.parseAsync(asset)
 ```
 
-The exporter selects Three.js's native USDZ exporter for visual assets. A
-physics declaration lazily loads `@drawcall/physics-usd`, which exports the
-visuals and resolved physical shapes, bodies, materials, and joints. Export
+The exporter selects Three.js's native USDZ exporter for visual assets. Assets
+that declare physics use the provided `PhysicsUSDExporter`, which exports the
+visuals and resolved physical shapes, bodies, materials, and joints; without it
+their export throws. `@drawcall/physics-usd` is an optional peer dependency,
+needed only for physics export. Export
 does not initialize a simulation backend. Export an authored/reset scene,
 not a scene currently displaying simulated poses. Import of the supported USD
 Physics subset is available separately through `PhysicsUSDLoader` from

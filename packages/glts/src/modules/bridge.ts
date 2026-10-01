@@ -69,12 +69,11 @@ export class ModuleBridge {
   async getPhysicsModuleURL(context: ScriptContext): Promise<string> {
     this.#assertActive();
     const physics = await import("@drawcall/physics");
-    const world = await context.physicsWorld();
     this.#assertActive();
     context.assertActive();
     const current = this.#bridges.get(context);
     if (current) return current;
-    const namespace = bindPhysics(physics, context, world);
+    const namespace = bindPhysics(physics, context);
     const key = `physics:${++this.#physicsSequence}`;
     this.#modules.set(key, namespace);
     const url = this.#moduleURLs.create(this.#bridgeSource(key, namespace));

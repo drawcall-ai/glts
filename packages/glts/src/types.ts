@@ -1,4 +1,3 @@
-import type { PhysicsWorld } from "@drawcall/physics";
 import type * as THREE from "three";
 import type { GLTSScriptScene } from "./scene/state.js";
 
@@ -10,7 +9,6 @@ export type GLTSFetch = (
 ) => Promise<Response>;
 
 export interface GLTSLoaderOptions {
-  physicsWorld?: PhysicsWorld;
   baseURL?: GLTSURL;
   cdnURL?: GLTSURL;
   fetch?: GLTSFetch;

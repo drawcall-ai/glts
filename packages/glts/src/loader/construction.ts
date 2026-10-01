@@ -1,4 +1,3 @@
-import type { PhysicsWorld } from "@drawcall/physics";
 import type * as THREE from "three";
 import { Execution } from "../scene/execution.js";
 import { GLTSError, toGLTSError } from "../errors.js";
@@ -16,7 +15,6 @@ interface ExecutionRequest {
   readonly instances: boolean;
   readonly parent?: Execution | undefined;
   readonly requestedURL: string;
-  readonly physicsSource?: Execution;
 }
 
 function cleanupFailure(url: string, error: unknown, cleanup: unknown): GLTSError {
@@ -53,7 +51,6 @@ function nestedFailure(url: string, error: unknown, nested: unknown): GLTSError 
 
 export class Construction {
   readonly #scopes = new Set<LoadingScope>();
-  readonly #physicsWorld: PhysicsWorld | undefined;
   readonly #contextLoader: (owner: Execution) => GLTSScriptLoader;
   readonly #manager: THREE.LoadingManager;
   readonly #modules: ScriptModules;
@@ -61,14 +58,12 @@ export class Construction {
   readonly #operations: Operations;
 
   constructor(options: {
-    physicsWorld: PhysicsWorld | undefined;
     contextLoader: (owner: Execution) => GLTSScriptLoader;
     manager: THREE.LoadingManager;
     modules: ScriptModules;
     nodes: ManagedNodes;
     operations: Operations;
   }) {
-    this.#physicsWorld = options.physicsWorld;
     this.#contextLoader = options.contextLoader;
     this.#manager = options.manager;
     this.#modules = options.modules;
@@ -87,14 +82,10 @@ export class Construction {
 
   async execute(
     script: CompiledScript,
-    { matrices, isPreview, instances, parent, requestedURL, physicsSource }: ExecutionRequest
+    { matrices, isPreview, instances, parent, requestedURL }: ExecutionRequest
   ): Promise<Revision> {
     this.#operations.assertActive(script.url);
-    const world = this.#physicsWorld;
-    const worldSource = physicsSource
-      ? () => physicsSource.physicsWorld()
-      : world ? () => Promise.resolve(world) : undefined;
-    const execution = new Execution(matrices, [requestedURL, script.url], parent, worldSource);
+    const execution = new Execution(matrices, [requestedURL, script.url], parent);
     const scope = new LoadingScope(this.#manager, script.url);
     this.#scopes.add(scope);
     let automatic: AutoInstances | undefined;

@@ -73,7 +73,6 @@ export class GLTSLoader extends Loader {
       threeRevision: THREE.REVISION
     });
     this.#runtime = new LoaderRuntime({
-      physicsWorld: options.physicsWorld,
       contextLoader: (owner) => createContextLoader(owner, this.#runtime, (url) => this.#resolveURL(url, "")),
       manager,
       modules

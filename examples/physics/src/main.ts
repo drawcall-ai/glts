@@ -2,7 +2,8 @@ import { GLTSLoader, GLTSUSDExporter } from "@drawcall/glts";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RigidBody } from "@drawcall/physics";
-import { setupWorld } from "@drawcall/physics-rapier";
+import { buildWorld } from "@drawcall/physics-rapier";
+import { PhysicsUSDExporter } from "@drawcall/physics-usd";
 
 const canvas = document.querySelector("canvas");
 const status = document.querySelector("output");
@@ -23,9 +24,9 @@ async function start(
   reset: HTMLButtonElement,
   exportButton: HTMLButtonElement,
 ) {
-  const world = await setupWorld();
   const loader = new GLTSLoader(new THREE.LoadingManager());
   const assembly = await loader.loadAsync("/ragdoll.glts");
+  const world = await buildWorld();
   const pelvis = assembly.getObjectByName("Pelvis");
   if (!(pelvis instanceof RigidBody)) throw new Error("Missing ragdoll pelvis");
   const scene = new THREE.Scene();
@@ -57,7 +58,7 @@ async function start(
     exporting = true;
     try {
       world.reset();
-      const bytes = await new GLTSUSDExporter().parseAsync(assembly);
+      const bytes = await new GLTSUSDExporter({ physics: PhysicsUSDExporter }).parseAsync(assembly);
       const url = URL.createObjectURL(
         new Blob([bytes], { type: "model/vnd.usdz+zip" }),
       );
