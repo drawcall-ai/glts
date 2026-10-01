@@ -16,7 +16,6 @@ function deferred() {
 }
 
 function fixture(execute: (url: string, context: ScriptContext) => Promise<void>) {
-  const world = new physics.AuthoringWorld();
   const urls = new ModuleURLStore();
   const bridge = new ModuleBridge(urls);
   const modules = new ScriptModules({
@@ -25,14 +24,14 @@ function fixture(execute: (url: string, context: ScriptContext) => Promise<void>
   });
   vi.spyOn(modules, "executeScript").mockImplementation((script, context) => execute(script.url, context));
   const runtime: LoaderRuntime = new LoaderRuntime({
-    modules, manager: new LoadingManager(), physicsWorld: world,
+    modules, manager: new LoadingManager(),
     contextLoader: (owner) => createContextLoader(owner, runtime, String)
   });
-  return { world, runtime, dispose() { runtime.dispose(); bridge.dispose(); world.dispose(); } };
+  return { runtime, dispose() { runtime.dispose(); bridge.dispose(); physics.registry.clear(); } };
 }
 
-async function assembly(context: ScriptContext) {
-  const bound = bindPhysics(physics, context, await context.physicsWorld());
+function assembly(context: ScriptContext) {
+  const bound = bindPhysics(physics, context);
   context.declarePhysics();
   const body = new bound.RigidBody({ mass: 2 });
   body.scale.setScalar(2);
@@ -49,7 +48,7 @@ it("stages nested bodies and joints until the outer load completes", async () =>
   const ready = deferred(), finish = deferred();
   const test = fixture(async (url, context) => {
     if (url.endsWith("child.glts")) {
-      await assembly(context);
+      assembly(context);
       return;
     }
     const child = await context.gltsLoader.loadAsync("https://test/child.glts");
@@ -61,18 +60,18 @@ it("stages nested bodies and joints until the outer load completes", async () =>
   try {
     const loading = test.runtime.load("https://test/parent.glts", false);
     await ready.promise;
-    expect(test.world.objects.size).toBe(0);
+    expect(physics.registry.objects.size).toBe(0);
     finish.resolve();
     const scene = await loading;
     const host = new Group();
     host.scale.setScalar(4);
     host.add(scene);
-    expect(test.world.objects.size).toBe(2);
-    const body = [...test.world.objects].find(object => object instanceof physics.RigidBody);
+    expect(physics.registry.objects.size).toBe(2);
+    const body = [...physics.registry.objects].find(object => object instanceof physics.RigidBody);
     if (!(body instanceof physics.RigidBody)) throw new Error("Missing body");
     expect(body.getWorldScale(new Vector3()).toArray()).toEqual([24, 24, 24]);
     scene.dispose();
-    expect(test.world.objects.size).toBe(0);
+    expect(physics.registry.objects.size).toBe(0);
   } finally { test.dispose(); }
 });
 
@@ -80,7 +79,7 @@ it.each([false, true])("keeps live physics during reload and disposes staged rev
   const ready = deferred(), finish = deferred();
   let reloading = false;
   const test = fixture(async (_url, context) => {
-    await assembly(context);
+    assembly(context);
     if (!reloading) return;
     ready.resolve();
     await finish.promise;
@@ -89,22 +88,22 @@ it.each([false, true])("keeps live physics during reload and disposes staged rev
   try {
     const scene = await test.runtime.load("https://test/asset.glts", false);
     scene.scale.setScalar(3);
-    const previous = [...test.world.objects];
+    const previous = [...physics.registry.objects];
     reloading = true;
     const reload = scene.reload();
     await ready.promise;
-    expect([...test.world.objects]).toEqual(previous);
+    expect([...physics.registry.objects]).toEqual(previous);
     finish.resolve();
     if (fail) {
       await expect(reload).rejects.toMatchObject({ phase: "evaluate" });
-      expect([...test.world.objects]).toEqual(previous);
+      expect([...physics.registry.objects]).toEqual(previous);
       expect(previous.every(object => !object.disposed)).toBe(true);
       return;
     }
     await reload;
-    expect(test.world.objects.size).toBe(2);
+    expect(physics.registry.objects.size).toBe(2);
     expect(previous.every(object => object.disposed)).toBe(true);
-    const body = [...test.world.objects].find(object => object instanceof physics.RigidBody);
+    const body = [...physics.registry.objects].find(object => object instanceof physics.RigidBody);
     if (!(body instanceof physics.RigidBody)) throw new Error("Missing replacement");
     expect(body.parent).toBe(scene);
     expect(body.getWorldScale(new Vector3()).toArray()).toEqual([6, 6, 6]);
@@ -114,7 +113,7 @@ it.each([false, true])("keeps live physics during reload and disposes staged rev
 it("activates a committed replacement even when previous cleanup throws", async () => {
   let first = true;
   const test = fixture(async (_url, context) => {
-    await assembly(context);
+    assembly(context);
     if (first) {
       first = false;
       context.onDispose(() => { throw new Error("Cleanup failed"); });
@@ -122,43 +121,22 @@ it("activates a committed replacement even when previous cleanup throws", async 
   });
   try {
     const scene = await test.runtime.load("https://test/asset.glts", false);
-    const previous = [...test.world.objects];
+    const previous = [...physics.registry.objects];
     await expect(scene.reload()).rejects.toThrow("Reload committed, but cleanup failed");
     expect(previous.every(object => object.disposed)).toBe(true);
-    expect(test.world.objects.size).toBe(2);
-    expect([...test.world.objects].every(object => object.parent === scene)).toBe(true);
+    expect(physics.registry.objects.size).toBe(2);
+    expect([...physics.registry.objects].every(object => object.parent === scene)).toBe(true);
   } finally { test.dispose(); }
 });
 
 it("discards joints attached to bodies disposed during construction", async () => {
   const test = fixture(async (_url, context) => {
-    const { body } = await assembly(context);
+    const { body } = assembly(context);
     body.dispose();
   });
   try {
     const scene = await test.runtime.load("https://test/asset.glts", false);
-    expect(test.world.objects.size).toBe(0);
+    expect(physics.registry.objects.size).toBe(0);
     expect(scene.children).toHaveLength(0);
   } finally { test.dispose(); }
-});
-
-it("cleans the unreturned scene when its world is disposed during loading", async () => {
-  const ready = deferred(), finish = deferred();
-  const dispose = vi.fn();
-  const test = fixture(async (_url, context) => {
-    await assembly(context);
-    context.onDispose(dispose);
-    ready.resolve();
-    await finish.promise;
-  });
-  try {
-    const loading = test.runtime.load("https://test/asset.glts", false);
-    await ready.promise;
-    test.world.dispose();
-    finish.resolve();
-    await expect(loading).rejects.toMatchObject({ phase: "construct" });
-    expect(dispose).toHaveBeenCalledOnce();
-    expect(test.world.objects.size).toBe(0);
-  } finally { test.dispose(); }
-  expect(dispose).toHaveBeenCalledOnce();
 });

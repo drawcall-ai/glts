@@ -40,8 +40,7 @@ it("finishes dependencies before failure cleanup and does not start later import
   const urls = new ModuleURLStore();
   const release = vi.spyOn(urls, "release");
   const bridge = new ModuleBridge(urls);
-  const world = new physics.AuthoringWorld();
-  const execution = new Execution([], [], undefined, () => Promise.resolve(world));
+  const execution = new Execution([], []);
   const loader = new GLTSLoader(new LoadingManager());
   const context = execution.context({
     gltsLoader: loader,
@@ -78,7 +77,7 @@ it("finishes dependencies before failure cleanup and does not start later import
   } finally {
     execution.dispose();
     loader.dispose();
-    world.dispose();
+    physics.registry.clear();
     bridge.dispose();
   }
 });

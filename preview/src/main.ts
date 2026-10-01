@@ -1,5 +1,4 @@
 import { GLTSLoader, GLTSRenderer, type GLTSScene } from "@drawcall/glts";
-import { AuthoringWorld } from "@drawcall/physics";
 import * as THREE from "three";
 
 // Frame callbacks run once with this step before the render, so they can
@@ -34,10 +33,7 @@ async function render(): Promise<void> {
   renderer.setClearColor(0x111111);
   document.body.append(renderer.domElement);
 
-  const loader = new GLTSLoader(new THREE.LoadingManager(), {
-    isPreview: true,
-    physicsWorld: new AuthoringWorld(),
-  });
+  const loader = new GLTSLoader(new THREE.LoadingManager(), { isPreview: true });
   const scene = await loader.loadAsync(new URL(url, location.href));
   scene.updateWorldMatrix(true, true);
   scene.update(delta);

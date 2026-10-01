@@ -4,7 +4,6 @@ import type { ScriptContext } from "../scene/execution.js";
 export function bindPhysics(
   physics: typeof Physics,
   context: ScriptContext,
-  world: Physics.PhysicsWorld,
 ): typeof Physics {
   class RigidBody extends physics.RigidBody {
     static override [Symbol.hasInstance](value: unknown): boolean {
@@ -14,8 +13,8 @@ export function bindPhysics(
     }
     constructor(options: Physics.RigidBodyOptions = {}) {
       context.assertActive();
-      super({ ...options, world: options.world ?? world });
-      context.ownPhysics(this);
+      super(options);
+      context.ownPhysics(this, physics.registry);
     }
   }
   abstract class Joint<
@@ -29,7 +28,7 @@ export function bindPhysics(
     constructor(options: Options) {
       context.assertActive();
       super(options);
-      context.ownPhysics(this);
+      context.ownPhysics(this, physics.registry);
     }
   }
   abstract class AxisJoint extends physics.AxisJoint {
@@ -41,7 +40,7 @@ export function bindPhysics(
     constructor(options: Physics.AxisJointOptions) {
       context.assertActive();
       super(options);
-      context.ownPhysics(this);
+      context.ownPhysics(this, physics.registry);
     }
   }
   class FixedJoint extends physics.FixedJoint {
@@ -53,7 +52,7 @@ export function bindPhysics(
     constructor(options: Physics.JointOptions) {
       context.assertActive();
       super(options);
-      context.ownPhysics(this);
+      context.ownPhysics(this, physics.registry);
     }
   }
   class RevoluteJoint extends physics.RevoluteJoint {
@@ -65,7 +64,7 @@ export function bindPhysics(
     constructor(options: Physics.AxisJointOptions) {
       context.assertActive();
       super(options);
-      context.ownPhysics(this);
+      context.ownPhysics(this, physics.registry);
     }
   }
   class PrismaticJoint extends physics.PrismaticJoint {
@@ -77,7 +76,7 @@ export function bindPhysics(
     constructor(options: Physics.AxisJointOptions) {
       context.assertActive();
       super(options);
-      context.ownPhysics(this);
+      context.ownPhysics(this, physics.registry);
     }
   }
   class SphericalJoint extends physics.SphericalJoint {
@@ -89,7 +88,7 @@ export function bindPhysics(
     constructor(options: Physics.JointOptions) {
       context.assertActive();
       super(options);
-      context.ownPhysics(this);
+      context.ownPhysics(this, physics.registry);
     }
   }
   class DistanceJoint extends physics.DistanceJoint {
@@ -101,7 +100,45 @@ export function bindPhysics(
     constructor(options: Physics.DistanceJointOptions) {
       context.assertActive();
       super(options);
-      context.ownPhysics(this);
+      context.ownPhysics(this, physics.registry);
+    }
+  }
+  abstract class ScalarJoint<
+    Options extends Physics.JointOptions = Physics.JointOptions,
+  > extends physics.ScalarJoint<Options> {
+    static override [Symbol.hasInstance](value: unknown): boolean {
+      return this === ScalarJoint
+        ? value instanceof physics.ScalarJoint
+        : super[Symbol.hasInstance](value);
+    }
+    constructor(options: Options) {
+      context.assertActive();
+      super(options);
+      context.ownPhysics(this, physics.registry);
+    }
+  }
+  class GenericJoint extends physics.GenericJoint {
+    static override [Symbol.hasInstance](value: unknown): boolean {
+      return this === GenericJoint
+        ? value instanceof physics.GenericJoint
+        : super[Symbol.hasInstance](value);
+    }
+    constructor(options: Physics.GenericJointOptions) {
+      context.assertActive();
+      super(options);
+      context.ownPhysics(this, physics.registry);
+    }
+  }
+  class Trigger extends physics.Trigger {
+    static override [Symbol.hasInstance](value: unknown): boolean {
+      return this === Trigger
+        ? value instanceof physics.Trigger
+        : super[Symbol.hasInstance](value);
+    }
+    constructor() {
+      context.assertActive();
+      super();
+      context.ownPhysics(this, physics.registry);
     }
   }
   const clone: typeof physics.clone = (root) => {
@@ -110,7 +147,6 @@ export function bindPhysics(
   };
   return {
     ...physics,
-    getDefaultWorld: () => world,
     RigidBody,
     Joint,
     AxisJoint,
@@ -119,6 +155,9 @@ export function bindPhysics(
     PrismaticJoint,
     SphericalJoint,
     DistanceJoint,
+    ScalarJoint,
+    GenericJoint,
+    Trigger,
     clone,
   };
 }

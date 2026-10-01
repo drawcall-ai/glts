@@ -35,7 +35,7 @@ async function reload(nodes: ManagedNodes, record: NodeRecord, next: Execution):
   const operations = new Operations(manager);
   const construction = new Construction({
     contextLoader: (execution) => context(execution).gltsLoader,
-    manager, modules, nodes, operations, physicsWorld: undefined
+    manager, modules, nodes, operations
   });
   // Exercise reload orchestration with a prepared revision, without browser imports.
   vi.spyOn(construction, "execute").mockResolvedValue(nodes.createRevision(next));

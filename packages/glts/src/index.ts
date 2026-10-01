@@ -32,4 +32,9 @@ export type {
   GLTSURL
 } from "./types.js";
 
-export { GLTSUSDExporter, type GLTSUSDExportOptions } from "./usd.js";
+
+export {
+  GLTSUSDExporter,
+  type GLTSUSDExporterOptions,
+  type GLTSUSDExportOptions
+} from "./usd.js";

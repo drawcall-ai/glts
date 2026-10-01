@@ -27,11 +27,14 @@ importers:
         specifier: workspace:*
         version: link:../../packages/glts
       '@drawcall/physics':
-        specifier: ^0.4.0
-        version: 0.4.0(three@0.185.1)
+        specifier: ^0.13.1
+        version: 0.13.1(three@0.185.1)
       '@drawcall/physics-rapier':
-        specifier: ^0.4.0
-        version: 0.4.0(@drawcall/physics@0.4.0(three@0.185.1))(three@0.185.1)
+        specifier: ^0.13.1
+        version: 0.13.1(@drawcall/physics@0.13.1(three@0.185.1))(three@0.185.1)
+      '@drawcall/physics-usd':
+        specifier: ^0.13.1
+        version: 0.13.1(@drawcall/physics@0.13.1(three@0.185.1))(three@0.185.1)
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -59,8 +62,11 @@ importers:
         version: 0.185.1
     devDependencies:
       '@drawcall/physics':
-        specifier: ^0.4.0
-        version: 0.4.0(three@0.185.1)
+        specifier: ^0.13.1
+        version: 0.13.1(three@0.185.1)
+      '@drawcall/physics-usd':
+        specifier: ^0.13.1
+        version: 0.13.1(@drawcall/physics@0.13.1(three@0.185.1))(three@0.185.1)
       '@types/three':
         specifier: ^0.185.0
         version: 0.185.4
@@ -77,11 +83,8 @@ importers:
         specifier: ^8.0.4
         version: 8.0.4
       '@drawcall/physics':
-        specifier: ^0.4.0
-        version: 0.4.0(three@0.185.1)
-      '@drawcall/physics-usd':
-        specifier: ^0.4.0
-        version: 0.4.0(@drawcall/physics@0.4.0(three@0.185.1))(three@0.185.1)
+        specifier: ^0.13.1
+        version: 0.13.1(three@0.185.1)
       es-module-lexer:
         specifier: ^2.0.0
         version: 2.3.1
@@ -92,6 +95,9 @@ importers:
         specifier: 3.35.1
         version: 3.35.1
     devDependencies:
+      '@drawcall/physics-usd':
+        specifier: ^0.13.1
+        version: 0.13.1(@drawcall/physics@0.13.1(three@0.185.1))(three@0.185.1)
       '@types/three':
         specifier: ^0.185.0
         version: 0.185.4
@@ -108,8 +114,8 @@ importers:
         specifier: workspace:*
         version: link:../packages/glts
       '@drawcall/physics':
-        specifier: ^0.4.0
-        version: 0.4.0(three@0.185.1)
+        specifier: ^0.13.1
+        version: 0.13.1(three@0.185.1)
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -149,22 +155,22 @@ packages:
   '@dimforge/rapier3d-compat@0.20.0':
     resolution: {integrity: sha512-X4W9pJBdGRX5CO3c/gUNjBFEFG2fn4nYxp9k8STdBDaLa0/w5XTW2ArpayS+9jGFojTi3uFSOWAElCd4rkpekA==}
 
-  '@drawcall/physics-rapier@0.4.0':
-    resolution: {integrity: sha512-hNAcqhBH3d9200LZkqyPOxji6HMEy4Aog5dnOF/UzCyAD2LROgibZ41qoKHv8QtwyYqFru9GnVt1sZCB2ItANA==}
+  '@drawcall/physics-rapier@0.13.1':
+    resolution: {integrity: sha512-GVAMRflZdONEogBM5MGzHT0hKb1VNIEdhwcRUeFJJf1f07j0mO+DrC8cUleB39P1sOFlke1/jGIEDw4+uS3aew==}
     peerDependencies:
-      '@drawcall/physics': ^0.4.0
-      three: '>=0.180.0'
+      '@drawcall/physics': ^0.13.1
+      three: '>=0.177.0'
 
-  '@drawcall/physics-usd@0.4.0':
-    resolution: {integrity: sha512-3cA611tIAWA+/c7kxUjeXuEQGvZaHYAwCfXwhtwsrVujw1aZfeslBdoCsKvY51DsZmdh8xEyOYpEPWYjk6JcOA==}
+  '@drawcall/physics-usd@0.13.1':
+    resolution: {integrity: sha512-WRJ0yDIqPG5eL+OORq81+R0H4zmsOAQ0b9fY2EYa3S4aNsezXRJmlb3UgcshMoIe22NxeLwn8C2hLguXndctIw==}
     peerDependencies:
-      '@drawcall/physics': ^0.4.0
+      '@drawcall/physics': ^0.13.1
       three: '>=0.185.0'
 
-  '@drawcall/physics@0.4.0':
-    resolution: {integrity: sha512-qHoTzlzVLLsV2Mim7WGtPC9Skk8++7Y4337ah8/ap+ySdJ72/KBuGpOzXQW1W6VD/rv+7TyCYxwQswW+axUXrQ==}
+  '@drawcall/physics@0.13.1':
+    resolution: {integrity: sha512-tqMhXVoD1Xo+c/oC/+qVx3bix3JmPzPn7eRtUVvLJf/Jya7SP9VhCvS+UFefDOGAU4KVOChrLERabEr/sQ2LPg==}
     peerDependencies:
-      three: '>=0.185.0'
+      three: '>=0.177.0'
 
   '@fontsource-variable/newsreader@5.3.0':
     resolution: {integrity: sha512-rrzYi43qMpbzwuFtf9OkWH8sxAPVPcQQQEwXpPtwaKYeJ8yVg5aLs5kawmo1f2Q1t1M38TLmEKCkGVDsYwgdFw==}
@@ -677,19 +683,19 @@ snapshots:
 
   '@dimforge/rapier3d-compat@0.20.0': {}
 
-  '@drawcall/physics-rapier@0.4.0(@drawcall/physics@0.4.0(three@0.185.1))(three@0.185.1)':
+  '@drawcall/physics-rapier@0.13.1(@drawcall/physics@0.13.1(three@0.185.1))(three@0.185.1)':
     dependencies:
       '@dimforge/rapier3d-compat': 0.20.0
-      '@drawcall/physics': 0.4.0(three@0.185.1)
+      '@drawcall/physics': 0.13.1(three@0.185.1)
       three: 0.185.1
 
-  '@drawcall/physics-usd@0.4.0(@drawcall/physics@0.4.0(three@0.185.1))(three@0.185.1)':
+  '@drawcall/physics-usd@0.13.1(@drawcall/physics@0.13.1(three@0.185.1))(three@0.185.1)':
     dependencies:
-      '@drawcall/physics': 0.4.0(three@0.185.1)
+      '@drawcall/physics': 0.13.1(three@0.185.1)
       fflate: 0.8.3
       three: 0.185.1
 
-  '@drawcall/physics@0.4.0(three@0.185.1)':
+  '@drawcall/physics@0.13.1(three@0.185.1)':
     dependencies:
       three: 0.185.1
 

@@ -33,8 +33,7 @@ export async function reloadRecords(
         matrices: record.matrices,
         isPreview: record.isPreview,
         instances: record.type === "instances",
-        requestedURL: url,
-        physicsSource: record.revision.execution
+        requestedURL: url
       });
       replacements.push({ prepared, record });
       assertPhysicsReloadAllowed(nodes, record, prepared);

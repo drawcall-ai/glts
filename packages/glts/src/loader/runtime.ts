@@ -1,4 +1,3 @@
-import type { PhysicsWorld } from "@drawcall/physics";
 import * as THREE from "three";
 
 import type { Execution } from "../scene/execution.js";
@@ -19,7 +18,6 @@ import type {
 } from "../types.js";
 
 interface RuntimeOptions {
-  readonly physicsWorld: PhysicsWorld | undefined;
   readonly contextLoader: (owner: Execution) => GLTSScriptLoader;
   readonly manager: THREE.LoadingManager;
   readonly modules: ScriptModules;

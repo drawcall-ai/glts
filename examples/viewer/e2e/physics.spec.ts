@@ -17,8 +17,6 @@ test("shares physics constructors across host and concurrent loaders", async ({
   await routeGLTS(page, "**/body.glts", physical);
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
-    const { AuthoringWorld, setDefaultWorld } = await window.physicsModule();
-    setDefaultWorld(new AuthoringWorld());
     const a = new window.GLTSLoader(new window.LoadingManager());
     const b = new window.GLTSLoader(new window.LoadingManager());
     const [first, second] = await Promise.all([
@@ -66,8 +64,6 @@ test("retains transitive declarations when external modules are cached", async (
   );
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
-    const { AuthoringWorld, setDefaultWorld } = await window.physicsModule();
-    setDefaultWorld(new AuthoringWorld());
     const loader = new window.GLTSLoader(new window.LoadingManager());
     const first = await loader.loadAsync("/helper.glts");
     const second = await loader.loadAsync("/helper.glts");
@@ -101,8 +97,6 @@ test("nested declarations refresh only on successful reload", async ({
   ]);
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
-    const { AuthoringWorld, setDefaultWorld } = await window.physicsModule();
-    setDefaultWorld(new AuthoringWorld());
     const loader = new window.GLTSLoader(new window.LoadingManager());
     const parent = await loader.loadAsync("/parent.glts");
     const flags = [parent.capabilities.physics];
@@ -127,8 +121,6 @@ test("rejects physics instancing instead of creating one collider for many visua
   await routeGLTS(page, "**/body.glts", physical);
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
-    const { AuthoringWorld, setDefaultWorld } = await window.physicsModule();
-    setDefaultWorld(new AuthoringWorld());
     const loader = new window.GLTSLoader(new window.LoadingManager());
     try {
       await loader.loadInstancesAsync("/body.glts", 3);
@@ -142,19 +134,22 @@ test("rejects physics instancing instead of creating one collider for many visua
   expect(result).toContain("Physics assets do not support loadInstancesAsync");
 });
 
-test("exports a declared physical asset through the lazy USD integration", async ({
+test("exports a declared physical asset through the provided physics exporter", async ({
   page,
 }) => {
   await routeGLTS(page, "**/body.glts", physical);
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
-    const { AuthoringWorld, setDefaultWorld } = await window.physicsModule();
-    setDefaultWorld(new AuthoringWorld());
     const loader = new window.GLTSLoader(new window.LoadingManager());
     try {
       const asset = await loader.loadAsync("/body.glts");
-      const bytes = await new window.GLTSUSDExporter().parseAsync(asset);
+      const missing = await new window.GLTSUSDExporter().parseAsync(asset).then(
+        () => "unexpected success",
+        (error) => String(error),
+      );
+      const bytes = await new window.GLTSUSDExporter({ physics: window.PhysicsUSDExporter }).parseAsync(asset);
       return {
+        missing,
         zip: Array.from(bytes.slice(0, 2)),
         size: bytes.byteLength,
         physics: new TextDecoder()
@@ -165,6 +160,7 @@ test("exports a declared physical asset through the lazy USD integration", async
       loader.dispose();
     }
   });
+  expect(result.missing).toContain("PhysicsUSDExporter");
   expect(result.zip).toEqual([80, 75]);
   expect(result.size).toBeGreaterThan(100);
   expect(result.physics).toBe(true);
@@ -180,8 +176,6 @@ test("loads and exports the complete ragdoll example", async ({
   await routeGLTS(page, "**/ragdoll.glts", source);
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
-    const { AuthoringWorld, setDefaultWorld } = await window.physicsModule();
-    setDefaultWorld(new AuthoringWorld());
     const loader = new window.GLTSLoader(new window.LoadingManager());
     try {
       const asset = await loader.loadAsync("/ragdoll.glts");
@@ -200,7 +194,7 @@ test("loads and exports the complete ragdoll example", async ({
       });
       const pelvis = asset.getObjectByName("Pelvis");
       if (!(pelvis instanceof RigidBody)) throw new Error("Missing pelvis");
-      const output = await new window.GLTSUSDExporter().parseAsync(asset);
+      const output = await new window.GLTSUSDExporter({ physics: window.PhysicsUSDExporter }).parseAsync(asset);
       return {
         velocity: pelvis.getVelocity().linear.toArray(),
         contacts,
@@ -225,7 +219,7 @@ test("loads and exports the complete ragdoll example", async ({
   });
 });
 
-test("isolates async executions and cached helper constructors across default worlds", async ({
+test("isolates async executions and cached helper constructors", async ({
   page,
 }) => {
   await page.route("https://physics.test/owned.js", (route) =>
@@ -252,16 +246,11 @@ test("isolates async executions and cached helper constructors across default wo
   );
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
-    const { AuthoringWorld, RigidBody, setDefaultWorld } =
-      await window.physicsModule();
-    const firstWorld = new AuthoringWorld(),
-      secondWorld = new AuthoringWorld();
+    const { RigidBody, registry } = await window.physicsModule();
     const loader = new window.GLTSLoader(new window.LoadingManager());
-    setDefaultWorld(firstWorld);
     const pending = loader.loadAsync("/async.glts");
     while (!Reflect.get(globalThis, "physicsExecutionStarted"))
       await new Promise((resolve) => setTimeout(resolve, 0));
-    setDefaultWorld(secondWorld);
     const [first, second] = await Promise.all([
       pending,
       loader.loadAsync("/async.glts"),
@@ -270,24 +259,19 @@ test("isolates async executions and cached helper constructors across default wo
     second.update(0);
     const a = first.children[0],
       b = second.children[0];
-    const before = [firstWorld.objects.size, secondWorld.objects.size];
-    const worlds = [
-      a instanceof RigidBody && a.world === firstWorld,
-      b instanceof RigidBody && b.world === secondWorld,
-    ];
+    const before = registry.objects.size;
+    const bodies = [a instanceof RigidBody, b instanceof RigidBody];
     first.dispose();
-    const after = [firstWorld.objects.size, secondWorld.objects.size];
+    const after = registry.objects.size;
     loader.dispose();
-    const final = [firstWorld.objects.size, secondWorld.objects.size];
-    firstWorld.dispose();
-    secondWorld.dispose();
-    return { before, worlds, after, final };
+    const final = registry.objects.size;
+    return { before, bodies, after, final };
   });
   expect(result).toEqual({
-    before: [3, 3],
-    worlds: [true, true],
-    after: [0, 3],
-    final: [0, 0],
+    before: 6,
+    bodies: [true, true],
+    after: 3,
+    final: 0,
   });
 });
 
@@ -306,16 +290,13 @@ test("cleans failed loads and failed reloads without unregistering the current a
   ]);
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
-    const { AuthoringWorld } = await window.physicsModule();
-    const world = new AuthoringWorld();
-    const loader = new window.GLTSLoader(new window.LoadingManager(), {
-      physicsWorld: world,
-    });
+    const { registry } = await window.physicsModule();
+    const loader = new window.GLTSLoader(new window.LoadingManager());
     const failure = await loader.loadAsync("/failure.glts").then(
       () => "unexpected",
       (error) => String(window.readErrorField(error, "cause") ?? error),
     );
-    const afterFailure = world.objects.size;
+    const afterFailure = registry.objects.size;
     const asset = await loader.loadAsync("/reload-owned.glts");
     const original = asset.children[0];
     const reload = await asset.reload().then(
@@ -323,10 +304,9 @@ test("cleans failed loads and failed reloads without unregistering the current a
       (error) => String(window.readErrorField(error, "cause") ?? error),
     );
     const retained = asset.children[0] === original;
-    const afterReload = world.objects.size;
+    const afterReload = registry.objects.size;
     loader.dispose();
-    const afterDispose = world.objects.size;
-    world.dispose();
+    const afterDispose = registry.objects.size;
     return {
       failure,
       reload,
@@ -338,25 +318,6 @@ test("cleans failed loads and failed reloads without unregistering the current a
   expect(result.reload).toContain("failed reload");
   expect(result.retained).toBe(true);
   expect(result.counts).toEqual([0, 1, 0]);
-});
-
-test("requires setupWorld or an explicit world before constructing physics", async ({
-  page,
-}) => {
-  await routeGLTS(page, "**/body.glts", physical);
-  await page.goto("/test-harness.html");
-  const message = await page.evaluate(async () => {
-    const loader = new window.GLTSLoader(new window.LoadingManager());
-    try {
-      await loader.loadAsync("/body.glts");
-      return "unexpected success";
-    } catch (error) {
-      return String(window.readErrorField(error, "cause") ?? error);
-    } finally {
-      loader.dispose();
-    }
-  });
-  expect(message).toContain("setupWorld");
 });
 
 test("owns cloned groups and remaps their joints", async ({ page }) => {
@@ -383,17 +344,13 @@ test("owns cloned groups and remaps their joints", async ({ page }) => {
   );
   await page.goto("/test-harness.html");
   const counts = await page.evaluate(async () => {
-    const { AuthoringWorld } = await window.physicsModule();
-    const world = new AuthoringWorld();
-    const loader = new window.GLTSLoader(new window.LoadingManager(), {
-      physicsWorld: world,
-    });
+    const { registry } = await window.physicsModule();
+    const loader = new window.GLTSLoader(new window.LoadingManager());
     const asset = await loader.loadAsync("/cloned.glts");
-    const before = world.objects.size;
+    const before = registry.objects.size;
     asset.dispose();
-    const after = world.objects.size;
+    const after = registry.objects.size;
     loader.dispose();
-    world.dispose();
     return [before, after];
   });
   expect(counts).toEqual([6, 0]);
