@@ -392,6 +392,10 @@ Install the GLTS authoring guidance for your coding agent:
 npx skills add drawcall-ai/glts --skill glts
 ```
 
+The skill also ships inside the `@drawcall/glts` npm package at
+`skills/glts/SKILL.md`, so [skills-npm](https://github.com/antfu/skills-npm)
+links it automatically from `node_modules`, at the version you have installed.
+
 ## Physics and USD
 
 Physics authoring lives in the separate `@drawcall/physics` library:
@@ -444,7 +448,7 @@ Disposal unregisters them automatically. Failed loads/reloads clean up their new
 objects while retaining the current asset. The host owns the built world and
 must dispose it when finished. Configure body mass/type and joint frames/limits through constructors.
 Set velocity, material, and connected-body contact through `setVelocity`,
-`setMaterial`, and `setCollideConnected`. The [authoring skill](skills/glts/SKILL.md#physics)
+`setMaterial`, and `setCollideConnected`. The [authoring skill](packages/glts/skills/glts/SKILL.md#physics)
 covers physics asset construction and animation. `body.getColliders()` returns the actual explicit or automatically
 generated collider objects. Bodies and
 joints expose `.validate()`; `joint.getFrame(index, matrix)` writes a body-local
