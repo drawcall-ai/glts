@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { resolveModuleURL } from "../../src/modules/resolution.js";
 
-const options = { cdnURL: new URL("https://cdn.test/"), threeRevision: "185" };
+const options = { cdnURL: new URL("https://cdn.test/"), threeRevision: "185", hostSpecifiers: ["three", "simplex-noise"] };
 const importer = "https://assets.test/path/asset.glts";
 
 it("bundles packages and pins both Three addon spellings to the host revision", () => {
@@ -9,7 +9,7 @@ it("bundles packages and pins both Three addon spellings to the host revision", 
   const example = resolveModuleURL("three/examples/jsm/controls/OrbitControls.js", importer, [], options, "module");
   expect(addon.url.href).toBe(example.url.href);
   expect(addon.url.pathname).toBe("/three@0.185.0/examples/jsm/controls/OrbitControls.js");
-  expect(addon.url.searchParams.get("external")).toBe("three,@drawcall/physics");
+  expect(addon.url.searchParams.get("external")).toBe("three,simplex-noise");
   expect(addon.transform).toBe(true);
 });
 

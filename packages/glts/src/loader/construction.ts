@@ -98,13 +98,6 @@ export class Construction {
       await execution.nested.finishAndValidateAttachment(execution.scene);
       await scope.waitAndClose();
 
-      if (instances && execution.physics) {
-        throw new GLTSError(
-          "Physics assets do not support loadInstancesAsync(); load separate scenes instead",
-          { phase: "construct", url: script.url }
-        );
-      }
-
       if (instances && !execution.nativeInstances) {
         if (execution.animated) {
           throw new GLTSError(

@@ -59,7 +59,7 @@ export class GLTSLoader extends Loader {
     const environmentBase = environmentBaseURL();
     const baseURL = resolvedOptionURL(options.baseURL, environmentBase.href, environmentBase);
     const moduleURLs = new ModuleURLStore();
-    const moduleBridge = new ModuleBridge(moduleURLs);
+    const moduleBridge = new ModuleBridge(moduleURLs, options.modules);
     const baseFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
     this.#baseURL = baseURL;
     this.#baseFetch = baseFetch;

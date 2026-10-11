@@ -40,7 +40,6 @@ export class ManagedNodes {
     const root = prepared.execution.scene;
     return this.#create(prepared, url, isPreview, matrices, "scene", () =>
       attachSceneMethods(root, url, {
-        physics: () => this.#records.get(root)?.revision.execution.physics ?? false,
         dispose: () => this.dispose(root),
         reload: () => this.#reload(this.getRecord(root)),
         update: (delta) => this.update(root, delta)
@@ -58,7 +57,6 @@ export class ManagedNodes {
     return this.#create(prepared, url, isPreview, matrices, "instances", () =>
       attachInstanceMethods(root, url, {
         count: matrices.length,
-        physics: () => this.#records.get(root)?.revision.execution.physics ?? false,
         dispose: () => this.dispose(root),
         ...createInstanceMatrixMethods(() => this.getRecord(root)),
         reload: () => this.#reload(this.getRecord(root)),
@@ -88,13 +86,6 @@ export class ManagedNodes {
 
   find(node: THREE.Object3D): NodeRecord | undefined {
     return this.#records.get(node);
-  }
-
-  commit(node: THREE.Object3D): void {
-    this.getRecord(node).revision.execution.commit();
-    for (const descendant of this.#descendants(node)) {
-      descendant.revision.execution.commit();
-    }
   }
 
   update(node: THREE.Object3D, delta: number): void {

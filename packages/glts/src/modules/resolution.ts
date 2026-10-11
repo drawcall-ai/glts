@@ -3,6 +3,8 @@ import { GLTSError, type GLTSErrorContext } from "../errors.js";
 export interface ResolutionOptions {
   readonly cdnURL: URL;
   readonly threeRevision: string;
+  /** Packages the host shares; CDN bundles import them instead of inlining copies. */
+  readonly hostSpecifiers: readonly string[];
 }
 
 export type ImportSource = "script" | "module";
@@ -20,7 +22,8 @@ function packageURL(specifier: string, options: ResolutionOptions): URL {
       : specifier;
   const url = new URL(path, options.cdnURL);
   const separator = url.search ? "&" : "?";
-  return new URL(`${url.href}${separator}bundle&external=three,@drawcall/physics&target=es2022`);
+  const external = options.hostSpecifiers.join(",");
+  return new URL(`${url.href}${separator}bundle&external=${external}&target=es2022`);
 }
 
 function shouldTransform(url: URL): boolean {

@@ -2,7 +2,7 @@ import { GLTSLoader, GLTSRenderer, type GLTSScene } from "@drawcall/glts";
 import * as THREE from "three";
 
 // Frame callbacks run once with this step before the render, so they can
-// apply authored state such as animation poses. Physics is never simulated.
+// apply authored state such as animation poses.
 const delta = 1 / 60;
 
 let failed = false;

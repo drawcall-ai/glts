@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@drawcall/glts": "workspace:*",
-    "@drawcall/physics": "^0.13.1",
     "three": "^0.185.1"
   },
   "devDependencies": {

@@ -66,17 +66,14 @@ export class ScriptModules {
 
   async executeScript(script: CompiledScript, context: ScriptContext): Promise<void> {
     const contextModule = this.options.bridge.createContextModule(context);
-    const external = this.external.forContext(context);
     let transformed: string;
     try {
       transformed = await rewriteModule({
         importChain: [script.url],
-        resolveImport: async (specifier, importerURL, chain) => {
-          if (specifier === "@drawcall/glts") return contextModule.url;
-          const module = await external.prepareImport(specifier, importerURL, chain, "script");
-          if (module.physics) context.declarePhysics();
-          return module.url;
-        },
+        resolveImport: (specifier, importerURL, chain) =>
+          specifier === "@drawcall/glts"
+            ? Promise.resolve(contextModule.url)
+            : this.external.prepareImport(specifier, importerURL, chain, "script"),
         source: script.source,
         sourceURL: script.url,
       });

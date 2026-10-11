@@ -106,18 +106,9 @@ export function createAutoInstances(
     return { relative, target };
   });
 
-  const ownership = new THREE.Group();
-  ownership.name = "GLTS source ownership";
-  ownership.visible = false;
-  while (scene.children.length > 0) {
-    const child = scene.children[0];
-    if (!child) {
-      break;
-    }
-    ownership.add(child);
-  }
-  ownership.traverse((object) => object.layers.disableAll());
-  scene.add(ownership, ...targets.map(({ target }) => target));
+  // The authored sources leave the scene graph; the instanced meshes alone represent them.
+  scene.clear();
+  scene.add(...targets.map(({ target }) => target));
 
   const combined = new THREE.Matrix4();
   const setMatrixAt = (index: number, matrix: THREE.Matrix4): void => {

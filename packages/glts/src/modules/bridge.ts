@@ -1,8 +1,8 @@
 import * as THREE from "three";
 
-import { bindPhysics } from "./physics.js";
 import type { ScriptContext } from "../scene/execution.js";
 import { GLTSError } from "../errors.js";
+import type { GLTSModules } from "../types.js";
 import { ModuleURLStore } from "./urls.js";
 
 let bridgeSequence = 0;
@@ -13,21 +13,21 @@ function nextBridgeKey(): string {
 }
 
 export class ModuleBridge {
-  readonly #modules = new Map<string, object>([["three", THREE]]);
-  readonly #bridges = new WeakMap<ScriptContext, string>();
-  #physicsSequence = 0;
+  readonly #modules = new Map<string, object>();
+  readonly #hostModuleURLs = new Map<string, string>();
   readonly #contexts = new Map<number, ScriptContext>();
   readonly #moduleURLs: ModuleURLStore;
   readonly #bridgeKey = nextBridgeKey();
   #contextSequence = 0;
   #disposed = false;
 
-  readonly threeModuleURL: string;
-
-  constructor(moduleURLs: ModuleURLStore) {
+  constructor(moduleURLs: ModuleURLStore, modules: GLTSModules = {}) {
     this.#moduleURLs = moduleURLs;
     Reflect.set(globalThis, this.#bridgeKey, this);
-    this.threeModuleURL = moduleURLs.create(this.#bridgeSource("three", THREE));
+    for (const [specifier, namespace] of Object.entries({ ...modules, three: THREE })) {
+      this.#modules.set(specifier, namespace);
+      this.#hostModuleURLs.set(specifier, moduleURLs.create(this.#bridgeSource(specifier, namespace)));
+    }
   }
 
   createContextModule(context: ScriptContext): {
@@ -66,24 +66,13 @@ export class ModuleBridge {
     };
   }
 
-  async getPhysicsModuleURL(context: ScriptContext): Promise<string> {
-    this.#assertActive();
-    const physics = await import("@drawcall/physics");
-    this.#assertActive();
-    context.assertActive();
-    const current = this.#bridges.get(context);
-    if (current) return current;
-    const namespace = bindPhysics(physics, context);
-    const key = `physics:${++this.#physicsSequence}`;
-    this.#modules.set(key, namespace);
-    const url = this.#moduleURLs.create(this.#bridgeSource(key, namespace));
-    this.#bridges.set(context, url);
-    context.onDispose(() => {
-      this.#modules.delete(key);
-      this.#bridges.delete(context);
-      this.#moduleURLs.release(url);
-    });
-    return url;
+  /** The bare specifiers the host shares with scripts, `three` included. */
+  get hostSpecifiers(): readonly string[] {
+    return [...this.#hostModuleURLs.keys()];
+  }
+
+  getHostModuleURL(specifier: string): string | undefined {
+    return this.#hostModuleURLs.get(specifier);
   }
 
   getModuleExport(specifier: string, name: string): unknown {
@@ -111,6 +100,7 @@ export class ModuleBridge {
     this.#disposed = true;
     this.#contexts.clear();
     this.#modules.clear();
+    this.#hostModuleURLs.clear();
     Reflect.deleteProperty(globalThis, this.#bridgeKey);
     this.#moduleURLs.dispose();
   }
