@@ -86,18 +86,7 @@ export class LoaderRuntime {
       });
       this.#operations.assertActive(url);
       try {
-        const node = create(revision, matrices);
-        try {
-          if (!parent) this.#nodes.commit(node);
-        } catch (error) {
-          try {
-            this.#nodes.dispose(node);
-          } catch (cleanup) {
-            throw new AggregateError([error, cleanup], "GLTS activation and cleanup failed");
-          }
-          throw error;
-        }
-        return node;
+        return create(revision, matrices);
       } catch (error) {
         throw toGLTSError(error, `Unable to construct GLTS ${options.instances ? "instances" : "scene"}`, {
           phase: "construct", url
@@ -136,7 +125,6 @@ export class LoaderRuntime {
   #reloadRecords(url: string, records: readonly NodeRecord[]): Promise<void> {
     return this.#runWithProgress(url, () => reloadRecords(url, records, {
       modules: this.#modules,
-      nodes: this.#nodes,
       construction: this.#construction,
       operations: this.#operations
     }));

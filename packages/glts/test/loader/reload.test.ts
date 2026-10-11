@@ -40,7 +40,7 @@ async function reload(nodes: ManagedNodes, record: NodeRecord, next: Execution):
   // Exercise reload orchestration with a prepared revision, without browser imports.
   vi.spyOn(construction, "execute").mockResolvedValue(nodes.createRevision(next));
   try {
-    await reloadRecords(record.url, [record], { modules, nodes, construction, operations });
+    await reloadRecords(record.url, [record], { modules, construction, operations });
   } finally {
     construction.dispose();
     operations.dispose();
@@ -54,42 +54,6 @@ function errorCauses(error: unknown): unknown[] {
   if (error instanceof Error && error.cause !== undefined) causes.push(...errorCauses(error.cause));
   return causes;
 }
-
-it("rejects physics introduced by nested reload inside an instanced asset before replacement", async () => {
-  const nodes = new ManagedNodes(async () => {});
-  const matrices = [new Matrix4()];
-  const parent = new Execution(matrices, ["https://example.test/parent.glts"]);
-  const child = new Execution(matrices, ["https://example.test/child.glts"]);
-  const parentNode = nodes.createInstances(
-    nodes.createRevision(parent),
-    "https://example.test/parent.glts",
-    false,
-    matrices,
-  );
-  const childNode = nodes.createScene(
-    nodes.createRevision(child),
-    "https://example.test/child.glts",
-    false,
-    matrices,
-  );
-  parentNode.add(childNode);
-  const next = new Execution(matrices, [childNode.url]);
-  context(next).declarePhysics();
-  try {
-    await expect(reload(nodes, nodes.getRecord(childNode), next))
-      .rejects.toThrow("inside GLTS instances");
-    expect(childNode.capabilities.physics).toBe(false);
-    expect(childNode.parent).toBe(parentNode);
-    parentNode.remove(childNode);
-    const detached = new Execution(matrices, [childNode.url]);
-    context(detached).declarePhysics();
-    await expect(reload(nodes, nodes.getRecord(childNode), detached)).resolves.toBeUndefined();
-    expect(childNode.capabilities.physics).toBe(true);
-  } finally {
-    next.dispose();
-    nodes.disposeAll();
-  }
-});
 
 it.each(["node", "registry"])("cleans a replacement when old cleanup disposes its %s", async (target) => {
   const url = "https://example.test/scene.glts";

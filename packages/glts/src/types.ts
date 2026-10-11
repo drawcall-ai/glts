@@ -8,19 +8,18 @@ export type GLTSFetch = (
   init?: RequestInit
 ) => Promise<Response>;
 
+/** Host namespaces by exact bare specifier, imported by scripts instead of the CDN. */
+export type GLTSModules = Readonly<Record<string, object>>;
+
 export interface GLTSLoaderOptions {
   baseURL?: GLTSURL;
   cdnURL?: GLTSURL;
   fetch?: GLTSFetch;
   isPreview?: boolean;
-}
-
-export interface GLTSCapabilities {
-  readonly physics: boolean;
+  modules?: GLTSModules;
 }
 
 interface GLTSSceneMethods {
-  readonly capabilities: GLTSCapabilities;
   readonly url: string;
   add(...objects: THREE.Object3D[]): this;
   applyQuaternion(quaternion: THREE.Quaternion): this;

@@ -1,10 +1,6 @@
-import { expect, it, vi } from "vitest";
-import * as physics from "@drawcall/physics";
-import { LoadingManager } from "three";
+import { expect, it } from "vitest";
 
-import { Execution } from "../../src/scene/execution.js";
 import { ExternalModules } from "../../src/modules/external.js";
-import { GLTSLoader } from "../../src/loader/index.js";
 import { ModuleURLStore } from "../../src/modules/urls.js";
 import { ModuleBridge } from "../../src/modules/bridge.js";
 
@@ -36,17 +32,9 @@ it("rejects a cycle between sibling dependencies instead of waiting on both", as
   }
 }, 1000);
 
-it("finishes dependencies before failure cleanup and does not start later imports", async () => {
+it("stops at the first failing dependency without starting later imports", async () => {
   const urls = new ModuleURLStore();
-  const release = vi.spyOn(urls, "release");
   const bridge = new ModuleBridge(urls);
-  const execution = new Execution([], []);
-  const loader = new GLTSLoader(new LoadingManager());
-  const context = execution.context({
-    gltsLoader: loader,
-    loadingManager: new LoadingManager(),
-    isPreview: false,
-  });
   const requests: string[] = [];
   const external = new ExternalModules({
     moduleURLs: urls,
@@ -59,25 +47,42 @@ it("finishes dependencies before failure cleanup and does not start later import
       if (name === "root") {
         return new Response('import "helper"; import "missing"; import "late";');
       }
-      if (name === "helper") {
-        return new Response('export { RigidBody } from "@drawcall/physics";');
-      }
+      if (name === "helper") return new Response("export const helper = 1;");
       if (name === "missing") return new Response("", { status: 404 });
       throw new Error(`Unexpected fetch: ${input}`);
     },
-  }).forContext(context);
+  });
 
   try {
     await expect(external.prepareImport("root", "https://cdn.test/entry.glts", [])).rejects.toThrow("404");
     expect(requests).toEqual(["root", "helper", "missing"]);
-    const helper = await external.prepareImport("helper", "https://cdn.test/entry.glts", []);
-    execution.dispose();
-    expect(release).toHaveBeenCalledWith(helper.url);
-    expect(release).toHaveBeenCalledTimes(2);
   } finally {
-    execution.dispose();
-    loader.dispose();
-    physics.registry.clear();
+    bridge.dispose();
+  }
+});
+
+it("imports host modules by exact specifier and sends other versions to the CDN", async () => {
+  const urls = new ModuleURLStore();
+  const noise = { createNoise2D: () => 0 };
+  const bridge = new ModuleBridge(urls, { "simplex-noise": noise });
+  const requests: string[] = [];
+  const external = new ExternalModules({
+    moduleURLs: urls,
+    bridge,
+    threeRevision: "185",
+    cdnURL: new URL("https://cdn.test/"),
+    fetch: async (input) => {
+      requests.push(new URL(String(input)).pathname);
+      return new Response("export {};");
+    },
+  });
+  try {
+    const host = await external.prepareImport("simplex-noise", "https://cdn.test/entry.glts", [], "script");
+    expect(host).toBe(bridge.getHostModuleURL("simplex-noise"));
+    expect(bridge.getModuleExport("simplex-noise", "createNoise2D")).toBe(noise.createNoise2D);
+    await external.prepareImport("simplex-noise@4", "https://cdn.test/entry.glts", [], "script");
+    expect(requests).toEqual(["/simplex-noise@4"]);
+  } finally {
     bridge.dispose();
   }
 });

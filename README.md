@@ -37,8 +37,6 @@ Install GLTS next to the application's Three.js dependency:
 pnpm add @drawcall/glts three
 ```
 
-The current physics integration supports Three.js r185 (`>=0.185.0 <0.186.0`).
-
 ```ts
 import { GLTSLoader } from "@drawcall/glts"
 import * as THREE from "three"
@@ -55,10 +53,9 @@ tree.dispose()
 loader.dispose()
 ```
 
-The result is a stable `THREE.Scene` with seven additions:
+The result is a stable `THREE.Scene` with six additions:
 
 - `url`: canonical source URL;
-- `capabilities`: read-only dependency declarations, including `physics`;
 - `reload()`: executes the latest source while preserving scene identity;
 - `update(delta)`: dispatches registered frame callbacks;
 - `dispose()`: releases this scene and its nested GLTS scenes;
@@ -366,6 +363,18 @@ A `.glts` file:
 addons and bare npm packages are fetched through ESM.sh with `three` redirected
 to that host namespace.
 
+The `modules` option shares host packages the same way, and ESM.sh bundles
+import them instead of inlining their own copies. Specifiers match exactly, so
+`simplex-noise@4` still comes from ESM.sh unless it is listed:
+
+```ts
+import * as simplexNoise from "simplex-noise"
+
+const loader = new GLTSLoader(manager, {
+  modules: { "simplex-noise": simplexNoise }
+})
+```
+
 The page must allow CORS access to sources and dependencies and permit `blob:`
 ES modules in its CSP.
 
@@ -396,102 +405,8 @@ The skill also ships inside the `@drawcall/glts` npm package at
 `skills/glts/SKILL.md`, so [skills-npm](https://github.com/antfu/skills-npm)
 links it automatically from `node_modules`, at the version you have installed.
 
-## Physics and USD
+## Physics example
 
-Physics authoring lives in the separate `@drawcall/physics` library:
-
-```ts
-import * as THREE from "three"
-import { scene } from "@drawcall/glts"
-import { RigidBody } from "@drawcall/physics"
-
-const body = new RigidBody({ mass: 2 })
-body.add(new THREE.Mesh(
-  new THREE.BoxGeometry(),
-  new THREE.MeshStandardMaterial(),
-))
-scene.add(body)
-```
-
-Bodies and joints register in `@drawcall/physics`'s single registry, so loading
-and exporting need no simulation. To simulate, build a world once the asset is
-loaded:
-
-```ts
-import { buildWorld } from "@drawcall/physics-rapier"
-import { GLTSLoader } from "@drawcall/glts"
-
-const loader = new GLTSLoader(manager)
-const asset = await loader.loadAsync("/body.glts")
-const world = await buildWorld()
-// Each frame: world.update(delta), asset.update(delta), then render.
-```
-
-GLTS lazily loads the authoring library. Each execution gets constructors bound
-to it, so the scene owns what its script creates; objects retain the host
-library's `instanceof` behavior. CDN helpers importing physics get the same
-execution binding. Physics-dependent module instances are isolated per
-execution; fetched source and physics-free module instances remain cached.
-
-Bodies and joints stay outside the simulation while an asset or its nested loads
-are being constructed. A successful load registers the complete hierarchy; a
-reload keeps the previous physics active until replacement commits. Attach and
-configure the returned scene synchronously after `await loader.loadAsync(...)`,
-before the next `world.update()`, including `update(0)`, or `buildWorld()`.
-Physics captures scale during preparation, including the host's final parent
-transform. Do not step the world inside the asset's construction script. Objects
-created later by `onFrame()` register normally for the next preparation boundary.
-
-A scene owns every physics object constructed by its execution, including objects
-not added to the scene tree and objects created with `.clone()` or `clone(root)`.
-Disposal unregisters them automatically. Failed loads/reloads clean up their new
-objects while retaining the current asset. The host owns the built world and
-must dispose it when finished. Configure body mass/type and joint frames/limits through constructors.
-Set velocity, material, and connected-body contact through `setVelocity`,
-`setMaterial`, and `setCollideConnected`. The [authoring skill](packages/glts/skills/glts/SKILL.md#physics)
-covers physics asset construction and animation. `body.getColliders()` returns the actual explicit or automatically
-generated collider objects. Bodies and
-joints expose `.validate()`; `joint.getFrame(index, matrix)` writes a body-local
-joint frame into a Three.js `Matrix4`.
-
-Use ordinary Three.js groups to organize mechanisms. The `clone(root)` helper
-from `@drawcall/physics` clones the hierarchy and reconnects internal joint
-references to the cloned bodies, preserving references to bodies outside the
-hierarchy. Individual body/joint `.clone()` and `.copy()` methods retain their
-ordinary object-level roles.
-
-A managed asset exposes read-only `asset.capabilities.physics`. This declares a
-runtime import dependency, not the presence of a particular body: even a
-side-effect-only physics import declares the capability. Transitive package
-imports and owned nested GLTS loads contribute to it. A nested reload updates
-the parent's effective declaration; a failed reload preserves the current
-revision. Type-only imports do not declare runtime physics. Manually inserted
-physics objects from host code do not declare a script dependency; use the
-physics exporter directly for such ordinary Three.js scenes.
-
-```ts
-import { GLTSUSDExporter } from "@drawcall/glts"
-import { PhysicsUSDExporter } from "@drawcall/physics-usd"
-
-const exporter = new GLTSUSDExporter({ physics: PhysicsUSDExporter })
-const usdz = await exporter.parseAsync(asset)
-```
-
-The exporter selects Three.js's native USDZ exporter for visual assets. Assets
-that declare physics use the provided `PhysicsUSDExporter`, which exports the
-visuals and resolved physical shapes, bodies, materials, and joints; without it
-their export throws. `@drawcall/physics-usd` is an optional peer dependency,
-needed only for physics export. Export
-does not initialize a simulation backend. Export an authored/reset scene,
-not a scene currently displaying simulated poses. Import of the supported USD
-Physics subset is available separately through `PhysicsUSDLoader` from
-`@drawcall/physics-usd`.
-
-Simulation is provided by `@drawcall/physics-rapier`; it is not required for
-loading or exporting an asset. Physics instancing is currently rejected:
-load independent scenes until per-instance body ownership is supported.
-
-## Runnable physics example
-
-See [`examples/physics`](examples/physics) for a simulated ragdoll with automatic
-colliders, ball joints, limited elbows and knees, reset, and USDZ export.
+GLTS has no physics integration of its own. [`examples/physics`](examples/physics)
+shares `@drawcall/physics` with scripts through `modules` and simulates a
+ragdoll.

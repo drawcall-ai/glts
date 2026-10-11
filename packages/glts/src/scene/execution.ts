@@ -1,4 +1,3 @@
-import type { Joint, registry, RigidBody, Trigger } from "@drawcall/physics";
 import type * as THREE from "three";
 
 import type {
@@ -11,13 +10,7 @@ import type {
 import { createScriptScene, type GLTSScriptScene } from "./state.js";
 import { NestedLoads } from "./nested.js";
 
-type PhysicsObject = RigidBody | Joint | Trigger;
-type PhysicsRegistry = typeof registry;
-
 export interface ScriptContext {
-  readonly declarePhysics: () => void;
-  readonly ownPhysics: (object: PhysicsObject, registry: PhysicsRegistry) => void;
-  readonly assertActive: () => void;
   readonly gltsLoader: GLTSScriptLoader;
   readonly instanceCount: number;
   readonly loadingManager: THREE.LoadingManager;
@@ -42,11 +35,7 @@ export class Execution {
   readonly #frames: GLTSFrameCallback[] = [];
   readonly #matrixUpdates: GLTSMatrixUpdateCallback[] = [];
   readonly #matrices: readonly THREE.Matrix4[];
-  #physics = false;
-  #registry: PhysicsRegistry | undefined;
-  readonly #physicsObjects = new Set<PhysicsObject>();
   #disposed = false;
-  #committed = false;
   #bindScene: ((scene: GLTSScene) => void) | undefined;
 
   constructor(
@@ -56,31 +45,6 @@ export class Execution {
   ) {
     this.#matrices = matrices;
     this.nested = new NestedLoads(urls, parent?.nested);
-  }
-
-  get physics(): boolean {
-    return (
-      !this.#disposed &&
-      (this.#physics ||
-        this.nested.nodes.some((node) => node.capabilities.physics))
-    );
-  }
-
-  get committed(): boolean {
-    return this.#committed;
-  }
-
-  commit(): void {
-    this.#assertActive();
-    if (this.#committed) return;
-    for (const object of this.#physicsObjects) {
-      if ("connects" in object) {
-        const { body0, body1 } = object.options;
-        if (body0?.disposed || body1.disposed) object.dispose();
-      }
-      if (!object.disposed) this.#registry?.register(object);
-    }
-    this.#committed = true;
   }
 
   get animated(): boolean {
@@ -97,19 +61,6 @@ export class Execution {
     readonly isPreview: boolean;
   }): ScriptContext {
     return {
-      declarePhysics: () => {
-        this.#physics = true;
-      },
-      assertActive: () => this.#assertActive(),
-      ownPhysics: (object, registry) => {
-        if (this.#disposed) {
-          object.dispose();
-          throw new Error("GLTS execution has been disposed");
-        }
-        this.#registry = registry;
-        this.#physicsObjects.add(object);
-        if (!this.#committed) registry.unregister(object);
-      },
       bindScene: (bind) => {
         assertCallback(bind, "Internal scene binding");
         this.#bindScene = bind;
@@ -157,14 +108,6 @@ export class Execution {
       }
     }
 
-    for (const object of [...this.#physicsObjects].reverse()) {
-      try {
-        object.dispose();
-      } catch (error) {
-        errors.push(error);
-      }
-    }
-    this.#physicsObjects.clear();
     this.#disposals.length = 0;
     this.#frames.length = 0;
     this.#matrixUpdates.length = 0;

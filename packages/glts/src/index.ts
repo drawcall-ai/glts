@@ -17,7 +17,6 @@ export type {
   GLTSRenderingProfile
 } from "./scene/state.js";
 export type {
-  GLTSCapabilities,
   GLTSDisposeCallback,
   GLTSErrorCallback,
   GLTSFetch,
@@ -26,15 +25,9 @@ export type {
   GLTSLoadCallback,
   GLTSLoaderOptions,
   GLTSMatrixUpdateCallback,
+  GLTSModules,
   GLTSProgressCallback,
   GLTSScene,
   GLTSScriptLoader,
   GLTSURL
 } from "./types.js";
-
-
-export {
-  GLTSUSDExporter,
-  type GLTSUSDExporterOptions,
-  type GLTSUSDExportOptions
-} from "./usd.js";

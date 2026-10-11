@@ -122,40 +122,6 @@ onDispose(() => {
 
 Registering `onMatrixUpdateAt` selects native instancing, replays the current matrices immediately, and receives every later outer `setMatrixAt()`. The script still executes exactly once. `instanceCount` is `1` for a plain `loadAsync()`, so a native-instancing script stays valid when loaded as a single scene.
 
-## Physics
-
-The host owns simulation setup, stepping, and disposal. Scripts only author objects; they never build or step a world.
-
-Import from `@drawcall/physics`. Put meshes and colliders beneath `RigidBody` groups, and bodies and joints beneath `scene`. Bodies cannot nest. Units are meters, kilograms, seconds, and radians.
-
-| Object | Constructor | Setters |
-| --- | --- | --- |
-| `RigidBody` | `type` (`"dynamic"` by default, `"static"`, or `"kinematic"`), `mass`, `colliders` (`"auto"`, `"box"`, `"convexHull"`, `"trimesh"`, or `false`) | `setVelocity({ linear, angular })`, `setLinearDamping(value)`, `setAngularDamping(value)`, `setGravityScale(value)`, `setMaterial(material)` |
-| Colliders | `BoxCollider({ size: [x, y, z] })`, `SphereCollider({ radius })`, `CapsuleCollider({ radius, height })`, `CylinderCollider({ radius, height })`, `MeshCollider({ approximation })` (`"convexHull"` or `"trimesh"`) | `setMaterial(material)`, `setCollisionGroups(groups)`; mesh: `setGeometry(bufferGeometry)` |
-| Joints | `FixedJoint`, `SphericalJoint`, `RevoluteJoint`, `PrismaticJoint`, `DistanceJoint`, or `GenericJoint`: `{ body0, body1 }`; revolute/prismatic: `axis` (X/Y/Z, default Y), `limits: [min, max]`; distance: `limits` (`Infinity` maximum leaves it free); generic: `dofs` | `setEnabled(boolean)`, `setCollideConnected(boolean)`; revolute/prismatic/distance: `setDrive(drive)`; generic: `setDrive(axis, drive)` |
-| `JointDrive` | `{ stiffness?, damping?, maxForce?, maxVelocity? }` | `setTarget({ position, velocity, effort })` |
-| `Trigger` | none; add colliders beneath it | `setCollisionGroups(groups)`; `enter`/`exit` events |
-
-Automatic colliders follow each mesh: unchanged primitives retain their shape; other dynamic/kinematic geometry uses convex hulls, static geometry uses triangle meshes. Explicit colliders replace automatic ones. Explicit `trimesh` colliders on moving bodies are decomposed into convex parts and need closed meshes; instanced, skinned, or morph-deformed meshes need explicit colliders. Capsules/cylinders extend along Y; capsule `height` excludes hemispheres.
-
-Materials accept `staticFriction`, `dynamicFriction`, `restitution`, and `density`; collider values override body values. Mass comes from collider density unless `mass` supplies a total.
-
-Joint placement defines initial anchors. Alternatively, supply both `frame0` and `frame1` as body-local `Matrix4`s. `body0: null` anchors to the world, with world-space `frame0`.
-
-A drive is attached through its joint's `setDrive` and starts untargeted. `setTarget` replaces the whole target, so omitted terms are zero. With zero stiffness, targets control velocity; a zero velocity target with damping brakes motion. Position/velocity use radians and rad/s for hinges, meters and m/s for sliders. `maxForce` caps force in N or torque in N·m; omission leaves it unbounded. `joint.getState()` returns `{ position, velocity }` for these joints.
-
-Set initial transforms during construction. For later motion, use `teleport(pose)` or, for kinematic bodies, `setKinematicTarget(pose)`. Both take rigid world-space `Matrix4`s; `splitTransform(body.matrixWorld).pose` removes scale. `getVelocity()` returns world-space `Vector3` values `{ linear, angular }`; partial `setVelocity` preserves the other component. Animate targets through GLTS `onFrame`.
-
-Author scale before simulation; later changes require recreating affected bodies and joints. Positive uniform scale works for all shapes. Boxes/meshes allow nonuniform scale; cylinders need equal X/Z scale; spheres/capsules need uniform scale (use a convex hull to stretch them). Dynamic/kinematic bodies need uniformly scaled ancestors. Zero/negative scale and shear are rejected. Scale changes shapes and anchors, not explicit mass, velocity, or joint limits.
-
-GLTS disposes execution-owned bodies and joints, including clones and unattached objects. Use `clone(root)` to copy a mechanism and reconnect its internal joints and drives. Physics assets need separate scene loads; `loadInstancesAsync()` is unsupported.
-
-For custom controllers, forces/effort, simulation-step callbacks, raycasts, collision filtering, explicit mass properties, or inspection, consult the [physics API](https://github.com/drawcall-ai/physics#readme).
-
-Physics writeback and teleportation refresh `body.matrixWorld`. After authoring or hierarchy edits, refresh it with `body.updateWorldMatrix(true, false)` before reading. GLTS does not refresh matrices before `onFrame`; follow the host contract.
-
-Without a built world, as in static previews, authored poses remain visible. Velocity reads/writes and teleportation work; forces, impulses, kinematic targets, and queries throw.
-
 ## Frame updates
 
 `onFrame((delta) => ...)` runs when the host calls `update(delta)` on the loaded root; updating a root also updates its managed descendants.

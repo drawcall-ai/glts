@@ -115,7 +115,7 @@ test("automatically instances an ordinary mesh hierarchy", async ({ page }) => {
     const snapshot = {
       boundsInvalidated: mesh.boundingSphere === null,
       count: instances.count,
-      sourceHidden: instances.children.some((child) => child.visible === false),
+      onlyInstancedMeshes: instances.children.every((child) => Reflect.get(child, "isInstancedMesh") === true),
       translation: matrix.elements.slice(12, 15)
     };
     instances.dispose();
@@ -126,7 +126,7 @@ test("automatically instances an ordinary mesh hierarchy", async ({ page }) => {
   expect(result).toEqual({
     boundsInvalidated: true,
     count: 2,
-    sourceHidden: true,
+    onlyInstancedMeshes: true,
     targetDisposals: 1,
     translation: [7, 0, 0]
   });

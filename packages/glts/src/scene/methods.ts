@@ -8,7 +8,6 @@ export type GLTSNode = GLTSInstances | GLTSScene;
 export type GLTSNodeKind = "instances" | "scene";
 
 export interface SceneMethods {
-  readonly physics: () => boolean;
   readonly dispose: () => void;
   readonly reload: () => Promise<void>;
   readonly update: (delta: number) => void;
@@ -26,11 +25,6 @@ function defineSceneMethods(
   methods: SceneMethods
 ): void {
   Object.defineProperties(scene, {
-    capabilities: {
-      value: Object.freeze({
-        get physics() { return methods.physics(); }
-      })
-    },
     dispose: { value: methods.dispose },
     reload: { value: methods.reload },
     update: { value: methods.update },

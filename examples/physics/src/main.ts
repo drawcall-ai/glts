@@ -1,7 +1,7 @@
-import { GLTSLoader, GLTSUSDExporter } from "@drawcall/glts";
+import { GLTSLoader } from "@drawcall/glts";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { RigidBody } from "@drawcall/physics";
+import * as physics from "@drawcall/physics";
 import { buildWorld } from "@drawcall/physics-rapier";
 import { PhysicsUSDExporter } from "@drawcall/physics-usd";
 
@@ -24,13 +24,20 @@ async function start(
   reset: HTMLButtonElement,
   exportButton: HTMLButtonElement,
 ) {
-  const loader = new GLTSLoader(new THREE.LoadingManager());
+  // Scripts import the host's physics, so the world simulates the bodies they create.
+  const loader = new GLTSLoader(new THREE.LoadingManager(), {
+    modules: { "@drawcall/physics": physics },
+  });
   const assembly = await loader.loadAsync("/ragdoll.glts");
-  const world = await buildWorld();
-  const pelvis = assembly.getObjectByName("Pelvis");
-  if (!(pelvis instanceof RigidBody)) throw new Error("Missing ragdoll pelvis");
   const scene = new THREE.Scene();
   scene.add(assembly, new THREE.HemisphereLight(0xffffff, 0x667788, 3));
+  const world = await buildWorld({ scene });
+  // Look the pelvis up each frame: a hot reload replaces it.
+  const pelvis = () => {
+    const body = assembly.getObjectByName("Pelvis");
+    if (!(body instanceof physics.RigidBody)) throw new Error("Missing ragdoll pelvis");
+    return body;
+  };
   const light = new THREE.DirectionalLight(0xffffff, 3);
   light.position.set(3, 5, 4);
   scene.add(light, new THREE.GridHelper(10, 20));
@@ -58,7 +65,9 @@ async function start(
     exporting = true;
     try {
       world.reset();
-      const bytes = await new GLTSUSDExporter({ physics: PhysicsUSDExporter }).parseAsync(assembly);
+      const bytes = await new PhysicsUSDExporter().parseAsync(assembly, {
+        gravity: world.gravity,
+      });
       const url = URL.createObjectURL(
         new Blob([bytes], { type: "model/vnd.usdz+zip" }),
       );
@@ -81,7 +90,7 @@ async function start(
     try {
       timer.update();
       if (!exporting) world.update(timer.getDelta());
-      status.textContent = `Pelvis height: ${pelvis.position.y.toFixed(2)} m`;
+      status.textContent = `Pelvis height: ${pelvis().position.y.toFixed(2)} m`;
       renderer.render(scene, camera);
     } catch (error) {
       renderer.setAnimationLoop(null);

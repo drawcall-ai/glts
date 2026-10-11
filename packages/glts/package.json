@@ -44,22 +44,14 @@
     "@babel/generator": "^8.0.6",
     "@babel/parser": "^8.0.4",
     "@babel/types": "^8.0.4",
-    "@drawcall/physics": "^0.13.1",
     "es-module-lexer": "^2.0.0",
     "magic-string": "^0.30.21",
     "sucrase": "3.35.1"
   },
   "peerDependencies": {
-    "@drawcall/physics-usd": "^0.13.1",
     "three": ">=0.182.0"
   },
-  "peerDependenciesMeta": {
-    "@drawcall/physics-usd": {
-      "optional": true
-    }
-  },
   "devDependencies": {
-    "@drawcall/physics-usd": "^0.13.1",
     "@types/three": "^0.185.0",
     "three": "^0.185.1",
     "vitest": "^4.0.17"

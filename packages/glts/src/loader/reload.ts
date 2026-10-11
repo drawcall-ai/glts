@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTSError } from "../errors.js";
 import { copyRootState } from "../scene/state.js";
-import type { ManagedNodes, NodeRecord } from "../scene/registry.js";
+import type { NodeRecord } from "../scene/registry.js";
 import type { Revision } from "../scene/revision.js";
 import type { ScriptModules } from "../modules/scripts.js";
 import type { Construction } from "./construction.js";
@@ -9,7 +9,6 @@ import type { Operations } from "./operations.js";
 
 interface ReloadContext {
   readonly modules: ScriptModules;
-  readonly nodes: ManagedNodes;
   readonly construction: Construction;
   readonly operations: Operations;
 }
@@ -22,7 +21,7 @@ interface Replacement {
 export async function reloadRecords(
   url: string,
   records: readonly NodeRecord[],
-  { modules, nodes, construction, operations }: ReloadContext
+  { modules, construction, operations }: ReloadContext
 ): Promise<void> {
   const script = await modules.prepareScript(url, { reload: true });
   const replacements: Replacement[] = [];
@@ -36,7 +35,6 @@ export async function reloadRecords(
         requestedURL: url
       });
       replacements.push({ prepared, record });
-      assertPhysicsReloadAllowed(nodes, record, prepared);
     }
   } catch (error) {
     discardRevisionsAndRethrow(url, replacements, error);
@@ -67,7 +65,7 @@ export async function reloadRecords(
     }
 
     try {
-      replaceRevision(record, prepared, nodes);
+      replaceRevision(record, prepared);
     } catch (error) {
       disposalErrors.push(error);
     }
@@ -104,8 +102,7 @@ function discardRevisionsAndRethrow(
   throw error;
 }
 
-function replaceRevision(record: NodeRecord, prepared: Revision, nodes: ManagedNodes): void {
-  const committed = record.revision.execution.committed;
+function replaceRevision(record: NodeRecord, prepared: Revision): void {
   const oldChildren = new THREE.Group();
   while (record.node.children.length > 0) {
     const child = record.node.children[0];
@@ -144,26 +141,8 @@ function replaceRevision(record: NodeRecord, prepared: Revision, nodes: ManagedN
     record.node.add(child);
   }
   prepared.execution.bindScene(record.node);
-  if (committed) nodes.commit(record.node);
 
   if (disposalErrors.length > 0) {
     throw new AggregateError(disposalErrors, "GLTS revision disposal failed");
   }
 }
-
-function assertPhysicsReloadAllowed(nodes: ManagedNodes, record: NodeRecord, prepared: Revision): void {
-  if (!prepared.execution.physics) {
-    return;
-  }
-  let ancestor: THREE.Object3D | null = record.node;
-  while (ancestor) {
-    if (nodes.find(ancestor)?.type === "instances") {
-      throw new GLTSError("Physics assets cannot be reloaded inside GLTS instances", {
-        phase: "reload",
-        url: record.url
-      });
-    }
-    ancestor = ancestor.parent;
-  }
-}
-

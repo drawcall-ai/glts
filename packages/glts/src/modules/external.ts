@@ -1,4 +1,3 @@
-import type { ScriptContext } from "../scene/execution.js";
 import type { FetchedSource } from "./fetch.js";
 import { GLTSError, toGLTSError } from "../errors.js";
 import { canonicalize, fetchSource } from "./fetch.js";
@@ -8,16 +7,6 @@ import { resolveModuleURL, type ImportSource } from "./resolution.js";
 import type { ModuleBridge } from "./bridge.js";
 import type { GLTSFetch } from "../types.js";
 
-export interface ExternalModule {
-  readonly url: string;
-  readonly physics: boolean;
-}
-
-interface SharedModules {
-  readonly sources: Map<string, Promise<FetchedSource>>;
-  readonly plain: Map<string, ExternalModule>;
-}
-
 interface ExternalModulesOptions {
   readonly cdnURL: URL;
   readonly fetch: GLTSFetch;
@@ -26,58 +15,39 @@ interface ExternalModulesOptions {
   readonly threeRevision: string;
 }
 
+/** Host modules and CDN modules shared by every script of one loader, keyed by URL. */
 export class ExternalModules {
   readonly #options: ExternalModulesOptions;
-  readonly #shared: SharedModules;
-  readonly #context: ScriptContext | undefined;
-  readonly #modules = new Map<string, ExternalModule>();
+  readonly #sources = new Map<string, Promise<FetchedSource>>();
+  readonly #modules = new Map<string, string>();
 
-  constructor(
-    options: ExternalModulesOptions,
-    context?: ScriptContext,
-    shared: SharedModules = { sources: new Map(), plain: new Map() },
-  ) {
+  constructor(options: ExternalModulesOptions) {
     this.#options = options;
-    this.#context = context;
-    this.#shared = shared;
   }
 
-  forContext(context: ScriptContext): ExternalModules {
-    return new ExternalModules(this.#options, context, this.#shared);
-  }
-
+  /** Resolves an import to the URL of a module scripts can import. */
   async prepareImport(
     specifier: string,
     importerURL: string,
     importChain: readonly string[],
     source: ImportSource = "module",
-  ): Promise<ExternalModule> {
-    if (specifier === "three") {
-      return { url: this.#options.bridge.threeModuleURL, physics: false };
-    }
-    if (specifier === "@drawcall/physics") {
-      if (!this.#context) throw new Error("Physics modules require an execution context");
-      return {
-        url: await this.#options.bridge.getPhysicsModuleURL(this.#context),
-        physics: true,
-      };
-    }
+  ): Promise<string> {
+    const { bridge } = this.#options;
+    const host = bridge.getHostModuleURL(specifier);
+    if (host) return host;
 
-    const { url, transform } = resolveModuleURL(
-      specifier, importerURL, importChain, this.#options, source,
-    );
-    return transform ? this.#prepare(url, importChain) : { url: url.href, physics: false };
+    const { url, transform } = resolveModuleURL(specifier, importerURL, importChain, {
+      cdnURL: this.#options.cdnURL,
+      threeRevision: this.#options.threeRevision,
+      hostSpecifiers: bridge.hostSpecifiers,
+    }, source);
+    return transform ? this.#prepare(url, importChain) : url.href;
   }
 
-  async #prepare(
-    url: URL,
-    importChain: readonly string[],
-  ): Promise<ExternalModule> {
+  async #prepare(url: URL, importChain: readonly string[]): Promise<string> {
     const key = canonicalize(url);
-    const cached = this.#modules.get(key) ?? this.#shared.plain.get(key);
-    if (cached) {
-      return cached;
-    }
+    const cached = this.#modules.get(key);
+    if (cached) return cached;
 
     if (importChain.includes(key)) {
       throw new GLTSError("Cyclic CDN modules are not supported", {
@@ -90,33 +60,26 @@ export class ExternalModules {
     return this.#load(key, [...importChain, key]);
   }
 
-  async #load(
-    requestedURL: string,
-    importChain: readonly string[],
-  ): Promise<ExternalModule> {
-    let source = this.#shared.sources.get(requestedURL);
+  async #load(requestedURL: string, importChain: readonly string[]): Promise<string> {
+    let source = this.#sources.get(requestedURL);
     if (!source) {
       source = fetchSource(this.#options.fetch, requestedURL, false, importChain);
-      this.#shared.sources.set(requestedURL, source);
-      void source.catch(() => this.#shared.sources.delete(requestedURL));
+      this.#sources.set(requestedURL, source);
+      void source.catch(() => this.#sources.delete(requestedURL));
     }
     const fetched = await source;
-    const cached = this.#modules.get(fetched.url) ?? this.#shared.plain.get(fetched.url);
-    if (cached) {
-      this.#modules.set(requestedURL, cached);
-      return cached;
+    const redirected = this.#modules.get(fetched.url);
+    if (redirected) {
+      this.#modules.set(requestedURL, redirected);
+      return redirected;
     }
 
     let transformed: string;
-    let physics = false;
     try {
       transformed = await rewriteModule({
         importChain,
-        resolveImport: async (specifier, importerURL, chain) => {
-          const dependency = await this.prepareImport(specifier, importerURL, chain);
-          physics ||= dependency.physics;
-          return dependency.url;
-        },
+        resolveImport: (specifier, importerURL, chain) =>
+          this.prepareImport(specifier, importerURL, chain),
         source: fetched.source,
         sourceURL: fetched.url,
       });
@@ -128,22 +91,12 @@ export class ExternalModules {
       });
     }
 
-    if (!physics) {
-      const cached =
-        this.#shared.plain.get(requestedURL) ??
-        this.#shared.plain.get(fetched.url);
-      if (cached) return cached;
-    }
+    // A concurrent import of the same module may have finished first.
+    const concurrent = this.#modules.get(requestedURL) ?? this.#modules.get(fetched.url);
+    if (concurrent) return concurrent;
     const moduleURL = this.#options.moduleURLs.create(transformed);
-    if (physics)
-      this.#context?.onDispose(() => this.#options.moduleURLs.release(moduleURL));
-    const module = { url: moduleURL, physics };
-    this.#modules.set(requestedURL, module);
-    this.#modules.set(fetched.url, module);
-    if (!physics) {
-      this.#shared.plain.set(requestedURL, module);
-      this.#shared.plain.set(fetched.url, module);
-    }
-    return module;
+    this.#modules.set(requestedURL, moduleURL);
+    this.#modules.set(fetched.url, moduleURL);
+    return moduleURL;
   }
 }
