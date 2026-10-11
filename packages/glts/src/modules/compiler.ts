@@ -1,15 +1,6 @@
 import { generate } from "@babel/generator";
 import { parse } from "@babel/parser";
-import {
-  arrowFunctionExpression,
-  awaitExpression,
-  blockStatement,
-  callExpression,
-  expressionStatement,
-  type ImportDeclaration,
-  type Program,
-  type Statement
-} from "@babel/types";
+import * as t from "@babel/types";
 import { transform } from "sucrase";
 
 import { GLTSError, toGLTSError } from "../errors.js";
@@ -30,36 +21,32 @@ interface CompilationContext {
   readonly url: string;
 }
 
-interface ImportedIdentifier {
-  readonly name: string;
-  readonly type: "Identifier";
-}
-
-interface ImportedString {
-  readonly type: "StringLiteral";
-  readonly value: string;
-}
-
-function importedName(
-  imported: ImportedIdentifier | ImportedString
-): string {
-  if (imported.type === "Identifier") {
-    return imported.name;
+export function compileScript(source: string, context: CompilationContext): string {
+  try {
+    const { program } = parse(source, {
+      plugins: ["typescript"],
+      sourceFilename: context.url,
+      sourceType: "module"
+    });
+    validateScript(program, context);
+    isolateScriptBody(program);
+    return transform(generate(program, { retainLines: true }, source).code, {
+      disableESTransforms: true,
+      keepUnusedImports: true,
+      transforms: ["typescript"]
+    }).code;
+  } catch (error) {
+    throw toGLTSError(error, "Unable to compile GLTS script", {
+      ...context,
+      phase: "transform"
+    });
   }
-
-  return imported.value;
 }
 
-export function validateScript(source: string, context: CompilationContext): ReturnType<typeof parse> {
-  const module = parse(source, {
-    plugins: ["typescript"],
-    sourceFilename: context.url,
-    sourceType: "module"
-  });
-
-  for (const statement of module.program.body) {
+function validateScript(program: t.Program, context: CompilationContext): void {
+  for (const statement of program.body) {
     if (
-      statement.type.startsWith("Export") ||
+      t.isExportDeclaration(statement) ||
       statement.type === "TSExportAssignment" ||
       statement.type === "TSNamespaceExportDeclaration"
     ) {
@@ -69,9 +56,7 @@ export function validateScript(source: string, context: CompilationContext): Ret
       });
     }
 
-    if (
-      statement.type !== "ImportDeclaration"
-    ) {
+    if (statement.type !== "ImportDeclaration") {
       continue;
     }
 
@@ -101,7 +86,9 @@ export function validateScript(source: string, context: CompilationContext): Ret
         continue;
       }
 
-      const name = importedName(specifier.imported);
+      const name = specifier.imported.type === "Identifier"
+        ? specifier.imported.name
+        : specifier.imported.value;
       if (name === "GLTSLoader") {
         throw new GLTSError(
           "GLTSLoader cannot be imported inside a GLTS script; import gltsLoader instead",
@@ -117,53 +104,17 @@ export function validateScript(source: string, context: CompilationContext): Ret
       }
     }
   }
-  return module;
-}
-
-export function compileScript(source: string, context: CompilationContext): string {
-  let module: ReturnType<typeof parse>;
-  try {
-    module = validateScript(source, context);
-  } catch (error) {
-    throw toGLTSError(error, "Invalid GLTS script", {
-      ...context,
-      phase: "transform"
-    });
-  }
-
-  try {
-    isolateScriptBody(module.program);
-    const generated = generate(module.program, { retainLines: true }, source).code;
-    return transform(generated, {
-      disableESTransforms: true,
-      keepUnusedImports: true,
-      transforms: ["typescript"]
-    }).code;
-  } catch (error) {
-    throw toGLTSError(error, "Unable to compile TypeScript script", {
-      ...context,
-      phase: "transform"
-    });
-  }
 }
 
 /**
  * Browsers retain evaluated modules for the page's lifetime. Keep imports at
  * module scope, but put script state in a function that disposal can release.
  */
-function isolateScriptBody(program: Program): void {
-  const imports: ImportDeclaration[] = [];
-  const statements: Statement[] = [];
-  for (const statement of program.body) {
-    if (statement.type === "ImportDeclaration") {
-      imports.push(statement);
-    } else {
-      statements.push(statement);
-    }
-  }
-
-  const body = blockStatement(statements, program.directives);
-  const run = arrowFunctionExpression([], body, true);
-  program.body = [...imports, expressionStatement(awaitExpression(callExpression(run, [])))];
+function isolateScriptBody(program: t.Program): void {
+  const imports = program.body.filter((statement) => statement.type === "ImportDeclaration");
+  const statements = program.body.filter((statement) => statement.type !== "ImportDeclaration");
+  const body = t.blockStatement(statements, program.directives);
+  const run = t.arrowFunctionExpression([], body, true);
+  program.body = [...imports, t.expressionStatement(t.awaitExpression(t.callExpression(run, [])))];
   program.directives = [];
 }

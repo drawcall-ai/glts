@@ -2,16 +2,16 @@ import { parse } from "@babel/parser";
 import { describe, expect, it } from "vitest";
 
 import { GLTSError } from "../../src/errors.js";
-import { compileScript, validateScript } from "../../src/modules/compiler.js";
+import { compileScript } from "../../src/modules/compiler.js";
 
 const context = {
   importChain: ["https://example.test/tree.glts"],
   url: "https://example.test/tree.glts"
 };
 
-describe("validateScript", () => {
+describe("script validation", () => {
   it("accepts exportless scripts with contextual imports", () => {
-    expect(() => validateScript(`
+    expect(() => compileScript(`
       import * as THREE from "three"
       import { scene, isPreview, onDispose } from "@drawcall/glts"
       if (isPreview) scene.add(new THREE.Group())
@@ -19,13 +19,20 @@ describe("validateScript", () => {
     `, context)).not.toThrow();
   });
 
-  it("rejects exports", () => {
-    expect(() => validateScript("export const value = 1", context))
+  it.each([
+    "export const value = 1",
+    "export default 1",
+    'export * from "three"',
+    "export type State = number",
+    "export = 1",
+    "export as namespace GLTS"
+  ])("rejects exports: %s", (source) => {
+    expect(() => compileScript(source, context))
       .toThrow("GLTS scripts must not export values");
   });
 
   it("rejects GLTSLoader in favor of the contextual instance", () => {
-    const validate = () => validateScript(
+    const validate = () => compileScript(
       'import { GLTSLoader } from "@drawcall/glts"',
       context
     );
@@ -34,7 +41,7 @@ describe("validateScript", () => {
   });
 
   it("rejects static GLTS imports", () => {
-    expect(() => validateScript('import Child from "./child.glts"', context))
+    expect(() => compileScript('import Child from "./child.glts"', context))
       .toThrow("use gltsLoader.loadAsync()");
   });
 });
