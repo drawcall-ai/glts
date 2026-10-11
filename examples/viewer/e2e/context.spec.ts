@@ -179,3 +179,35 @@ test("scopes nested URLs while reading current host request configuration", asyn
     contextualHost: false
   });
 });
+
+test("releases top-level script state after disposal", async ({ page }) => {
+  await routeGLTS(page, "**/assets/retained.glts", `
+    import { onFrame, scene } from "@drawcall/glts"
+
+    const state = { elapsed: 0 }
+    globalThis.__retainedState = new WeakRef(state)
+    function advance(delta) {
+      state.elapsed += delta
+    }
+    onFrame(advance)
+    scene.name = "retained"
+  `);
+
+  await page.goto("/test-harness.html");
+  await page.evaluate(async () => {
+    const loader = new window.GLTSLoader(new window.LoadingManager());
+    const node = await loader.loadAsync(new URL("/assets/retained.glts", location.href));
+    node.update(0.25);
+    node.dispose();
+    loader.dispose();
+  });
+
+  // Evaluated modules live as long as the page, so their top-level bindings
+  // must not hold script state.
+  const session = await page.context().newCDPSession(page);
+  await session.send("HeapProfiler.collectGarbage");
+  const retained = await page.evaluate(() =>
+    (Reflect.get(globalThis, "__retainedState") as WeakRef<object>).deref() !== undefined
+  );
+  expect(retained).toBe(false);
+});

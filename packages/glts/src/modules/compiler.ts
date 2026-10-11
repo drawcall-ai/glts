@@ -1,7 +1,12 @@
 import { parse } from "@babel/parser";
+import { parse as parseImports } from "es-module-lexer/js";
+import MagicString from "magic-string";
 import { transform } from "sucrase";
 
 import { GLTSError, toGLTSError } from "../errors.js";
+
+const staticImport = 1;
+const shebang = /^#![^\r\n\u2028\u2029]*(?:\r\n|[\r\n\u2028\u2029])/;
 
 const contextImports = new Set([
   "gltsLoader",
@@ -119,15 +124,48 @@ export function compileScript(source: string, context: CompilationContext): stri
   }
 
   try {
-    return transform(source, {
+    return isolateScriptBody(transform(source, {
       disableESTransforms: true,
       keepUnusedImports: true,
       transforms: ["typescript"]
-    }).code;
+    }).code);
   } catch (error) {
     throw toGLTSError(error, "Unable to compile TypeScript script", {
       ...context,
       phase: "transform"
     });
   }
+}
+
+function isBlank(source: string): boolean {
+  return source.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "").replace(/[\s;]/g, "") === "";
+}
+
+/**
+ * Runs the script body inside an async function. Browsers keep evaluated
+ * modules for the lifetime of the page, so state held by a script module's
+ * top-level bindings could never be collected after the script is disposed.
+ * Leading imports stay in place, so line numbers are unchanged; imports after
+ * body code are hoisted above it.
+ */
+export function isolateScriptBody(source: string): string {
+  const [imports] = parseImports(source);
+  const staticImports = imports.filter((entry) => entry.t === staticImport);
+  const code = new MagicString(source);
+
+  let bodyStart = source.match(shebang)?.[0].length ?? 0;
+  for (const entry of staticImports) {
+    if (!isBlank(source.slice(bodyStart, entry.ss))) break;
+    bodyStart = entry.se;
+  }
+
+  for (const entry of staticImports) {
+    if (entry.ss < bodyStart) continue;
+    code.appendRight(bodyStart, `;${source.slice(entry.ss, entry.se)}`);
+    code.remove(entry.ss, entry.se);
+  }
+
+  code.appendRight(bodyStart, ";await (async () => {");
+  code.append("\n})();");
+  return code.toString();
 }
