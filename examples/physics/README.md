@@ -12,20 +12,17 @@ save its pose with physics. The asset is
 GLTS knows nothing about physics. The app connects the two:
 
 ```ts
-import * as physics from "@drawcall/physics"
 import { buildWorld } from "@drawcall/physics-rapier"
 
-const loader = new GLTSLoader(manager, {
-  modules: { "@drawcall/physics": physics },
-})
-const asset = await loader.loadAsync("/ragdoll.glts")
+const asset = await new GLTSLoader(manager).loadAsync("/ragdoll.glts")
 scene.add(asset)
 const world = await buildWorld({ scene })
 ```
 
-- `modules` gives scripts the app's own `@drawcall/physics`, so the world
-  simulates the bodies they create. Without it, scripts would get a separate
-  copy from ESM.sh whose bodies the world ignores.
+- The `glts()` Vite plugin gives scripts the app's own `@drawcall/physics`,
+  because the app installs it, so the world simulates the bodies they create.
+  Without a shared copy, scripts would get a separate one whose bodies the
+  world ignores.
 - The world simulates whatever is under its `scene`. A reload swaps the asset's
   children, so the old bodies leave and the new ones join at the next update.
 - Scripts only author objects. They never build or step a world, and they set

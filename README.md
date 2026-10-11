@@ -378,6 +378,28 @@ const loader = new GLTSLoader(manager, {
 The page must allow CORS access to sources and dependencies and permit `blob:`
 ES modules in its CSP.
 
+## Vite
+
+The `glts()` Vite plugin bundles the packages your `.glts` files import and
+hot reloads edited scripts without a page reload. `vite` is an optional peer
+dependency:
+
+```ts
+// vite.config.ts
+import { glts } from "@drawcall/glts/vite"
+export default defineConfig({ plugins: [glts()] })
+```
+
+Every `GLTSLoader` the app creates receives, as `modules`, the packages
+imported by the `.glts` files under the Vite root and public directory
+(`modules` passed by the app take precedence). `three` and the packages in
+the `dependencies` and `devDependencies` of the app's nearest `package.json`
+are the app's own instances. Vite fetches the other packages, and explicitly
+versioned imports such as `pkg@2`, from `cdnURL` (default `https://esm.sh/`)
+during development and builds, and bundles them with the app. Full `https://`
+imports and scripts outside those directories are still fetched at runtime.
+Changing a script's imports triggers a full page reload.
+
 ## Workspace
 
 ```sh
@@ -408,5 +430,5 @@ links it automatically from `node_modules`, at the version you have installed.
 ## Physics example
 
 GLTS has no physics integration of its own. [`examples/physics`](examples/physics)
-shares `@drawcall/physics` with scripts through `modules` and simulates a
-ragdoll.
+simulates a ragdoll whose script imports the app's `@drawcall/physics` through
+the Vite plugin.

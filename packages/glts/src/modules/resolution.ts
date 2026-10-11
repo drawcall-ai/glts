@@ -9,21 +9,26 @@ export interface ResolutionOptions {
 
 export type ImportSource = "script" | "module";
 
-function isBareSpecifier(specifier: string): boolean {
+export function isBareSpecifier(specifier: string): boolean {
   return !specifier.startsWith(".") && !specifier.startsWith("/") &&
     !/^[A-Za-z][A-Za-z\d+.-]*:/.test(specifier);
 }
 
-function packageURL(specifier: string, options: ResolutionOptions): URL {
-  const path = specifier.startsWith("three/addons/")
-    ? `three@0.${options.threeRevision}.0/examples/jsm/${specifier.slice("three/addons/".length)}`
-    : specifier.startsWith("three/examples/")
-      ? `three@0.${options.threeRevision}.0/${specifier.slice("three/".length)}`
-      : specifier;
-  const url = new URL(path, options.cdnURL);
+/** The CDN bundle of a package, importing the `external` packages instead of inlining them. */
+export function packageURL(path: string, cdnURL: URL, external: readonly string[]): URL {
+  const url = new URL(path, cdnURL);
   const separator = url.search ? "&" : "?";
-  const external = options.hostSpecifiers.join(",");
-  return new URL(`${url.href}${separator}bundle&external=${external}&target=es2022`);
+  return new URL(`${url.href}${separator}bundle&external=${external.join(",")}&target=es2022`);
+}
+
+function packagePath(specifier: string, threeRevision: string): string {
+  if (specifier.startsWith("three/addons/")) {
+    return `three@0.${threeRevision}.0/examples/jsm/${specifier.slice("three/addons/".length)}`;
+  }
+  if (specifier.startsWith("three/examples/")) {
+    return `three@0.${threeRevision}.0/${specifier.slice("three/".length)}`;
+  }
+  return specifier;
 }
 
 function shouldTransform(url: URL): boolean {
@@ -45,7 +50,8 @@ export function resolveModuleURL(
     throw new GLTSError(`Unsupported ${prefix}package import: ${specifier}`, context);
   }
   if (isBareSpecifier(specifier)) {
-    return { url: packageURL(specifier, options), transform: true };
+    const path = packagePath(specifier, options.threeRevision);
+    return { url: packageURL(path, options.cdnURL, options.hostSpecifiers), transform: true };
   }
 
   const url = new URL(specifier, importerURL);
