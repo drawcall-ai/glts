@@ -39,11 +39,6 @@ describe("script validation", () => {
     expect(validate).toThrow(GLTSError);
     expect(validate).toThrow("import gltsLoader instead");
   });
-
-  it("rejects static GLTS imports", () => {
-    expect(() => compileScript('import Child from "./child.glts"', context))
-      .toThrow("use gltsLoader.loadAsync()");
-  });
 });
 
 describe("compileScript", () => {

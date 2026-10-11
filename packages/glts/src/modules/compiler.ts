@@ -60,13 +60,6 @@ function validateScript(program: t.Program, context: CompilationContext): void {
       continue;
     }
 
-    if (statement.source.value.endsWith(".glts")) {
-      throw new GLTSError(
-        `Static GLTS imports are not supported: ${statement.source.value}; use gltsLoader.loadAsync()`,
-        { ...context, phase: "transform" }
-      );
-    }
-
     if (
       statement.source.value !== "@drawcall/glts" ||
       statement.importKind === "type"
