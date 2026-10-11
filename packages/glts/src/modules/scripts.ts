@@ -88,7 +88,8 @@ export class ScriptModules {
 
     const moduleURL = this.options.moduleURLs.create(transformed);
     try {
-      await import(/* @vite-ignore */ moduleURL);
+      // Blob URLs are resolved by the browser at runtime, never by a bundler.
+      await import(/* @vite-ignore */ /* webpackIgnore: true */ moduleURL);
     } catch (error) {
       throw toGLTSError(error, "Unable to execute GLTS script", {
         importChain: [script.url],
