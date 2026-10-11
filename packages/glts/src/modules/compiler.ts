@@ -1,5 +1,15 @@
+import { generate } from "@babel/generator";
 import { parse } from "@babel/parser";
-import MagicString from "magic-string";
+import {
+  arrowFunctionExpression,
+  awaitExpression,
+  blockStatement,
+  callExpression,
+  expressionStatement,
+  type ImportDeclaration,
+  type Program,
+  type Statement
+} from "@babel/types";
 import { transform } from "sucrase";
 
 import { GLTSError, toGLTSError } from "../errors.js";
@@ -122,7 +132,9 @@ export function compileScript(source: string, context: CompilationContext): stri
   }
 
   try {
-    return transform(isolateScriptBody(source, module.program), {
+    isolateScriptBody(module.program);
+    const generated = generate(module.program, { retainLines: true }, source).code;
+    return transform(generated, {
       disableESTransforms: true,
       keepUnusedImports: true,
       transforms: ["typescript"]
@@ -136,28 +148,22 @@ export function compileScript(source: string, context: CompilationContext): stri
 }
 
 /**
- * Runs the script body inside an async function. Browsers keep evaluated
- * modules for the lifetime of the page, so state held by a script module's
- * top-level bindings could never be collected after the script is disposed.
- * Leading imports stay in place, so line numbers are unchanged; imports after
- * body code are hoisted above it.
+ * Browsers retain evaluated modules for the page's lifetime. Keep imports at
+ * module scope, but put script state in a function that disposal can release.
  */
-function isolateScriptBody(source: string, program: ReturnType<typeof parse>["program"]): string {
-  const firstBody = program.directives[0] ?? program.body.find((statement) =>
-    statement.type !== "ImportDeclaration" && statement.type !== "EmptyStatement"
-  );
-  if (!firstBody) return source;
-
-  const bodyStart = firstBody.start!;
-  const code = new MagicString(source);
+function isolateScriptBody(program: Program): void {
+  const imports: ImportDeclaration[] = [];
+  const statements: Statement[] = [];
   for (const statement of program.body) {
-    if (statement.type !== "ImportDeclaration" || statement.start! < bodyStart) continue;
-    code.appendRight(bodyStart, `;${source.slice(statement.start!, statement.end!)}`);
-    // Keep a separator so removing an import cannot join adjacent expressions.
-    code.overwrite(statement.start!, statement.end!, ";");
+    if (statement.type === "ImportDeclaration") {
+      imports.push(statement);
+    } else {
+      statements.push(statement);
+    }
   }
 
-  code.appendRight(bodyStart, ";await (async () => {");
-  code.append("\n})();");
-  return code.toString();
+  const body = blockStatement(statements, program.directives);
+  const run = arrowFunctionExpression([], body, true);
+  program.body = [...imports, expressionStatement(awaitExpression(callExpression(run, [])))];
+  program.directives = [];
 }

@@ -57,7 +57,6 @@ describe("compileScript", () => {
     const isolated = compileScript(source, context);
 
     expect(isolated).toContain("await (async () => {");
-    expect(isolated.endsWith("\n})();")).toBe(true);
     expect(lineOf(isolated, "const state")).toBe(lineOf(source, "const state"));
     expect(lineOf(isolated, "onFrame(()")).toBe(lineOf(source, "onFrame(()"));
     expect(() => parseModule(isolated)).not.toThrow();
@@ -95,6 +94,28 @@ describe("compileScript", () => {
     expect(parse(compiled, { sourceType: "module" }).program.body.map((node) => node.type))
       .not.toContain("VariableDeclaration");
     await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(compiled)}`);
+  });
+
+  it("preserves directives, comments, and module semantics", async () => {
+    const compiled = compileScript([
+      '"use strict";',
+      '// import "fake-module"; await (async () => {',
+      'const text = `import "also-fake"; ${"/* not a comment */"}`;',
+      'if (this !== undefined) throw new Error("Unexpected this");',
+      'if (read() !== 42) throw new Error("Function did not hoist");',
+      'function read() { return value; }',
+      'import { value } from "data:text/javascript,export const value = 42";',
+      'await Promise.resolve();',
+      'if (!text.includes("/* not a comment */")) throw new Error("Changed literal");'
+    ].join("\n"), context);
+    const module = parse(compiled, { sourceType: "module" }).program;
+    expect(module.directives).toHaveLength(0);
+    expect(compiled).toContain('"use strict";');
+    await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(compiled)}`);
+  });
+
+  it("rejects top-level return before wrapping the body", () => {
+    expect(() => compileScript("return 42", context)).toThrow(GLTSError);
   });
 
   it("keeps a separator when hoisting a late import", async () => {
