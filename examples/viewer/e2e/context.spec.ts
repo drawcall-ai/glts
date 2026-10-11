@@ -198,16 +198,33 @@ test("releases top-level script state after disposal", async ({ page }) => {
     const loader = new window.GLTSLoader(new window.LoadingManager());
     const node = await loader.loadAsync(new URL("/assets/retained.glts", location.href));
     node.update(0.25);
-    node.dispose();
-    loader.dispose();
+    Reflect.set(globalThis, "__disposeRetainedState", () => {
+      node.dispose();
+      loader.dispose();
+    });
   });
 
   // Evaluated modules live as long as the page, so their top-level bindings
   // must not hold script state.
   const session = await page.context().newCDPSession(page);
-  await session.send("HeapProfiler.collectGarbage");
-  const retained = await page.evaluate(() =>
-    (Reflect.get(globalThis, "__retainedState") as WeakRef<object>).deref() !== undefined
-  );
-  expect(retained).toBe(false);
+  try {
+    await session.send("HeapProfiler.collectGarbage");
+    const elapsed = await page.evaluate(() =>
+      (Reflect.get(globalThis, "__retainedState") as WeakRef<{ elapsed: number }>).deref()?.elapsed
+    );
+    expect(elapsed).toBe(0.25);
+
+    await page.evaluate(() => Reflect.get(globalThis, "__disposeRetainedState")());
+    await session.send("HeapProfiler.collectGarbage");
+    const retained = await page.evaluate(() =>
+      (Reflect.get(globalThis, "__retainedState") as WeakRef<object>).deref() !== undefined
+    );
+    expect(retained).toBe(false);
+  } finally {
+    await page.evaluate(() => {
+      Reflect.deleteProperty(globalThis, "__disposeRetainedState");
+      Reflect.deleteProperty(globalThis, "__retainedState");
+    });
+    await session.detach();
+  }
 });
