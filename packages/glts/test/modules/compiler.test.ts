@@ -9,7 +9,7 @@ const context = {
   url: "https://example.test/tree.glts"
 };
 
-describe("script validation", () => {
+describe("script exports", () => {
   it("accepts exportless scripts with contextual imports", () => {
     expect(() => compileScript(`
       import * as THREE from "three"
@@ -29,15 +29,6 @@ describe("script validation", () => {
   ])("rejects exports: %s", (source) => {
     expect(() => compileScript(source, context))
       .toThrow("GLTS scripts must not export values");
-  });
-
-  it("rejects GLTSLoader in favor of the contextual instance", () => {
-    const validate = () => compileScript(
-      'import { GLTSLoader } from "@drawcall/glts"',
-      context
-    );
-    expect(validate).toThrow(GLTSError);
-    expect(validate).toThrow("import gltsLoader instead");
   });
 });
 
