@@ -1,12 +1,8 @@
 import { parse } from "@babel/parser";
-import { parse as parseImports } from "es-module-lexer/js";
 import MagicString from "magic-string";
 import { transform } from "sucrase";
 
 import { GLTSError, toGLTSError } from "../errors.js";
-
-const staticImport = 1;
-const shebang = /^#![^\r\n\u2028\u2029]*(?:\r\n|[\r\n\u2028\u2029])/;
 
 const contextImports = new Set([
   "gltsLoader",
@@ -44,7 +40,7 @@ function importedName(
   return imported.value;
 }
 
-export function validateScript(source: string, context: CompilationContext): void {
+export function validateScript(source: string, context: CompilationContext): ReturnType<typeof parse> {
   const module = parse(source, {
     plugins: ["typescript"],
     sourceFilename: context.url,
@@ -111,11 +107,13 @@ export function validateScript(source: string, context: CompilationContext): voi
       }
     }
   }
+  return module;
 }
 
 export function compileScript(source: string, context: CompilationContext): string {
+  let module: ReturnType<typeof parse>;
   try {
-    validateScript(source, context);
+    module = validateScript(source, context);
   } catch (error) {
     throw toGLTSError(error, "Invalid GLTS script", {
       ...context,
@@ -124,21 +122,17 @@ export function compileScript(source: string, context: CompilationContext): stri
   }
 
   try {
-    return isolateScriptBody(transform(source, {
+    return transform(isolateScriptBody(source, module.program), {
       disableESTransforms: true,
       keepUnusedImports: true,
       transforms: ["typescript"]
-    }).code);
+    }).code;
   } catch (error) {
     throw toGLTSError(error, "Unable to compile TypeScript script", {
       ...context,
       phase: "transform"
     });
   }
-}
-
-function isBlank(source: string): boolean {
-  return source.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "").replace(/[\s;]/g, "") === "";
 }
 
 /**
@@ -148,21 +142,19 @@ function isBlank(source: string): boolean {
  * Leading imports stay in place, so line numbers are unchanged; imports after
  * body code are hoisted above it.
  */
-export function isolateScriptBody(source: string): string {
-  const [imports] = parseImports(source);
-  const staticImports = imports.filter((entry) => entry.t === staticImport);
+function isolateScriptBody(source: string, program: ReturnType<typeof parse>["program"]): string {
+  const firstBody = program.directives[0] ?? program.body.find((statement) =>
+    statement.type !== "ImportDeclaration" && statement.type !== "EmptyStatement"
+  );
+  if (!firstBody) return source;
+
+  const bodyStart = firstBody.start!;
   const code = new MagicString(source);
-
-  let bodyStart = source.match(shebang)?.[0].length ?? 0;
-  for (const entry of staticImports) {
-    if (!isBlank(source.slice(bodyStart, entry.ss))) break;
-    bodyStart = entry.se;
-  }
-
-  for (const entry of staticImports) {
-    if (entry.ss < bodyStart) continue;
-    code.appendRight(bodyStart, `;${source.slice(entry.ss, entry.se)}`);
-    code.remove(entry.ss, entry.se);
+  for (const statement of program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.start! < bodyStart) continue;
+    code.appendRight(bodyStart, `;${source.slice(statement.start!, statement.end!)}`);
+    // Keep a separator so removing an import cannot join adjacent expressions.
+    code.overwrite(statement.start!, statement.end!, ";");
   }
 
   code.appendRight(bodyStart, ";await (async () => {");
