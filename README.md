@@ -402,6 +402,14 @@ imports and scripts outside the public directory are still fetched at runtime.
 Changing a script's imports triggers a full page reload. The plugin needs
 Node.js 22.17 or later.
 
+The plugin also type checks the public `.glts` files, strictly and
+independently of the app's `tsconfig.json`, with the app's `typescript`, an
+optional peer dependency it needs installed. Type errors fail `vite build`;
+during development they appear in the terminal and error overlay without
+stopping hot reload. Packages fetched from the CDN and `https://` imports are
+typed as `any`; type-only imports are not fetched, so they need the package
+installed.
+
 ## Workspace
 
 ```sh

@@ -7,7 +7,7 @@ import { build } from "vite";
 import { afterAll, beforeAll, expect, it } from "vitest";
 
 import { glts } from "../../src/vite/index.js";
-import { get, writeFiles } from "./fixture.js";
+import { get, linkThree, writeFiles } from "./fixture.js";
 
 const cdnFiles: Readonly<Record<string, string>> = {
   "/y": `export * from "/y@1.0.0/es2022/y.mjs";`,
@@ -43,6 +43,7 @@ beforeAll(async () => {
     "package.json": JSON.stringify({ type: "module", dependencies: { x: "1.0.0" } }),
     "node_modules/x/package.json": JSON.stringify({ name: "x", type: "module", main: "index.js" }),
     "node_modules/x/index.js": `export const marker = {};`,
+    "node_modules/x/index.d.ts": `export declare const marker: object;`,
     "web/public/scene.glts": [
       `import { marker } from "x";`,
       `import { y } from "y";`,
@@ -53,6 +54,7 @@ beforeAll(async () => {
     ].join("\n"),
     "web/main.js": `export { default } from "virtual:glts-modules";`,
   });
+  await linkThree(temp);
   await build({
     configFile: false,
     logLevel: "silent",

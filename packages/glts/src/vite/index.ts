@@ -1,8 +1,9 @@
 import { relative, resolve } from "node:path";
-import { normalizePath, type Plugin } from "vite";
+import { normalizePath, type DevEnvironment, type ErrorPayload, type Plugin } from "vite";
 
 import { isBareSpecifier, packageURL } from "../modules/resolution.js";
 import type { GLTSURL } from "../types.js";
+import { checker } from "./check.js";
 import { appDependencies, packageName, scan, type Scan, type ScanOptions } from "./scan.js";
 
 /** Replaces app imports of @drawcall/glts. */
@@ -16,6 +17,20 @@ function loaderSource(cdnURL: string): string {
 import { GLTSLoader as Loader } from "@drawcall/glts";
 import modules from "virtual:glts-modules";
 export * from "@drawcall/glts";
+
+// Fixed scripts close the overlay only while it shows their type errors.
+let typeErrorShown = false;
+import.meta.hot?.on("vite:error", ({ err }) => { typeErrorShown = err.plugin === "glts"; });
+// Vite reloads the page on an app update while an overlay is open; type errors must not cost HMR.
+import.meta.hot?.on("vite:beforeUpdate", () => {
+  if (typeErrorShown) document.querySelector("vite-error-overlay")?.close();
+});
+import.meta.hot?.on("glts:fixed", () => {
+  if (typeErrorShown) document.querySelector("vite-error-overlay")?.close();
+  typeErrorShown = false;
+});
+// Vite resends an error only to the first page that connects.
+import.meta.hot?.send("glts:ready");
 
 export class GLTSLoader extends Loader {
   #update = ({ url }) => void this.reload(new URL(url, location.href));
@@ -69,6 +84,10 @@ export function glts({ cdnURL = "https://esm.sh/" }: GLTSPluginOptions = {}): Pl
   const cdnBase = new URL(cdnURL);
   const cdnModules = new Map<string, Promise<CDNModule>>();
   let project: Project | undefined;
+  const check = checker();
+  let checks = 0;
+  /** The type errors the overlay shows. */
+  let shown: string | undefined;
 
   const current = (): Project => {
     if (!project) throw new Error("The glts plugin has not been configured");
@@ -78,6 +97,25 @@ export function glts({ cdnURL = "https://esm.sh/" }: GLTSPluginOptions = {}): Pl
   const isShared = (specifier: string): boolean => {
     const name = packageName(specifier);
     return !specifier.startsWith(`${name}@`) && current().dependencies.includes(name);
+  };
+  const typeErrors = async (root: string): Promise<string | undefined> => {
+    const { scripts, importers } = await current().scan;
+    return check({ root, scripts, untyped: [...importers.keys()].filter((specifier) => !isShared(specifier)) });
+  };
+  const overlay = (message: string): ErrorPayload => ({ type: "error", err: { message, stack: "", plugin: "glts" } });
+  // Reports in the terminal and overlay, never blocking the server or hot reload.
+  const report = async (environment: DevEnvironment): Promise<void> => {
+    const id = ++checks;
+    const errors = await typeErrors(environment.config.root).catch((error: unknown) => String(error));
+    if (id !== checks) return;
+    if (errors) {
+      environment.logger.error(errors, { timestamp: true });
+      environment.hot.send(overlay(errors));
+    } else if (shown) {
+      environment.logger.info("glts: no type errors", { timestamp: true });
+      environment.hot.send("glts:fixed");
+    }
+    shown = errors;
   };
   const cdnModule = (url: string): Promise<CDNModule> => {
     const cached = cdnModules.get(url);
@@ -103,6 +141,18 @@ export function glts({ cdnURL = "https://esm.sh/" }: GLTSPluginOptions = {}): Pl
       const specifiers = await project.scan.then(({ importers }) => [...importers.keys()], () => []);
       // Vite's dependency scan cannot see through the virtual modules.
       return { optimizeDeps: { include: ["@drawcall/glts", ...specifiers.filter(isShared)] } };
+    },
+    async buildStart() {
+      if (this.environment.config.command !== "build") return;
+      const errors = await typeErrors(this.environment.config.root);
+      // The diagnostics locate the errors; a plugin stack trace would only bury them.
+      if (errors) this.error({ message: errors, stack: "" });
+    },
+    configureServer({ environments: { client } }) {
+      client.hot.on("glts:ready", (_data, page) => {
+        if (shown) page.send(overlay(shown));
+      });
+      void report(client);
     },
     async resolveId(id, importer) {
       if (id === "@drawcall/glts") return importer === loaderId ? undefined : loaderId;
@@ -148,6 +198,7 @@ export function glts({ cdnURL = "https://esm.sh/" }: GLTSPluginOptions = {}): Pl
       state.scan = scan(state);
       // A broken script keeps the page; the loader reports its syntax error.
       const after = await specifiers(state.scan);
+      void report(this.environment);
       if (after !== undefined && after !== before) {
         const module = this.environment.moduleGraph.getModuleById(modulesId);
         if (module) this.environment.moduleGraph.invalidateModule(module);

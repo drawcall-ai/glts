@@ -46,6 +46,8 @@ export function appDependencies(root: string): string[] {
 }
 
 export interface Scan {
+  /** The `.glts` files in the public directory. */
+  readonly scripts: readonly string[];
   /** The files importing each script specifier. */
   readonly importers: ReadonlyMap<string, readonly string[]>;
   /** Packages CDN bundles import instead of inlining: the app's and the scripts' packages. */
@@ -63,7 +65,8 @@ export interface ScanOptions {
 
 /** The script imports of the `.glts` files in the public directory, and how CDN bundles share them. */
 export async function scan({ publicDir, dependencies }: ScanOptions): Promise<Scan> {
-  const importers = publicDir ? await importersOf(publicDir) : new Map<string, string[]>();
+  const scripts = publicDir ? await scriptsIn(publicDir) : [];
+  const importers = await importersOf(scripts);
   const specifiers = [...importers.keys()];
   const versioned = specifiers.filter((specifier) => /^@?[^@]+@[^/]+$/.test(specifier));
   // CDN bundles share one instance per package, so a package can have only one version.
@@ -74,17 +77,23 @@ export async function scan({ publicDir, dependencies }: ScanOptions): Promise<Sc
     throw new Error(`Scripts import several versions of ${repeated}: ${imported.join(", ")}`);
   }
   return {
+    scripts,
     importers,
     external: [...new Set([...dependencies, ...specifiers.map(packageName)])].sort(),
     versions: new Map(versioned.map((specifier) => [packageName(specifier), specifier])),
   };
 }
 
-/** Maps each specifier the `.glts` files under `dir` import to the files importing it, sorted. */
-async function importersOf(dir: string): Promise<Map<string, string[]>> {
+async function scriptsIn(dir: string): Promise<string[]> {
+  const scripts: string[] = [];
+  for await (const path of glob("**/*.glts", { cwd: dir })) scripts.push(normalizePath(resolve(dir, path)));
+  return scripts.sort();
+}
+
+/** Maps each specifier the scripts import to the scripts importing it, sorted. */
+async function importersOf(scripts: readonly string[]): Promise<Map<string, string[]>> {
   const importers = new Map<string, string[]>();
-  for await (const path of glob("**/*.glts", { cwd: dir })) {
-    const file = normalizePath(resolve(dir, path));
+  for (const file of scripts) {
     for (const specifier of importedSpecifiers(await readFile(file, "utf8"), file)) {
       importers.set(specifier, [...importers.get(specifier) ?? [], file]);
     }
