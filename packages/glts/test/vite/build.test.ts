@@ -43,7 +43,7 @@ beforeAll(async () => {
     "package.json": JSON.stringify({ type: "module", dependencies: { x: "1.0.0" } }),
     "node_modules/x/package.json": JSON.stringify({ name: "x", type: "module", main: "index.js" }),
     "node_modules/x/index.js": `export const marker = {};`,
-    "web/scene.glts": [
+    "web/public/scene.glts": [
       `import { marker } from "x";`,
       `import { y } from "y";`,
       `import { token } from "z";`,

@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { normalizePath, type Plugin } from "vite";
 
 import { isBareSpecifier, packageURL } from "../modules/resolution.js";
@@ -97,10 +97,8 @@ export function glts({ cdnURL = "https://esm.sh/" }: GLTSPluginOptions = {}): Pl
       const root = normalizePath(resolve(config.root ?? ""));
       const publicDir = config.publicDir === false ? undefined
         : normalizePath(resolve(root, config.publicDir ?? "public"));
-      const outDir = normalizePath(resolve(root, config.build?.outDir ?? "dist"));
-      const dirs = publicDir && !publicDir.startsWith(`${root}/`) ? [root, publicDir] : [root];
-      const paths = { dirs, outDir, dependencies: appDependencies(root) };
-      project = { ...paths, scan: scan(paths) };
+      const options = { publicDir, dependencies: appDependencies(root) };
+      project = { ...options, scan: scan(options) };
       // A failed scan rejects again where the map loads.
       const specifiers = await project.scan.then(({ importers }) => [...importers.keys()], () => []);
       // Vite's dependency scan cannot see through the virtual modules.
@@ -139,7 +137,10 @@ export function glts({ cdnURL = "https://esm.sh/" }: GLTSPluginOptions = {}): Pl
       if (id.startsWith(cdnPrefix)) return (await cdnModule(id.slice(cdnPrefix.length))).code;
     },
     async hotUpdate({ type, file }) {
-      if (!file.endsWith(".glts")) return;
+      const { publicDir, base } = this.environment.config;
+      const path = publicDir && relative(publicDir, file);
+      // Apps load scripts by URL, so only public ones are scanned and reloaded.
+      if (!path || path.startsWith("..") || !file.endsWith(".glts")) return;
       const state = current();
       const specifiers = (scan: Promise<Scan>): Promise<string | undefined> =>
         scan.then(({ importers }) => [...importers.keys()].join(), () => undefined);
@@ -155,9 +156,7 @@ export function glts({ cdnURL = "https://esm.sh/" }: GLTSPluginOptions = {}): Pl
       }
       if (type !== "update") return;
 
-      const { root, publicDir, base } = this.environment.config;
-      const dir = [publicDir, root].find((path) => path && file.startsWith(`${path}/`));
-      if (dir) this.environment.hot.send("glts:update", { url: base + file.slice(dir.length + 1) });
+      this.environment.hot.send("glts:update", { url: base + normalizePath(path) });
     }
   };
 }

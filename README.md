@@ -391,14 +391,16 @@ export default defineConfig({ plugins: [glts()] })
 ```
 
 Every `GLTSLoader` the app creates receives, as `modules`, the packages
-imported by the `.glts` files under the Vite root and public directory
-(`modules` passed by the app take precedence). `three` and the packages in
+imported by the `.glts` files in Vite's public directory, which is where a
+built app serves the scripts it loads by URL (`modules` passed by the app take
+precedence). `three` and the packages in
 the `dependencies` and `devDependencies` of the app's nearest `package.json`
 are the app's own instances. Vite fetches the other packages, and explicitly
 versioned imports such as `pkg@2`, from `cdnURL` (default `https://esm.sh/`)
 during development and builds, and bundles them with the app. Full `https://`
-imports and scripts outside those directories are still fetched at runtime.
-Changing a script's imports triggers a full page reload.
+imports and scripts outside the public directory are still fetched at runtime.
+Changing a script's imports triggers a full page reload. The plugin needs
+Node.js 22.17 or later.
 
 ## Workspace
 

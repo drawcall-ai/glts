@@ -23,32 +23,29 @@ it("collects the runtime package imports scripts do not get from the loader", as
       const lazy = await import("dynamic");
     `,
   });
-  const { importers } = await scan({ dirs: [`${temp}/imports`], outDir: `${temp}/imports/dist`, dependencies: [] });
+  const { importers } = await scan({ publicDir: `${temp}/imports`, dependencies: [] });
   expect([...importers.keys()]).toEqual(["kept-for-side-effects", "simplex-noise@4"]);
 });
 
-it("scans nested scripts under the root and an outside public directory", async () => {
+it("scans nested scripts in the public directory, outside hidden directories", async () => {
   await writeFiles(temp, {
-    "web/a.glts": `import "a"`,
-    "web/nested/b.glts": `import "b"; import "a"`,
-    "web/node_modules/pkg/c.glts": `import "c"`,
-    "web/dist/d.glts": `import "d"`,
-    "public/e.glts": `import "e"`,
+    "public/a.glts": `import "a"`,
+    "public/nested/b.glts": `import "b"; import "a"`,
+    "public/.cache/d.glts": `import "d"`,
+    "src/e.glts": `import "e"`,
   });
-  const { importers } = await scan({
-    dirs: [`${temp}/web`, `${temp}/public`], outDir: `${temp}/web/dist`, dependencies: [],
-  });
-  expect([...importers.keys()]).toEqual(["a", "b", "e"]);
-  expect([...importers.get("a") ?? []].sort()).toEqual([`${temp}/web/a.glts`, `${temp}/web/nested/b.glts`]);
+  const { importers } = await scan({ publicDir: `${temp}/public`, dependencies: [] });
+  expect([...importers.keys()]).toEqual(["a", "b"]);
+  expect(importers.get("a")).toEqual([`${temp}/public/a.glts`, `${temp}/public/nested/b.glts`]);
 });
 
 it("rejects a script that does not parse, naming it", async () => {
   await writeFiles(temp, { "broken/scene.glts": "import {" });
-  await expect(scan({ dirs: [`${temp}/broken`], outDir: `${temp}/broken/dist`, dependencies: [] })).rejects.toThrow(`${temp}/broken/scene.glts`);
+  await expect(scan({ publicDir: `${temp}/broken`, dependencies: [] })).rejects.toThrow(`${temp}/broken/scene.glts`);
 });
 
 it("rejects scripts that import several versions of one package", async () => {
   await writeFiles(temp, { "versions/a.glts": `import "w@1"`, "versions/b.glts": `import "w@2"` });
-  await expect(scan({ dirs: [`${temp}/versions`], outDir: `${temp}/versions/dist`, dependencies: [] }))
+  await expect(scan({ publicDir: `${temp}/versions`, dependencies: [] }))
     .rejects.toThrow("Scripts import several versions of w: w@1, w@2");
 });

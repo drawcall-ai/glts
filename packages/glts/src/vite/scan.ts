@@ -1,7 +1,7 @@
 import type { Program } from "@babel/types";
 import { existsSync, readFileSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { glob, readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { normalizePath } from "vite";
 
 import { parseScript } from "../modules/compiler.js";
@@ -55,16 +55,15 @@ export interface Scan {
 }
 
 export interface ScanOptions {
-  /** The root, and the public directory when it lies outside the root. */
-  readonly dirs: readonly string[];
-  readonly outDir: string;
+  /** Where the app serves the `.glts` files it loads by URL; none when disabled. */
+  readonly publicDir: string | undefined;
   /** The app's dependencies, from `appDependencies`. */
   readonly dependencies: readonly string[];
 }
 
-/** The script imports of the `.glts` files under `dirs`, and how CDN bundles share them. */
-export async function scan({ dirs, outDir, dependencies }: ScanOptions): Promise<Scan> {
-  const importers = await importersOf(dirs, outDir);
+/** The script imports of the `.glts` files in the public directory, and how CDN bundles share them. */
+export async function scan({ publicDir, dependencies }: ScanOptions): Promise<Scan> {
+  const importers = publicDir ? await importersOf(publicDir) : new Map<string, string[]>();
   const specifiers = [...importers.keys()];
   const versioned = specifiers.filter((specifier) => /^@?[^@]+@[^/]+$/.test(specifier));
   // CDN bundles share one instance per package, so a package can have only one version.
@@ -81,25 +80,14 @@ export async function scan({ dirs, outDir, dependencies }: ScanOptions): Promise
   };
 }
 
-/** Maps each specifier the `.glts` files under `dirs` import to the files importing it, sorted. */
-async function importersOf(dirs: readonly string[], outDir: string): Promise<Map<string, string[]>> {
+/** Maps each specifier the `.glts` files under `dir` import to the files importing it, sorted. */
+async function importersOf(dir: string): Promise<Map<string, string[]>> {
   const importers = new Map<string, string[]>();
-  const files = (await Promise.all(dirs.map((dir) => scripts(dir, outDir)))).flat();
-  for (const file of files) {
+  for await (const path of glob("**/*.glts", { cwd: dir })) {
+    const file = normalizePath(resolve(dir, path));
     for (const specifier of importedSpecifiers(await readFile(file, "utf8"), file)) {
       importers.set(specifier, [...importers.get(specifier) ?? [], file]);
     }
   }
-  return new Map([...importers].sort(([a], [b]) => (a < b ? -1 : 1)));
-}
-
-async function scripts(dir: string, outDir: string): Promise<string[]> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = await Promise.all(entries.map((entry) => {
-    const path = normalizePath(join(dir, entry.name));
-    if (!entry.isDirectory()) return entry.name.endsWith(".glts") ? [path] : [];
-    const skipped = entry.name === "node_modules" || entry.name.startsWith(".") || path === outDir;
-    return skipped ? [] : scripts(path, outDir);
-  }));
-  return files.flat();
+  return new Map([...importers].sort(([a], [b]) => a.localeCompare(b)));
 }
