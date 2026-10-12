@@ -5,7 +5,7 @@ description: Write and host GLTS procedural Three.js assets. Covers authoring `.
 
 # GLTS
 
-A `.glts` file is an exportless TypeScript ES module that builds a Three.js asset. `GLTSLoader` runs it and returns a native `THREE.Scene` with lifecycle methods. GLTS executes the script as code with no sandbox, so only load scripts you trust.
+A `.glts` file is a TypeScript ES module that builds a Three.js asset. `GLTSLoader` runs it and returns a native `THREE.Scene` with lifecycle methods. GLTS executes the script as code with no sandbox, so only load scripts you trust.
 
 # Writing scripts
 
@@ -36,18 +36,16 @@ Import the context by name from `@drawcall/glts`. Each execution gets its own va
 | `onFrame(fn)` | Runs `fn(delta)` when the host calls `update(delta)`. |
 | `loadingManager` | The `LoadingManager` to pass to Three.js loaders. |
 | `gltsLoader` | Loads nested `.glts` files (`loadAsync`, `loadInstancesAsync`). |
-| `isPreview` | `true` only when a host preview loader loaded this script directly; a node keeps its value across reloads. |
+| `isPreview` | `true` only when a host preview loader's `loadAsync()` loaded this script directly; a node keeps its value across reloads. |
 | `instanceCount` | Instance count; `1` for a plain `loadAsync()`. |
 | `onMatrixUpdateAt(fn)` | Opts into native instancing (see Instancing). |
 
 Rules:
 
-- Export nothing, including types and interfaces.
-- Do not import `GLTSLoader`, `GLTSRenderer`, or any other runtime value from `@drawcall/glts`; type-only imports are fine.
+- Export no values, and from `@drawcall/glts` import only the context names above; types are fine.
 - Import `three`, `three/addons/*`, browser-compatible npm packages, full `https://` module URLs, or helpers (see Helpers).
 - Never import `.glts` files statically, or other local files such as `./data.json`; never use dynamic `import()` or import attributes.
 - Top-level `await` works.
-- `import.meta.url` is the script's own URL, so `new URL("./bark.png", import.meta.url)` resolves next to the `.glts` file.
 
 ## Scene and presentation
 
@@ -96,7 +94,7 @@ if (isPreview) {
 - `effects` is an array of synchronous factories `({ camera, scene, width, height }) => Pass`, returning a Three.js `Pass` compatible with `WebGLRenderer.setEffects()`. `camera` is the camera the host renders with; `width` and `height` are the initial drawing-buffer size.
 - Return a fresh pass on every call. Factories run again when the camera or the factory list changes.
 - Never add `RenderPass` or `OutputPass`; the renderer does both and rejects them.
-- The renderer owns and disposes the passes. Do not register them with `onDispose`. A custom pass releases its own GPU resources and listeners in `dispose()` and restores any renderer or scene state it changes in `finally`.
+- The renderer owns and disposes the passes.
 
 When the asset is nested, its background, environment, fog, override material, default camera, and rendering profile are ignored; the outer root wins.
 
@@ -104,10 +102,9 @@ When the asset is nested, its background, environment, fog, override material, d
 
 - Pass the contextual `loadingManager` to every Three.js loader during evaluation. GLTS waits for every request reported through it, including loads you did not await, and fails the load if one fails.
 - Loading closes when evaluation finishes: never start loads from `onFrame`, `onMatrixUpdateAt`, effect factories, timers, or event callbacks.
-- Three.js loaders take strings: pass `new URL("./bark.png", import.meta.url).href`. `gltsLoader` methods accept the `URL` itself.
+- Three.js loaders resolve relative URLs against the page; resolve them against the script instead: `new URL("./bark.png", import.meta.url).href`.
 - Register LoadingManager handlers (`addHandler`) on the contextual `loadingManager`, with handler loaders constructed with it. A handler registered only on the host's manager makes the load fail.
 - Dispose only what the script created. GLTS does not infer ownership of geometry, materials, or textures.
-- Close `onDispose` callbacks over the resources themselves. Never find them by traversing `scene`: a reload detaches the old children before their callbacks run.
 
 ## Helpers
 
@@ -141,24 +138,24 @@ onDispose(() => {
 - A helper may export anything and import what a script can, including other helpers.
 - Helpers cannot import runtime values from `@drawcall/glts`; types are fine. Pass what a helper needs, such as `loadingManager`, from the script.
 - A helper has no `onDispose`. Return what it creates and dispose it in the script.
-- Keep no module-level state in helpers. Each script gets its own instance of each helper, shared by its imports and nodes, so other scripts do not see that state, and the browser keeps it after disposal.
+- Keep no module-level state in helpers; it outlives disposal and is not shared between scripts.
 - `import.meta.url` in a helper is the helper's own URL.
 - Cyclic helper imports fail.
 - An asset is its `.glts` file plus the helpers and files it references. Copy them together.
 
 ## Composition
 
-Load other assets with the contextual `gltsLoader`, resolving paths explicitly:
+Load other assets with the contextual `gltsLoader`; relative URLs resolve against the script:
 
 ```ts
 import { gltsLoader, scene } from "@drawcall/glts"
 
-const wheel = await gltsLoader.loadAsync(new URL("./wheel.glts", import.meta.url))
+const wheel = await gltsLoader.loadAsync("./wheel.glts")
 scene.add(wheel)
 ```
 
 - Add every loaded result beneath `scene` before the script finishes; an unattached result fails the load.
-- Attached results are disposed with their parent. Do not register `child.dispose()` with `onDispose`.
+- Attached results are disposed with their parent.
 - Cyclic loads fail.
 
 ## Instancing
@@ -170,7 +167,7 @@ When the host calls `loadInstancesAsync(url, count)` on an ordinary mesh hierarc
 - an `onFrame` callback;
 - a nested GLTS scene.
 
-Preview-only lights count too, so hosts should not load instances with a preview loader. Keep instanceable assets static and let the parent pose instances with `setMatrixAt()`.
+Keep instanceable assets static and let the parent pose instances with `setMatrixAt()`.
 
 When the asset needs its own per-instance behavior, implement native instancing:
 
@@ -199,8 +196,7 @@ Registering `onMatrixUpdateAt` selects native instancing. It immediately replays
 
 ## Reload safety
 
-- A reload keeps the node's identity, host transform, and instance matrices, replaces its children, and refreshes its root properties, `defaultCamera`, and `rendering`.
-- `scene` is a live binding that follows the stable node after a reload. Reference it directly in callbacks; never store it in another variable.
+`scene` is a live binding that follows the stable node after a reload. Reference it directly in callbacks; never store it in another variable.
 
 # Hosting scripts
 
@@ -216,12 +212,12 @@ const tree = await loader.loadAsync("/assets/tree.glts")
 scene.add(tree)
 
 tree.update(delta) // every frame
-await tree.reload()
+await loader.reload("/assets/tree.glts")
 tree.dispose()
 loader.dispose() // also disposes every scene it loaded
 ```
 
-- `load()` (Three.js callback style), `loadAsync()`, `loadInstancesAsync()`, and `reload()` take a string or `URL`. Strings resolve against `loader.path` and `baseURL`; the manager's URL modifier applies.
+- `load()` (Three.js callback style), `loadAsync()`, `loadInstancesAsync()`, and `reload()` take a string or `URL`. Strings resolve against `loader.path` and then the page's `document.baseURI`; the manager's URL modifier applies. Without a page, pass absolute URLs.
 - Per-load progress callbacks are rejected. Track progress with `manager.onProgress`; nested scripts and their resources report through the same manager.
 - `setRequestHeader()` and `setWithCredentials()` apply to script and package requests.
 - Serve cross-origin scripts and packages with CORS, and allow `blob:` ES modules in the page's CSP.
@@ -232,8 +228,7 @@ The result is a `GLTSScene` (a `THREE.Scene`) with:
 | --- | --- |
 | `url` | Resolved source URL. |
 | `update(delta)` | Runs frame callbacks of this and nested GLTS scenes. |
-| `reload()` | Re-executes the latest source in place. |
-| `dispose()` | Runs disposal callbacks and disposes nested GLTS scenes. |
+| `dispose()` | Runs disposal callbacks, disposes nested GLTS scenes, and frees its `GLTSRenderer` passes. |
 | `defaultCamera` | The asset's recommended camera, or `undefined`. |
 | `rendering` | The rendering profile used by `GLTSRenderer`. |
 
@@ -243,11 +238,9 @@ Options, `new GLTSLoader(manager, options)`:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `isPreview` | `false` | Value of `isPreview` for scripts this loader loads directly. |
+| `isPreview` | `false` | Value of `isPreview` for scripts this loader's `loadAsync()` loads directly. |
 | `modules` | `{}` | Host packages scripts import instead of the CDN (see Packages). |
 | `cdnURL` | `https://esm.sh/` | Where scripts' other packages come from. |
-| `baseURL` | `document.baseURI` | Base for relative URLs. |
-| `fetch` | `globalThis.fetch` | Fetch used for scripts and packages. |
 
 ## Instances
 
@@ -264,8 +257,10 @@ The result is a `GLTSInstances` with a fixed `count`, `getMatrixAt(index, target
 
 ## Reload and errors
 
-- `node.reload()` re-executes one node with fresh source, its helpers included. `loader.reload(url)` invalidates the cached source and reloads every undisposed node loaded from that URL; with none, it fetches nothing and the next load gets fresh source. Pending loads of that URL finish first. For a helper's URL, it does the same for every script that imports the helper, directly or through other helpers.
+- `loader.reload(url)` invalidates the cached source and reloads every undisposed node loaded from that URL; with none, it fetches nothing and the next load gets fresh source. Pending loads of that URL finish first. For a helper's URL, it does the same for every script that imports the helper, directly or through other helpers.
 - A reload builds the replacement before touching the live node. Any failure leaves the current content in place.
+- A reload keeps the node's identity, host transform, and instance matrices, and refreshes its root properties, `defaultCamera`, and `rendering`.
+- A reload replaces the asset's children; look them up again instead of keeping references.
 - Source requests use HTTP `no-cache`. Later loads of the same URL reuse the cached source until it is invalidated.
 - Load and reload failures reject with `GLTSError`: `url`, `phase` (`resolve`, `fetch`, `transform`, `evaluate`, `construct`, `resource`, `reload`, `dispose`), `importChain`, and `cause`.
 - Invalid arguments raise `RangeError`: `loadInstancesAsync()` rejects a count that is not a positive integer; `update()` throws on a negative or non-finite delta, and `getMatrixAt()`/`setMatrixAt()` on an out-of-range index.
@@ -285,20 +280,16 @@ const loader = new GLTSLoader(manager, { isPreview: true })
 const root = await loader.loadAsync("/asset.glts")
 
 root.update(delta)
-gltsRenderer.render(root, undefined, delta) // undefined: use root.defaultCamera
+gltsRenderer.render(root, root.defaultCamera ?? camera, delta)
 
-gltsRenderer.release(root)
 root.dispose()
 gltsRenderer.dispose()
 ```
 
-- `render(root, camera?, delta?)` uses `camera`, else `root.defaultCamera`, and throws if neither exists. `delta` is passed to the effect passes.
-- Each call applies the root's profile and restores the renderer's settings afterwards, so one adapter can render different roots on one WebGL context.
+- `render(root, camera, delta = 0)` renders with the root's profile; `delta` reaches the effect passes.
 - Create one `GLTSRenderer` per `WebGLRenderer` (a second throws) and never call `setEffects()` elsewhere.
 - Construct the `WebGLRenderer` with `GLTSRenderer.parameters` when roots use effects.
 - Effects and tone mapping need the default framebuffer, a full viewport, and scissor testing off.
-- Passes are cached per root and rebuilt when the camera changes. Call `release(root)` before disposing a root while the adapter lives.
-- If you read `renderer.info`, set `info.autoReset = false` and reset it once per frame, since effects render several times.
 - The app still owns the canvas, output color space, shadow-map type, viewport, camera projection, controls, and frame loop.
 - `renderer.render(asset, camera)` and custom pipelines also work, because the asset is a native scene; they ignore `rendering`.
 
@@ -332,7 +323,7 @@ Needs `vite` 6 or later and Node.js 22.17 or later. It works on the `.glts` file
 - `three` and packages in the `dependencies` or `devDependencies` of the app's nearest `package.json` are the app's own instances.
 - Other packages, and versioned imports such as `pkg@2`, are fetched from the CDN during development and builds and bundled with the app. Each package that scripts import or the app declares exists once.
 - Every loader gets the plugin's `cdnURL` option (default `https://esm.sh/`) as its default `cdnURL`. Scripts outside the public directory and `https://` imports still load packages at runtime.
-- Editing a public script hot reloads it: every node loaded from it reloads without a page reload. Editing or creating a public helper hot reloads every script that imports it. Adding or deleting a script does not, unless it changes which packages the scripts or their helpers import, which reloads the page.
+- Editing or creating a public script or helper hot reloads the nodes loaded from it; changing which packages scripts import reloads the page.
 
 Type checking: the plugin type checks the public `.glts` files and their helpers strictly, independently of the app's `tsconfig.json`, using the app's `typescript` 5 or 6; install it as a dev dependency, or `vite build` fails.
 
