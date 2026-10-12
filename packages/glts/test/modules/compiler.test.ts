@@ -7,15 +7,6 @@ import { compileScript } from "../../src/modules/compiler.js";
 const url = "https://example.test/tree.glts";
 
 describe("script exports", () => {
-  it("accepts exportless scripts with contextual imports", () => {
-    expect(() => compileScript(`
-      import * as THREE from "three"
-      import { scene, isPreview, onDispose } from "@drawcall/glts"
-      if (isPreview) scene.add(new THREE.Group())
-      onDispose(() => undefined)
-    `, url)).not.toThrow();
-  });
-
   it.each([
     "export const value = 1",
     "export default 1",

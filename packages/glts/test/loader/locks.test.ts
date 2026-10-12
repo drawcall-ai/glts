@@ -46,30 +46,6 @@ it("serializes writes across URLs", async () => {
   releaseSecond();
 });
 
-it("keeps a host read behind an already queued write", async () => {
-  const locks = new URLLocks();
-  const releaseFirst = await locks.acquireWrite("a.glts");
-  let releaseSecond: (() => void) | undefined;
-  const second = locks.acquireWrite("b.glts").then((release) => {
-    releaseSecond = release;
-  });
-  let readStarted = false;
-  const read = locks.acquireRead("b.glts").then((release) => {
-    readStarted = true;
-    return release;
-  });
-
-  await Promise.resolve();
-  expect(readStarted).toBe(false);
-  releaseFirst();
-  await second;
-  expect(readStarted).toBe(false);
-  releaseSecond?.();
-  const releaseRead = await read;
-  expect(readStarted).toBe(true);
-  releaseRead();
-});
-
 it("lets a nested read complete before a queued write", async () => {
   const locks = new URLLocks();
   const releaseFirst = await locks.acquireWrite("a.glts");

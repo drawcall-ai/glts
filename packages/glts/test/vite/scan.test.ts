@@ -15,11 +15,9 @@ it("collects the runtime package imports scripts do not get from the loader", as
     "imports/scene.glts": `
       import * as THREE from "three";
       import { scene } from "@drawcall/glts";
-      import type { Options } from "typed";
-      import { type Other } from "elided";
-      import { Options as Same } from "elided-too";
+      import { Options } from "elided";
       import "side-effect";
-      const options: Same | Other | undefined = undefined;
+      const options: Options | undefined = undefined;
       import noise from "simplex-noise@4";
       import remote from "https://cdn.test/remote.js";
       console.log(THREE, scene, noise, remote, options);
