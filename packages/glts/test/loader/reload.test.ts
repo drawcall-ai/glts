@@ -5,17 +5,7 @@ import { Construction } from "../../src/loader/construction.js";
 import { ScriptModules } from "../../src/modules/scripts.js";
 import { Execution } from "../../src/scene/execution.js";
 import { ManagedNodes, type NodeRecord } from "../../src/scene/nodes.js";
-
-function context(execution: Execution) {
-  return execution.context({
-    gltsLoader: {
-      loadAsync: async () => { throw new Error("Unexpected nested load"); },
-      loadInstancesAsync: async () => { throw new Error("Unexpected nested load"); }
-    },
-    loadingManager: new LoadingManager(),
-    isPreview: false
-  });
-}
+import { context } from "../scene/context.js";
 
 async function reload(nodes: ManagedNodes, record: NodeRecord, next: Execution): Promise<void> {
   const modules = new ScriptModules({
@@ -85,7 +75,6 @@ it.each(["node", "registry"])("cleans a replacement when old cleanup disposes it
   nodes.disposeAll();
   expect(disposeNext).toHaveBeenCalledTimes(1);
 });
-
 
 it("disposes automatic instance resources once when execution cleanup reenters the node", async () => {
   const url = "https://example.test/instances.glts";

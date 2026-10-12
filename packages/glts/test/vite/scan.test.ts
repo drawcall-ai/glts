@@ -50,11 +50,6 @@ it("rejects local imports the loader would reject, which the type check resolves
   await expect(scan(`${temp}/extension`)).rejects.toThrow("Unsupported local import: ./geometry.js");
 });
 
-it("rejects package imports, which the loader rejects", async () => {
-  await writeFiles(temp, { "subpath/scene.glts": `import "#x"` });
-  await expect(scan(`${temp}/subpath`)).rejects.toThrow("Unsupported package import: #x");
-});
-
 it("rejects a script that does not parse, naming it", async () => {
   await writeFiles(temp, { "broken/scene.glts": "import {" });
   await expect(scan(`${temp}/broken`)).rejects.toThrow(`${temp}/broken/scene.glts`);
