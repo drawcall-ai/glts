@@ -2,7 +2,6 @@ import { expect, it, vi } from "vitest";
 import { BoxGeometry, Group, InstancedMesh, LoadingManager, Matrix4, Mesh, MeshBasicMaterial } from "three";
 import { reloadRecords } from "../../src/loader/reload.js";
 import { Construction } from "../../src/loader/construction.js";
-import { Operations } from "../../src/loader/operations.js";
 import { ScriptModules } from "../../src/modules/scripts.js";
 import { Execution } from "../../src/scene/execution.js";
 import { ManagedNodes, type NodeRecord } from "../../src/scene/registry.js";
@@ -19,23 +18,22 @@ function context(execution: Execution) {
 }
 
 async function reload(nodes: ManagedNodes, record: NodeRecord, next: Execution): Promise<void> {
-  const manager = new LoadingManager();
   const modules = new ScriptModules({
     cdnURL: new URL("https://cdn.test/"),
     fetch: async () => new Response("")
   });
-  const operations = new Operations(manager);
   const construction = new Construction({
     contextLoader: (execution) => context(execution).gltsLoader,
-    manager, modules, nodes, operations
+    disposeNodes: (root, owned) => nodes.disposeNested(root, owned),
+    manager: new LoadingManager(),
+    modules,
+    signal: new AbortController().signal
   });
-  // Exercise reload orchestration with a prepared revision, without browser imports.
+  // Exercise reload orchestration with a prepared execution, without browser imports.
   vi.spyOn(construction, "execute").mockResolvedValue(next);
   try {
-    await reloadRecords(record.url, [record], { modules, construction, operations });
+    await reloadRecords(record.url, [record], { construction, modules });
   } finally {
-    construction.dispose();
-    operations.dispose();
     modules.dispose();
   }
 }

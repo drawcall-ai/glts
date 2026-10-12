@@ -1,6 +1,6 @@
 import type * as THREE from "three";
 
-import { GLTSError } from "../errors.js";
+import { cleanUpAndThrow, GLTSError } from "../errors.js";
 import type { GLTSScene } from "../types.js";
 
 export class NestedLoads {
@@ -39,17 +39,19 @@ export class NestedLoads {
     }
   }
 
-  own(node: GLTSScene): void {
-    if (!this.#accepting) {
-      throw new GLTSError(
-        "Nested GLTS load completed after its parent closed",
-        {
-          phase: "dispose",
-          url: node.url,
-        },
-      );
-    }
-    this.#nodes.add(node);
+  /** Tracks a nested load and owns its node; a node arriving after close is disposed. */
+  own<T extends GLTSScene>(loading: Promise<T>): Promise<T> {
+    return this.track(loading.then((node) => {
+      if (!this.#accepting) {
+        cleanUpAndThrow(
+          new GLTSError("Nested GLTS load completed after its parent closed", { phase: "dispose", url: node.url }),
+          node.url,
+          () => node.dispose()
+        );
+      }
+      this.#nodes.add(node);
+      return node;
+    }));
   }
 
   get nodes(): readonly GLTSScene[] {

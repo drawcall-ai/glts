@@ -1,10 +1,9 @@
 import type * as THREE from "three";
-import { Execution } from "../scene/execution.js";
+
 import { cleanUpAndThrow, GLTSError, toGLTSError } from "../errors.js";
-import type { ManagedNodes } from "../scene/registry.js";
-import type { ScriptModules, CompiledScript } from "../modules/scripts.js";
+import type { CompiledScript, ScriptModules } from "../modules/scripts.js";
+import { Execution, type DisposeNodes } from "../scene/execution.js";
 import type { GLTSScriptLoader } from "../types.js";
-import type { Operations } from "./operations.js";
 import { LoadingScope } from "./loading.js";
 
 interface ExecutionRequest {
@@ -40,49 +39,35 @@ function nestedFailure(url: string, error: unknown, nested: unknown): GLTSError 
 }
 
 export class Construction {
-  readonly #scopes = new Set<LoadingScope>();
   readonly #contextLoader: (owner: Execution) => GLTSScriptLoader;
+  readonly #disposeNodes: DisposeNodes;
   readonly #manager: THREE.LoadingManager;
   readonly #modules: ScriptModules;
-  readonly #nodes: ManagedNodes;
-  readonly #operations: Operations;
+  readonly #signal: AbortSignal;
 
   constructor(options: {
     contextLoader: (owner: Execution) => GLTSScriptLoader;
+    disposeNodes: DisposeNodes;
     manager: THREE.LoadingManager;
     modules: ScriptModules;
-    nodes: ManagedNodes;
-    operations: Operations;
+    signal: AbortSignal;
   }) {
     this.#contextLoader = options.contextLoader;
+    this.#disposeNodes = options.disposeNodes;
     this.#manager = options.manager;
     this.#modules = options.modules;
-    this.#nodes = options.nodes;
-    this.#operations = options.operations;
-  }
-
-  dispose(): void {
-    const reason = new GLTSError("Loader has been disposed", {
-      phase: "dispose", url: "glts://loader"
-    });
-    for (const scope of this.#scopes) {
-      scope.cancel(reason);
-    }
+    this.#signal = options.signal;
   }
 
   async execute(
     script: CompiledScript,
     { matrices, isPreview, instances, parent, requestedURL }: ExecutionRequest
   ): Promise<Execution> {
-    this.#operations.assertActive(script.url);
-    const execution = new Execution(
-      matrices,
-      [requestedURL, script.url],
-      (root, owned) => this.#nodes.disposeNested(root, owned),
-      parent
-    );
+    this.#signal.throwIfAborted();
+    const execution = new Execution(matrices, [requestedURL, script.url], this.#disposeNodes, parent);
     const scope = new LoadingScope(this.#manager, script.url);
-    this.#scopes.add(scope);
+    const cancel = (): void => scope.cancel(this.#signal.reason);
+    this.#signal.addEventListener("abort", cancel);
     try {
       await this.#modules.executeScript(script, execution.context({
         gltsLoader: this.#contextLoader(execution),
@@ -91,12 +76,9 @@ export class Construction {
       }));
       await execution.nested.finishAndValidateAttachment(execution.scene);
       await scope.waitAndClose();
-
       if (instances) {
         execution.prepareInstances(script.url);
       }
-
-      this.#operations.assertActive(script.url);
       return execution;
     } catch (error) {
       let failure = error;
@@ -110,8 +92,7 @@ export class Construction {
       }
       cleanUpAndThrow(failure, script.url, () => execution.dispose());
     } finally {
-      this.#scopes.delete(scope);
+      this.#signal.removeEventListener("abort", cancel);
     }
   }
-
 }

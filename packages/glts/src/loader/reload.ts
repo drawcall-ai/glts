@@ -5,12 +5,10 @@ import type { NodeRecord } from "../scene/registry.js";
 import type { Execution } from "../scene/execution.js";
 import type { ScriptModules } from "../modules/scripts.js";
 import type { Construction } from "./construction.js";
-import type { Operations } from "./operations.js";
 
 interface ReloadContext {
-  readonly modules: ScriptModules;
   readonly construction: Construction;
-  readonly operations: Operations;
+  readonly modules: ScriptModules;
 }
 
 interface Replacement {
@@ -21,7 +19,7 @@ interface Replacement {
 export async function reloadRecords(
   url: string,
   records: readonly NodeRecord[],
-  { modules, construction, operations }: ReloadContext
+  { construction, modules }: ReloadContext
 ): Promise<void> {
   const script = await modules.fetchScript(url);
   const replacements: Replacement[] = [];
@@ -35,7 +33,6 @@ export async function reloadRecords(
       });
       replacements.push({ prepared, record });
     }
-    operations.assertActive(url);
     const disposed = records.find((record) => record.disposed);
     if (disposed) {
       throw new GLTSError("GLTS node was disposed during reload", { phase: "reload", url: disposed.url });
