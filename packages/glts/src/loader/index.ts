@@ -140,11 +140,7 @@ export class GLTSLoader extends Loader {
   dispose(): void {
     if (this.#lifetime.signal.aborted) return;
     this.#lifetime.abort(new GLTSError("Loader has been disposed", { phase: "dispose", url: "glts://loader" }));
-    try {
-      runAll("Loader disposal failed", [() => this.#nodes.disposeAll(), () => this.#modules.dispose()]);
-    } catch (error) {
-      throw new GLTSError("Loader disposal failed", { phase: "dispose", url: "glts://loader" }, error);
-    }
+    runAll("Loader disposal failed", [() => this.#nodes.disposeAll(), () => this.#modules.dispose()]);
   }
 
   #loadScene(url: string, isPreview: boolean, parent?: Execution): Promise<GLTSScene> {

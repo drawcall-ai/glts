@@ -34,11 +34,10 @@ export class ManagedNodes {
     isPreview: boolean,
     matrices: THREE.Matrix4[]
   ): GLTSScene {
-    const root = execution.scene;
-    const node = attachSceneMethods(root, url, {
-      dispose: () => this.dispose(root),
-      reload: () => this.#reload(this.getRecord(root)),
-      update: (delta) => this.update(root, delta)
+    const node = attachSceneMethods(execution.scene, url, {
+      dispose: () => this.dispose(node),
+      reload: () => this.#reload(this.getRecord(node)),
+      update: (delta) => this.update(node, delta)
     });
     this.#records.set(node, { disposed: false, instances: false, isPreview, matrices, node, execution, url });
     return node;
@@ -50,13 +49,12 @@ export class ManagedNodes {
     isPreview: boolean,
     matrices: THREE.Matrix4[]
   ): GLTSInstances {
-    const root = execution.scene;
-    const node = attachInstanceMethods(root, url, {
+    const node = attachInstanceMethods(execution.scene, url, {
       count: matrices.length,
-      dispose: () => this.dispose(root),
-      ...createInstanceMatrixMethods(() => this.getRecord(root)),
-      reload: () => this.#reload(this.getRecord(root)),
-      update: (delta) => this.update(root, delta)
+      dispose: () => this.dispose(node),
+      ...createInstanceMatrixMethods(() => this.getRecord(node)),
+      reload: () => this.#reload(this.getRecord(node)),
+      update: (delta) => this.update(node, delta)
     });
     this.#records.set(node, { disposed: false, instances: true, isPreview, matrices, node, execution, url });
     return node;
@@ -66,20 +64,16 @@ export class ManagedNodes {
     return [...this.#records.values()].filter((record) => record.url === url);
   }
 
-  getRecord(node: THREE.Object3D): NodeRecord {
+  getRecord(node: GLTSScene): NodeRecord {
     const record = this.#records.get(node);
     if (record) {
       return record;
     }
 
-    const value = Reflect.get(node, "url");
-    throw new GLTSError("GLTS node has been disposed", {
-      phase: "dispose",
-      url: typeof value === "string" ? value : "glts://node"
-    });
+    throw new GLTSError("GLTS node has been disposed", { phase: "dispose", url: node.url });
   }
 
-  update(node: THREE.Object3D, delta: number): void {
+  update(node: GLTSScene, delta: number): void {
     const record = this.getRecord(node);
     if (!Number.isFinite(delta) || delta < 0) {
       throw new RangeError("GLTS update delta must be a non-negative finite number");

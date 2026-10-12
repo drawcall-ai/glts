@@ -63,7 +63,6 @@ export class Execution {
   }): ScriptContext {
     return {
       bindScene: (bind) => {
-        assertCallback(bind, "Internal scene binding");
         this.#bindScene = bind;
       },
       gltsLoader: options.gltsLoader,

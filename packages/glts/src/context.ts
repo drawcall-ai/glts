@@ -3,11 +3,8 @@ import { LoadingManager } from "three";
 import type {
   GLTSDisposeCallback,
   GLTSFrameCallback,
-  GLTSInstances,
   GLTSMatrixUpdateCallback,
-  GLTSScene,
-  GLTSScriptLoader,
-  GLTSURL
+  GLTSScriptLoader
 } from "./types.js";
 import { createScriptScene, type GLTSScriptScene } from "./scene/root.js";
 
@@ -27,17 +24,11 @@ export const loadingManager: LoadingManager = new Proxy(new LoadingManager(), {
   set: () => unavailable("loadingManager")
 });
 
-class UnavailableScriptLoader implements GLTSScriptLoader {
-  loadAsync(_url: GLTSURL): Promise<GLTSScene> {
-    return unavailable("gltsLoader");
-  }
+export const gltsLoader: GLTSScriptLoader = {
+  loadAsync: () => unavailable("gltsLoader"),
+  loadInstancesAsync: () => unavailable("gltsLoader")
+};
 
-  loadInstancesAsync(_url: GLTSURL, _count: number): Promise<GLTSInstances> {
-    return unavailable("gltsLoader");
-  }
-}
-
-export const gltsLoader: GLTSScriptLoader = new UnavailableScriptLoader();
 // Annotated so scripts may compare them with any value when type checked.
 export const instanceCount: number = 1;
 export const isPreview: boolean = false;
