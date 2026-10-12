@@ -162,7 +162,7 @@ test("notifies LoadingManager completion after a reload commits", async ({ page 
   expect(result).toEqual({ name: "second", nameAtCompletion: "second" });
 });
 
-test("does not replace a same-source node disposed by an earlier commit", async ({ page }) => {
+test("fails a reload instead of replacing a same-source node disposed by an earlier commit", async ({ page }) => {
   const source = (revision: string) => `
     import { onDispose, scene } from "@drawcall/glts"
     globalThis.__nestedReloadExecutions =
@@ -184,7 +184,12 @@ test("does not replace a same-source node disposed by an earlier commit", async 
     const outer = await loader.loadAsync("/assets/nested-reload.glts");
     const nested = await loader.loadAsync("/assets/nested-reload.glts");
     outer.add(nested);
-    await loader.reload("/assets/nested-reload.glts");
+    let reloadError = "";
+    try {
+      await loader.reload("/assets/nested-reload.glts");
+    } catch (error) {
+      reloadError = error instanceof Error ? error.message : String(error);
+    }
 
     let nestedDisposed = false;
     try {
@@ -197,7 +202,8 @@ test("does not replace a same-source node disposed by an earlier commit", async 
       disposalsBeforeDispose: Reflect.get(globalThis, "__nestedReloadDisposals"),
       executions: Reflect.get(globalThis, "__nestedReloadExecutions"),
       name: outer.name,
-      nestedDisposed
+      nestedDisposed,
+      reloadError
     };
     outer.dispose();
     loader.dispose();
@@ -212,7 +218,8 @@ test("does not replace a same-source node disposed by an earlier commit", async 
     disposalsBeforeDispose: 3,
     executions: 4,
     name: "second",
-    nestedDisposed: true
+    nestedDisposed: true,
+    reloadError: expect.stringContaining("Reload committed, but replacing its nodes failed")
   });
 });
 

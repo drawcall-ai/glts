@@ -13,7 +13,7 @@ interface Replacement {
 
 /**
  * Constructs a replacement execution for every record from a fresh fetch of `url`, then commits the
- * source and swaps the replacements in.
+ * source and swaps the replacements in; a record disposed meanwhile fails the reload.
  */
 export async function reloadRecords(
   url: string,
@@ -40,16 +40,10 @@ export async function reloadRecords(
 
   modules.commitScript(url, script);
   try {
-    runAll("GLTS reload commit failed", replacements.map(({ record, execution }) => () => {
-      // An earlier replacement's cleanup may have disposed this node.
-      if (record.disposed) {
-        execution.dispose();
-        return;
-      }
-      replaceExecution(record, execution);
-    }));
+    runAll("GLTS reload commit failed", replacements.map(({ record, execution }) => () =>
+      replaceExecution(record, execution)));
   } catch (error) {
-    throw new GLTSError("Reload committed, but cleanup failed", { phase: "dispose", url }, error);
+    throw new GLTSError("Reload committed, but replacing its nodes failed", { phase: "reload", url }, error);
   }
 }
 
@@ -58,7 +52,7 @@ function replaceExecution(record: NodeRecord, replacement: Execution): void {
     // Disposed with its children, so disposal callbacks see the scene as they do on dispose().
     () => record.execution.dispose(record.node),
     () => {
-      // The previous execution's disposal callbacks may have disposed the node.
+      // The node's disposal callbacks, or an earlier record's commit, may have disposed it.
       if (record.disposed) {
         cleanUpAndThrow(
           new GLTSError("GLTS node was disposed during reload", { phase: "reload", url: record.url }),
