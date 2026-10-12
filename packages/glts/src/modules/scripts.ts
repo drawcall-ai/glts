@@ -1,12 +1,12 @@
 import type { ScriptContext } from "../scene/execution.js";
 import { GLTSError, toGLTSError } from "../errors.js";
 import { ExternalModules } from "./external.js";
-import { canonicalize, fetchSource } from "./fetch.js";
+import { canonicalize, fetchSource, type Fetch } from "./fetch.js";
 import { rewriteModule } from "./rewrite.js";
 import { ModuleBridge } from "./bridge.js";
 import { compileHelper, compileScript } from "./compiler.js";
 import { assertScriptImport, helperURL } from "./resolution.js";
-import type { GLTSFetch, GLTSModules } from "../types.js";
+import type { GLTSModules } from "../types.js";
 
 export interface CompiledScript {
   readonly url: string;
@@ -23,14 +23,14 @@ interface Linking {
 }
 
 export class ScriptModules {
-  readonly #fetch: GLTSFetch;
+  readonly #fetch: Fetch;
   readonly #bridge: ModuleBridge;
   readonly #external: ExternalModules;
   readonly #scriptCache = new Map<string, Promise<CompiledScript>>();
   /** Every helper URL a script has imported, by script URL. */
   readonly #scriptHelpers = new Map<string, Set<string>>();
 
-  constructor({ cdnURL, fetch, modules }: { readonly cdnURL: URL; readonly fetch: GLTSFetch; readonly modules?: GLTSModules | undefined }) {
+  constructor({ cdnURL, fetch, modules }: { readonly cdnURL: URL; readonly fetch: Fetch; readonly modules?: GLTSModules | undefined }) {
     this.#fetch = fetch;
     this.#bridge = new ModuleBridge(modules);
     this.#external = new ExternalModules({ cdnURL, fetch, bridge: this.#bridge });

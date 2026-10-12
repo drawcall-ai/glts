@@ -19,7 +19,6 @@ export type {
 export type {
   GLTSDisposeCallback,
   GLTSErrorCallback,
-  GLTSFetch,
   GLTSFrameCallback,
   GLTSInstances,
   GLTSLoadCallback,

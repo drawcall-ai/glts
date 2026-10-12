@@ -3,18 +3,12 @@ import type { GLTSScriptScene } from "./scene/root.js";
 
 export type GLTSURL = string | URL;
 
-export type GLTSFetch = (
-  input: RequestInfo | URL,
-  init?: RequestInit
-) => Promise<Response>;
-
 /** Host namespaces by exact bare specifier, imported by scripts instead of the CDN. */
 export type GLTSModules = Readonly<Record<string, object>>;
 
 export interface GLTSLoaderOptions {
   baseURL?: GLTSURL;
   cdnURL?: GLTSURL;
-  fetch?: GLTSFetch;
   isPreview?: boolean;
   modules?: GLTSModules;
 }

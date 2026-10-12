@@ -1,0 +1,5 @@
+// Served by Vite as the target of a routed redirect, since Playwright does not route redirected requests.
+import { scene } from "@drawcall/glts"
+
+globalThis.__redirectedExecutions = (globalThis.__redirectedExecutions ?? 0) + 1
+scene.name = `execution ${globalThis.__redirectedExecutions}`

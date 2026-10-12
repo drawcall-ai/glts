@@ -241,22 +241,14 @@ test("cleans up when a script prevents managed node augmentation", async ({ page
 });
 
 test("reloads a requested URL that redirects to the source", async ({ page }) => {
+  await page.route("**/assets/redirect.glts", (route) => route.fulfill({
+    status: 302,
+    headers: { location: new URL("/e2e/redirected.glts", route.request().url()).href }
+  }));
+
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
-    let revision = 0;
-    const loader = new window.GLTSLoader(new window.LoadingManager(), {
-      fetch: async () => {
-        revision += 1;
-        const response = new Response(`
-          import { scene } from "@drawcall/glts"
-          scene.name = "revision ${revision}"
-        `);
-        Object.defineProperty(response, "url", {
-          value: new URL("/assets/redirected.glts", location.href).href
-        });
-        return response;
-      }
-    });
+    const loader = new window.GLTSLoader(new window.LoadingManager());
     const node = await loader.loadAsync("/assets/redirect.glts");
     const url = node.url;
     await loader.reload("/assets/redirect.glts");
@@ -267,7 +259,7 @@ test("reloads a requested URL that redirects to the source", async ({ page }) =>
   });
 
   expect(result).toEqual({
-    name: "revision 2",
+    name: "execution 2",
     url: new URL("/assets/redirect.glts", page.url()).href
   });
 });

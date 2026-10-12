@@ -1,5 +1,6 @@
 import { GLTSError } from "../errors.js";
-import type { GLTSFetch } from "../types.js";
+
+export type Fetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export interface FetchedSource {
   readonly source: string;
@@ -13,7 +14,7 @@ export function canonicalize(url: URL): string {
 }
 
 export async function fetchSource(
-  fetch: GLTSFetch,
+  fetch: Fetch,
   url: string,
   bypassCache: boolean,
   importChain: readonly string[]

@@ -8,7 +8,6 @@ import type { Execution } from "../scene/execution.js";
 import { ManagedNodes } from "../scene/nodes.js";
 import type {
   GLTSErrorCallback,
-  GLTSFetch,
   GLTSInstances,
   GLTSLoadCallback,
   GLTSLoaderOptions,
@@ -45,7 +44,6 @@ function environmentBaseURL(): URL {
 export class GLTSLoader extends Loader {
   readonly #isPreview: boolean;
   readonly #baseURL: URL;
-  readonly #baseFetch: GLTSFetch;
   readonly #modules: ScriptModules;
   readonly #construction: Construction;
   readonly #lifetime = new AbortController();
@@ -64,7 +62,6 @@ export class GLTSLoader extends Loader {
     const environmentBase = environmentBaseURL();
     this.#isPreview = options.isPreview ?? false;
     this.#baseURL = new URL(options.baseURL ?? environmentBase, environmentBase);
-    this.#baseFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
     this.#modules = new ScriptModules({
       cdnURL: new URL(options.cdnURL ?? defaultCDNURL, this.#baseURL),
       fetch: (input, init) => this.#fetch(input, init),
@@ -232,6 +229,6 @@ export class GLTSLoader extends Loader {
       requestInit.credentials = "include";
     }
 
-    return this.#baseFetch(input, requestInit);
+    return globalThis.fetch(input, requestInit);
   }
 }

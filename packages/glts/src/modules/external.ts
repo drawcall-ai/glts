@@ -1,11 +1,10 @@
 import { REVISION } from "three";
 
 import { GLTSError, toGLTSError } from "../errors.js";
-import { canonicalize, fetchSource, type FetchedSource } from "./fetch.js";
+import { canonicalize, fetchSource, type Fetch, type FetchedSource } from "./fetch.js";
 import { rewriteModule } from "./rewrite.js";
 import { isBareSpecifier, packageURL } from "./resolution.js";
 import type { ModuleBridge } from "./bridge.js";
-import type { GLTSFetch } from "../types.js";
 
 /** The CDN path of a package, pinning both Three addon spellings to the host's revision. */
 function packagePath(specifier: string): string {
@@ -21,12 +20,12 @@ function packagePath(specifier: string): string {
 /** Host modules and CDN modules shared by every script of one loader, keyed by URL. */
 export class ExternalModules {
   readonly #cdnURL: URL;
-  readonly #fetch: GLTSFetch;
+  readonly #fetch: Fetch;
   readonly #bridge: ModuleBridge;
   readonly #sources = new Map<string, Promise<FetchedSource>>();
   readonly #modules = new Map<string, string>();
 
-  constructor({ cdnURL, fetch, bridge }: { readonly cdnURL: URL; readonly fetch: GLTSFetch; readonly bridge: ModuleBridge }) {
+  constructor({ cdnURL, fetch, bridge }: { readonly cdnURL: URL; readonly fetch: Fetch; readonly bridge: ModuleBridge }) {
     this.#cdnURL = cdnURL;
     this.#fetch = fetch;
     this.#bridge = bridge;
