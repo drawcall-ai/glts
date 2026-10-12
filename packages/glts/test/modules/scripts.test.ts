@@ -26,7 +26,7 @@ it("prepares a script's helpers once each and tracks the script as their depende
   const { modules, requests } = serve({
     "scene.glts": `import { a } from "./a.ts"; import { b } from "./b.ts"; import { b as again } from "./b.ts"; console.log(a, b, again);`,
     "a.ts": `import { shared } from "./shared.ts"; export const a: number = shared;`,
-    "b.ts": `import { shared } from "./shared.ts"; import type { GLTSURL } from "@drawcall/glts"; export const b: GLTSURL = shared;`,
+    "b.ts": `import { shared } from "./shared.ts"; import type { GLTSPhase } from "@drawcall/glts"; export const b: number | GLTSPhase = shared;`,
     "shared.ts": `export const shared = 1;`,
   });
   await modules.prepareScript(`${base}scene.glts`);

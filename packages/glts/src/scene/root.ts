@@ -7,7 +7,7 @@ export type GLTSScriptScene = Omit<THREE.Scene, "clone"> & {
   readonly rendering: GLTSRenderingProfile;
 };
 
-export interface GLTSEffectContext {
+interface GLTSEffectContext {
   readonly camera: THREE.Camera;
   readonly height: number;
   readonly scene: GLTSScriptScene;
