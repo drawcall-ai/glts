@@ -39,7 +39,7 @@ it("exports the host and contextual script APIs", () => {
   expectTypeOf<Parameters<GLTSRenderer["render"]>>()
     .toEqualTypeOf<[
       scene: GLTSScene,
-      camera?: THREE.Camera,
+      camera: THREE.Camera,
       delta?: number
     ]>();
   expectTypeOf<GLTSLoader["loadAsync"]>().returns.toEqualTypeOf<Promise<GLTSScene>>();
