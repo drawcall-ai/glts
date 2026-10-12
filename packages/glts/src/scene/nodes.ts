@@ -1,22 +1,42 @@
-import type * as THREE from "three";
+import * as THREE from "three";
 
 import type { Execution } from "./execution.js";
 import { GLTSError, runAll } from "../errors.js";
-import {
-  attachInstanceMethods,
-  createInstanceMatrixMethods,
-  attachSceneMethods
-} from "./methods.js";
 import type { GLTSInstances, GLTSScene } from "../types.js";
+import type { GLTSScriptScene } from "./root.js";
 
-export interface NodeRecord {
-  readonly instances: boolean;
-  readonly isPreview: boolean;
-  readonly matrices: THREE.Matrix4[];
-  readonly node: GLTSScene;
+/** What a load asks for; a reload repeats it. */
+export interface LoadRequest {
   readonly url: string;
+  readonly matrices: THREE.Matrix4[];
+  readonly isPreview: boolean;
+  readonly instances: boolean;
+}
+
+export interface NodeRecord extends LoadRequest {
+  readonly node: GLTSScene;
   disposed: boolean;
   execution: Execution;
+}
+
+// defineProperties cannot change a static type, so these guards narrow the augmented scene.
+function isManagedScene(value: unknown): value is GLTSScene {
+  return (
+    value instanceof THREE.Scene &&
+    "rendering" in value &&
+    typeof Reflect.get(value, "url") === "string" &&
+    typeof Reflect.get(value, "dispose") === "function" &&
+    typeof Reflect.get(value, "update") === "function"
+  );
+}
+
+function isManagedInstances(value: unknown): value is GLTSInstances {
+  return (
+    isManagedScene(value) &&
+    typeof Reflect.get(value, "count") === "number" &&
+    typeof Reflect.get(value, "getMatrixAt") === "function" &&
+    typeof Reflect.get(value, "setMatrixAt") === "function"
+  );
 }
 
 /** Called once when their managed node is disposed. */
@@ -34,34 +54,36 @@ export class ManagedNodes {
   /** Undisposed nodes only. */
   readonly #records = new Map<THREE.Object3D, NodeRecord>();
 
-  createScene(
-    execution: Execution,
-    url: string,
-    isPreview: boolean,
-    matrices: THREE.Matrix4[]
-  ): GLTSScene {
-    const node = attachSceneMethods(execution.scene, url, {
-      dispose: () => this.dispose(node),
-      update: (delta) => this.update(node, delta)
-    });
-    this.#records.set(node, { disposed: false, instances: false, isPreview, matrices, node, execution, url });
+  createScene(execution: Execution, request: LoadRequest): GLTSScene {
+    const node = this.#defineSceneMethods(execution.scene, request.url);
+    this.#records.set(node, { ...request, disposed: false, execution, node });
     return node;
   }
 
-  createInstances(
-    execution: Execution,
-    url: string,
-    isPreview: boolean,
-    matrices: THREE.Matrix4[]
-  ): GLTSInstances {
-    const node = attachInstanceMethods(execution.scene, url, {
-      count: matrices.length,
-      dispose: () => this.dispose(node),
-      ...createInstanceMatrixMethods(() => this.getRecord(node)),
-      update: (delta) => this.update(node, delta)
+  createInstances(execution: Execution, request: LoadRequest): GLTSInstances {
+    const scene = this.#defineSceneMethods(execution.scene, request.url);
+    const matrixAt = (index: number): THREE.Matrix4 => {
+      const matrix = this.#live(scene, request.url).matrices[index];
+      if (!Number.isSafeInteger(index) || !matrix) {
+        throw new RangeError(`GLTS instance index is out of range: ${index}`);
+      }
+      return matrix;
+    };
+    Object.defineProperties(scene, {
+      count: { value: request.matrices.length },
+      getMatrixAt: { value: (index: number, matrix: THREE.Matrix4) => matrix.copy(matrixAt(index)) },
+      setMatrixAt: {
+        value: (index: number, matrix: THREE.Matrix4) => {
+          this.#live(scene, request.url).execution.setMatrixAt(index, matrixAt(index).copy(matrix));
+          return scene;
+        }
+      }
     });
-    this.#records.set(node, { disposed: false, instances: true, isPreview, matrices, node, execution, url });
-    return node;
+    if (!isManagedInstances(scene)) {
+      throw new Error("Unable to create a managed GLTS instances node");
+    }
+    this.#records.set(scene, { ...request, disposed: false, execution, node: scene });
+    return scene;
   }
 
   recordsForURL(url: string): NodeRecord[] {
@@ -69,16 +91,11 @@ export class ManagedNodes {
   }
 
   getRecord(node: GLTSScene): NodeRecord {
-    const record = this.#records.get(node);
-    if (record) {
-      return record;
-    }
-
-    throw new GLTSError("GLTS node has been disposed", { phase: "dispose", url: node.url });
+    return this.#live(node, node.url);
   }
 
-  update(node: GLTSScene, delta: number): void {
-    const record = this.getRecord(node);
+  #update(node: THREE.Object3D, url: string, delta: number): void {
+    const record = this.#live(node, url);
     if (!Number.isFinite(delta) || delta < 0) {
       throw new RangeError("GLTS update delta must be a non-negative finite number");
     }
@@ -112,6 +129,26 @@ export class ManagedNodes {
 
   disposeAll(): void {
     this.#disposeNodes([...this.#records.keys()]);
+  }
+
+  #defineSceneMethods(scene: GLTSScriptScene, url: string): GLTSScene {
+    Object.defineProperties(scene, {
+      dispose: { value: () => this.dispose(scene) },
+      update: { value: (delta: number) => this.#update(scene, url, delta) },
+      url: { value: url }
+    });
+    if (!isManagedScene(scene)) {
+      throw new Error("Unable to create a managed GLTS scene");
+    }
+    return scene;
+  }
+
+  #live(node: THREE.Object3D, url: string): NodeRecord {
+    const record = this.#records.get(node);
+    if (!record) {
+      throw new GLTSError("GLTS node has been disposed", { phase: "dispose", url });
+    }
+    return record;
   }
 
   /** Disposes in order; a node an earlier disposal already disposed is skipped. */

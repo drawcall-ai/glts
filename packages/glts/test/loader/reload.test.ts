@@ -1,28 +1,19 @@
 import { expect, it, vi } from "vitest";
-import { BoxGeometry, Group, InstancedMesh, LoadingManager, Matrix4, Mesh, MeshBasicMaterial } from "three";
+import { BoxGeometry, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial } from "three";
 import { reloadRecords } from "../../src/loader/reload.js";
-import { Construction } from "../../src/loader/construction.js";
 import { ScriptModules } from "../../src/modules/scripts.js";
 import { Execution } from "../../src/scene/execution.js";
 import { ManagedNodes, type NodeRecord } from "../../src/scene/nodes.js";
 import { context } from "../scene/context.js";
 
-async function reload(nodes: ManagedNodes, record: NodeRecord, next: Execution): Promise<void> {
+/** Reloads `record` into `next`, exercising reload orchestration without browser imports. */
+async function reload(record: NodeRecord, next: Execution): Promise<void> {
   const modules = new ScriptModules({
     cdnURL: new URL("https://cdn.test/"),
     fetch: async () => new Response("")
   });
-  const construction = new Construction({
-    contextLoader: (execution) => context(execution).gltsLoader,
-    disposeNodes: (root, owned) => nodes.disposeNested(root, owned),
-    manager: new LoadingManager(),
-    modules,
-    signal: new AbortController().signal
-  });
-  // Exercise reload orchestration with a constructed execution, without browser imports.
-  vi.spyOn(construction, "construct").mockResolvedValue(next);
   try {
-    await reloadRecords(record.url, [record], { construction, modules });
+    await reloadRecords(record.url, [record], modules, async () => next);
   } finally {
     modules.dispose();
   }
@@ -41,7 +32,7 @@ it.each(["node", "registry"])("cleans a replacement when old cleanup disposes it
   const nodes = new ManagedNodes();
   const previous = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
   const next = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
-  const node = nodes.createScene(previous, url, false, matrices);
+  const node = nodes.createScene(previous, { url, matrices, isPreview: false, instances: false });
   const record = nodes.getRecord(node);
   const previousFailure = new Error("Previous cleanup failed");
   const nextFailure = new Error("Replacement cleanup failed");
@@ -58,7 +49,7 @@ it.each(["node", "registry"])("cleans a replacement when old cleanup disposes it
 
   let failure: unknown;
   try {
-    await reload(nodes, record, next);
+    await reload(record, next);
   } catch (error) {
     failure = error;
   }
@@ -85,7 +76,7 @@ it("disposes automatic instance resources once when execution cleanup reenters t
   const material = new MeshBasicMaterial();
   previous.scene.add(new Mesh(geometry, material));
   previous.autoInstance(url);
-  const node = nodes.createInstances(previous, url, false, matrices);
+  const node = nodes.createInstances(previous, { url, matrices, isPreview: false, instances: true });
   const disposed = vi.fn();
   node.traverse((object) => {
     if (object instanceof InstancedMesh) object.addEventListener("dispose", disposed);
@@ -93,7 +84,7 @@ it("disposes automatic instance resources once when execution cleanup reenters t
   context(previous).onDispose(() => node.dispose());
   const next = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
   try {
-    const failure = await reload(nodes, nodes.getRecord(node), next).catch((error: unknown) => error);
+    const failure = await reload(nodes.getRecord(node), next).catch((error: unknown) => error);
     expect(errorCauses(failure).some((error) =>
       error instanceof Error && error.message.includes("disposed during reload")))
       .toBe(true);
@@ -111,7 +102,7 @@ it("runs the previous execution's disposal callbacks with its children still att
   const nodes = new ManagedNodes();
   const previous = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
   const next = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
-  const node = nodes.createScene(previous, url, false, matrices);
+  const node = nodes.createScene(previous, { url, matrices, isPreview: false, instances: false });
   node.add(Object.assign(new Group(), { name: "previous" }));
   next.scene.add(Object.assign(new Group(), { name: "next" }));
   const hooks = context(previous);
@@ -120,7 +111,7 @@ it("runs the previous execution's disposal callbacks with its children still att
     if (object !== hooks.scene) seen.push(object.name);
   }));
 
-  await reload(nodes, nodes.getRecord(node), next);
+  await reload(nodes.getRecord(node), next);
   expect(seen).toEqual(["previous"]);
   expect(node.children.map(({ name }) => name)).toEqual(["next"]);
   nodes.disposeAll();

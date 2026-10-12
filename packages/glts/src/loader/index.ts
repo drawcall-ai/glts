@@ -3,9 +3,9 @@ import { Loader, Matrix4, type LoadingManager } from "three";
 import { cleanUpAndThrow, GLTSError, runAll, toGLTSError } from "../errors.js";
 import { canonicalize } from "../modules/fetch.js";
 import { defaultCDNURL } from "../modules/resolution.js";
-import { ScriptModules } from "../modules/scripts.js";
-import type { Execution } from "../scene/execution.js";
-import { ManagedNodes } from "../scene/nodes.js";
+import { ScriptModules, type LinkedScript } from "../modules/scripts.js";
+import { Execution } from "../scene/execution.js";
+import { ManagedNodes, type LoadRequest } from "../scene/nodes.js";
 import type {
   GLTSErrorCallback,
   GLTSInstances,
@@ -16,17 +16,28 @@ import type {
   GLTSScriptLoader,
   GLTSURL
 } from "../types.js";
-import { Construction } from "./construction.js";
-import { trackItem } from "./loading.js";
+import { LoadingScope, trackItem } from "./loading.js";
 import { URLLocks } from "./locks.js";
 import { reloadRecords } from "./reload.js";
 
-interface LoadRequest {
-  readonly url: string;
-  readonly count: number;
-  readonly isPreview: boolean;
-  readonly instances: boolean;
-  readonly parent: Execution | undefined;
+function nestedFailure(url: string, error: unknown, nested: unknown): GLTSError {
+  const primary = toGLTSError(error, "Unable to execute GLTS script", {
+    phase: "evaluate",
+    url
+  });
+  if (
+    nested instanceof AggregateError &&
+    nested.errors.length === 1 &&
+    nested.errors[0] === error
+  ) {
+    return primary;
+  }
+
+  return new GLTSError(
+    "GLTS execution and nested operation both failed",
+    primary,
+    new AggregateError([primary, nested])
+  );
 }
 
 /** Resolves `url` against the page's base URL; without a page, only an absolute `url` resolves. */
@@ -45,7 +56,6 @@ function pageURL(url: GLTSURL): URL {
 export class GLTSLoader extends Loader {
   readonly #isPreview: boolean;
   readonly #modules: ScriptModules;
-  readonly #construction: Construction;
   readonly #lifetime = new AbortController();
   readonly #locks = new URLLocks();
   readonly #nodes = new ManagedNodes();
@@ -64,13 +74,6 @@ export class GLTSLoader extends Loader {
       cdnURL: pageURL(options.cdnURL ?? defaultCDNURL),
       fetch: (input, init) => this.#fetch(input, init),
       modules: options.modules
-    });
-    this.#construction = new Construction({
-      contextLoader: (owner, scriptURL) => this.#contextLoader(owner, scriptURL),
-      disposeNodes: (root, owned) => this.#nodes.disposeNested(root, owned),
-      manager,
-      modules: this.#modules,
-      signal: this.#lifetime.signal
     });
   }
 
@@ -105,7 +108,7 @@ export class GLTSLoader extends Loader {
   }
 
   async loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances> {
-    return this.#loadInstances(this.#resolveURL(url), count, false);
+    return this.#loadInstances(this.#resolveURL(url), count);
   }
 
   /**
@@ -137,36 +140,36 @@ export class GLTSLoader extends Loader {
   }
 
   #loadScene(url: string, isPreview: boolean, parent?: Execution): Promise<GLTSScene> {
-    return this.#load({ url, count: 1, isPreview, parent, instances: false },
-      (execution, matrices) => this.#nodes.createScene(execution, url, isPreview, matrices));
+    const request = { url, matrices: [new Matrix4()], isPreview, instances: false };
+    return this.#load(request, parent, (execution) => this.#nodes.createScene(execution, request));
   }
 
-  async #loadInstances(url: string, count: number, isPreview: boolean, parent?: Execution): Promise<GLTSInstances> {
+  async #loadInstances(url: string, count: number, parent?: Execution): Promise<GLTSInstances> {
     if (!Number.isSafeInteger(count) || count < 1) {
       throw new RangeError("GLTS instance count must be a positive integer");
     }
-    return this.#load({ url, count, isPreview, parent, instances: true },
-      (execution, matrices) => this.#nodes.createInstances(execution, url, isPreview, matrices));
+    // Instances are never the standalone asset a preview shows.
+    const matrices = Array.from({ length: count }, () => new Matrix4());
+    const request = { url, matrices, isPreview: false, instances: true };
+    return this.#load(request, parent, (execution) => this.#nodes.createInstances(execution, request));
   }
 
   #load<T extends GLTSScene>(
-    { url, count, parent, ...options }: LoadRequest,
-    create: (execution: Execution, matrices: Matrix4[]) => T
+    request: LoadRequest,
+    parent: Execution | undefined,
+    create: (execution: Execution) => T
   ): Promise<T> {
+    const { url } = request;
     // A nested load may pass a queued write so its parent, which holds a read, can finish.
     const lock = parent ? this.#locks.acquireReadBeforeQueuedWrite(url) : this.#locks.acquireRead(url);
     return this.#locked(lock, () => trackItem(this.manager, url, this.#lifetime.signal, async () => {
-      const script = await this.#modules.getScript(url);
-      const matrices = Array.from({ length: count }, () => new Matrix4());
-      const execution = await this.#construction.construct(script, {
-        ...options, matrices, parent, requestedURL: url
-      });
+      const execution = await this.#construct(await this.#modules.getScript(url), request, parent);
       try {
         this.#lifetime.signal.throwIfAborted();
-        return create(execution, matrices);
+        return create(execution);
       } catch (error) {
         cleanUpAndThrow(
-          toGLTSError(error, `Unable to construct GLTS ${options.instances ? "instances" : "scene"}`, {
+          toGLTSError(error, `Unable to construct GLTS ${request.instances ? "instances" : "scene"}`, {
             phase: "construct", url
           }),
           url,
@@ -176,6 +179,46 @@ export class GLTSLoader extends Loader {
     }, (node) => node.dispose()));
   }
 
+  /** Runs `script` for `request` and waits for its nested loads and resources. */
+  async #construct(script: LinkedScript, request: LoadRequest, parent?: Execution): Promise<Execution> {
+    const signal = this.#lifetime.signal;
+    signal.throwIfAborted();
+    const execution = new Execution(
+      request.matrices,
+      [request.url, script.url],
+      (root, owned) => this.#nodes.disposeNested(root, owned),
+      parent
+    );
+    const scope = new LoadingScope(this.manager, script.url);
+    const cancel = (): void => scope.cancel(signal.reason);
+    signal.addEventListener("abort", cancel);
+    try {
+      await this.#modules.evaluate(script, execution.context({
+        gltsLoader: this.#contextLoader(execution, script.url),
+        isPreview: request.isPreview,
+        loadingManager: scope.manager
+      }));
+      await execution.nested.finish();
+      execution.nested.assertAttached(execution.scene);
+      await scope.waitAndClose();
+      if (request.instances) {
+        execution.autoInstance(script.url);
+      }
+      return execution;
+    } catch (error) {
+      let failure = error;
+      scope.cancel(failure);
+      try {
+        await execution.nested.finish();
+      } catch (nested) {
+        failure = nestedFailure(script.url, failure, nested);
+      }
+      cleanUpAndThrow(failure, script.url, () => execution.dispose());
+    } finally {
+      signal.removeEventListener("abort", cancel);
+    }
+  }
+
   #reloadScript(url: string): Promise<void> {
     return this.#locked(this.#locks.acquireWrite(url), async () => {
       // The write lock lets pending loads finish before their source is invalidated.
@@ -183,7 +226,7 @@ export class GLTSLoader extends Loader {
       const records = this.#nodes.recordsForURL(url);
       if (records.length === 0) return;
       await trackItem(this.manager, url, this.#lifetime.signal, () =>
-        reloadRecords(url, records, { construction: this.#construction, modules: this.#modules }));
+        reloadRecords(url, records, this.#modules, (script, request) => this.#construct(script, request)));
     });
   }
 
@@ -206,8 +249,7 @@ export class GLTSLoader extends Loader {
     };
     return {
       loadAsync: (url) => owner.nested.own(this.#loadScene(resolve(url), false, owner)),
-      loadInstancesAsync: (url, count) =>
-        owner.nested.own(this.#loadInstances(resolve(url), count, false, owner))
+      loadInstancesAsync: (url, count) => owner.nested.own(this.#loadInstances(resolve(url), count, owner))
     };
   }
 

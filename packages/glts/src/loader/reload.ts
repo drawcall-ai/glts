@@ -1,36 +1,31 @@
 import { cleanUpAndThrow, GLTSError, runAll } from "../errors.js";
-import { copyRootState } from "../scene/root.js";
-import type { NodeRecord } from "../scene/nodes.js";
+import type { LinkedScript, ScriptModules } from "../modules/scripts.js";
 import type { Execution } from "../scene/execution.js";
-import type { ScriptModules } from "../modules/scripts.js";
-import type { Construction } from "./construction.js";
+import type { LoadRequest, NodeRecord } from "../scene/nodes.js";
+import { copyRootState } from "../scene/root.js";
 
-interface ReloadContext {
-  readonly construction: Construction;
-  readonly modules: ScriptModules;
-}
+type Construct = (script: LinkedScript, request: LoadRequest) => Promise<Execution>;
 
 interface Replacement {
-  readonly replacement: Execution;
   readonly record: NodeRecord;
+  readonly execution: Execution;
 }
 
+/**
+ * Constructs a replacement execution for every record from a fresh fetch of `url`, then commits the
+ * source and swaps the replacements in.
+ */
 export async function reloadRecords(
   url: string,
   records: readonly NodeRecord[],
-  { construction, modules }: ReloadContext
+  modules: ScriptModules,
+  construct: Construct
 ): Promise<void> {
   const script = await modules.fetchScript(url);
   const replacements: Replacement[] = [];
   try {
     for (const record of records) {
-      const replacement = await construction.construct(script, {
-        matrices: record.matrices,
-        isPreview: record.isPreview,
-        instances: record.instances,
-        requestedURL: url
-      });
-      replacements.push({ replacement, record });
+      replacements.push({ record, execution: await construct(script, record) });
     }
     const disposed = records.find((record) => record.disposed);
     if (disposed) {
@@ -39,19 +34,19 @@ export async function reloadRecords(
   } catch (error) {
     cleanUpAndThrow(error, url, () => runAll(
       "GLTS reload discard failed",
-      replacements.map(({ replacement }) => () => replacement.dispose())
+      replacements.map(({ execution }) => () => execution.dispose())
     ));
   }
 
   modules.commitScript(url, script);
   try {
-    runAll("GLTS reload commit failed", replacements.map(({ replacement, record }) => () => {
+    runAll("GLTS reload commit failed", replacements.map(({ record, execution }) => () => {
       // An earlier replacement's cleanup may have disposed this node.
       if (record.disposed) {
-        replacement.dispose();
+        execution.dispose();
         return;
       }
-      replaceExecution(record, replacement);
+      replaceExecution(record, execution);
     }));
   } catch (error) {
     throw new GLTSError("Reload committed, but cleanup failed", { phase: "dispose", url }, error);
@@ -60,7 +55,7 @@ export async function reloadRecords(
 
 function replaceExecution(record: NodeRecord, replacement: Execution): void {
   runAll("GLTS execution replacement failed", [
-    // The node keeps its children until the previous execution's disposal callbacks have run.
+    // Disposed with its children, so disposal callbacks see the scene as they do on dispose().
     () => record.execution.dispose(record.node),
     () => {
       // The previous execution's disposal callbacks may have disposed the node.
