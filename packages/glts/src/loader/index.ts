@@ -105,7 +105,7 @@ export class GLTSLoader extends Loader {
   }
 
   async loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances> {
-    return this.#loadInstances(this.#resolveURL(url), count, this.#isPreview);
+    return this.#loadInstances(this.#resolveURL(url), count, false);
   }
 
   /**

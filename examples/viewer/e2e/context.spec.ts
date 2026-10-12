@@ -57,7 +57,7 @@ test("returns the authored scene and runs contextual lifecycle hooks", async ({ 
   });
 });
 
-test("enables preview only for the root across recursion and reload", async ({ page }) => {
+test("enables preview only for a root scene across recursion and reload, never for instances", async ({ page }) => {
   await routeGLTS(page, "**/assets/parent.glts", `
     import { gltsLoader, isPreview, scene } from "@drawcall/glts"
     globalThis.__parentContextLoader = gltsLoader
@@ -77,6 +77,11 @@ test("enables preview only for the root across recursion and reload", async ({ p
   await routeGLTS(page, "**/assets/grandchild.glts", `
     import { isPreview, scene } from "@drawcall/glts"
     scene.name = "grandchild"
+    scene.userData.preview = isPreview
+  `);
+  await routeGLTS(page, "**/assets/preview-instances.glts", `
+    import { isPreview, onMatrixUpdateAt, scene } from "@drawcall/glts"
+    onMatrixUpdateAt(() => {})
     scene.userData.preview = isPreview
   `);
 
@@ -108,8 +113,10 @@ test("enables preview only for the root across recursion and reload", async ({ p
     };
     parent.dispose();
     const childDisposed = Reflect.get(globalThis, "__childDisposed");
+    const instances = await loader.loadInstancesAsync("/assets/preview-instances.glts", 2);
+    const instancesPreview = instances.userData.preview;
     loader.dispose();
-    return { ...initial, childDisposed, reloaded };
+    return { ...initial, childDisposed, instancesPreview, reloaded };
   });
 
   expect(result).toEqual({
@@ -117,6 +124,7 @@ test("enables preview only for the root across recursion and reload", async ({ p
     childName: "child",
     childPreview: false,
     grandchildPreview: false,
+    instancesPreview: false,
     completed: ["/assets/child.glts", "/assets/grandchild.glts", "/assets/parent.glts"],
     parentPreview: true,
     reloaded: {
