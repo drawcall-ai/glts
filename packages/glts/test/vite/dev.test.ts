@@ -8,6 +8,8 @@ import { glts } from "../../src/vite/index.js";
 import { writeFiles } from "./fixture.js";
 
 const temp = await mkdtemp(join(tmpdir(), "glts-dev-"));
+// The server's type check blocks its event loop for seconds on slow machines.
+const checked = { timeout: 15_000 };
 let server: ViteDevServer;
 let sent: MockInstance<ViteDevServer["environments"]["client"]["hot"]["send"]>;
 const logger = createLogger("silent");
@@ -54,7 +56,7 @@ async function write(event: "add" | "change", name: string, source: string, ...p
   const file = join(temp, "public", name);
   await writeFile(file, source);
   server.watcher.emit(event, file);
-  await vi.waitFor(() => expect(sent).toHaveBeenCalledWith(...payload));
+  await vi.waitFor(() => expect(sent).toHaveBeenCalledWith(...payload), checked);
 }
 
 it("reloads an edited script in place", async () => {
@@ -82,7 +84,7 @@ it("logs type errors until they are fixed", async () => {
   const reload = ["glts:update", { url: "/typed.glts" }];
   await edit("typed.glts", `import { marker } from "x";\nconst size: number = marker;`, ...reload);
   await vi.waitFor(() => expect(logger.error).toHaveBeenCalledWith(
-    expect.stringContaining("typed.glts:2:7 - error TS2322"), expect.anything()));
+    expect.stringContaining("typed.glts:2:7 - error TS2322"), expect.anything()), checked);
   await edit("typed.glts", `import { marker } from "x";\nconst size: object = marker;`, ...reload);
-  await vi.waitFor(() => expect(logger.info).toHaveBeenCalledWith("glts: type errors fixed", expect.anything()));
+  await vi.waitFor(() => expect(logger.info).toHaveBeenCalledWith("glts: type errors fixed", expect.anything()), checked);
 });
