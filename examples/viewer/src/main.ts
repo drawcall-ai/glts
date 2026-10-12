@@ -1,3 +1,5 @@
+// Viewer example: run `pnpm dev` from the repo root. Opens a trusted .glts file by drop
+// or file picker, and the bundled racecar, composed from sibling .glts files.
 import { GLTSLoader, type GLTSScene } from "@drawcall/glts";
 import "@fontsource-variable/newsreader";
 import { LoadingManager } from "three";
