@@ -3,13 +3,16 @@ import type { Pass } from "three/addons/postprocessing/Pass.js";
 
 import { cleanUpAndThrow, runAll } from "../errors.js";
 import type { GLTSScene } from "../types.js";
+import { onNodeDispose } from "../scene/nodes.js";
 import type { GLTSEffect } from "../scene/root.js";
 
 interface EffectSet {
   readonly camera: THREE.Camera;
   readonly factories: readonly GLTSEffect[];
+  /** Compared by identity, so a reload, which copies the array, rebuilds passes of unchanged factories. */
   readonly source: GLTSEffect[];
   readonly passes: Pass[];
+  readonly removeListener: () => void;
 }
 
 function disposePasses(passes: readonly Pass[]): void {
@@ -46,11 +49,10 @@ export class Effects {
     try {
       this.#renderer.setEffects(passes);
       if (!this.#effectsSupported) {
-        this.#effects.delete(scene);
         cleanUpAndThrow(
           new Error("GLTS effects require a WebGLRenderer constructed with GLTSRenderer.parameters"),
           scene.url,
-          () => disposePasses(passes)
+          () => this.#release(scene)
         );
       }
       this.#renderer.render(scene, camera);
@@ -65,26 +67,25 @@ export class Effects {
     }
   }
 
-  release(scene: GLTSScene): void {
+  dispose(): void {
+    runAll("GLTS effects disposal failed", [...this.#effects.keys()].map((scene) => () => this.#release(scene)));
+  }
+
+  #release(scene: GLTSScene): void {
     const effects = this.#effects.get(scene);
     if (!effects) {
       return;
     }
     this.#effects.delete(scene);
+    effects.removeListener();
     disposePasses(effects.passes);
-  }
-
-  dispose(): void {
-    const passes = [...this.#effects.values()].flatMap((effects) => effects.passes);
-    this.#effects.clear();
-    disposePasses(passes);
   }
 
   #refreshPasses(scene: GLTSScene, camera: THREE.Camera): Pass[] {
     const factories = scene.rendering.effects;
     const current = this.#effects.get(scene);
     if (factories.length === 0) {
-      this.release(scene);
+      this.#release(scene);
       return [];
     }
     if (
@@ -97,10 +98,7 @@ export class Effects {
       return current.passes;
     }
 
-    if (current) {
-      this.#effects.delete(scene);
-      disposePasses(current.passes);
-    }
+    this.#release(scene);
 
     const size = this.#renderer.getDrawingBufferSize(this.#size);
     const passes: Pass[] = [];
@@ -132,6 +130,7 @@ export class Effects {
       camera,
       factories: factories.slice(),
       passes,
+      removeListener: onNodeDispose(scene, () => this.#release(scene)),
       source: factories
     });
     return passes;

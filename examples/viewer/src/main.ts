@@ -85,14 +85,6 @@ function selectButton(url?: string): void {
   );
 }
 
-function disposeScene(scene: GLTSScene): void {
-  try {
-    preview.release(scene);
-  } finally {
-    scene.dispose();
-  }
-}
-
 async function openScene(url: string, name: string, showcase?: Showcase): Promise<void> {
   if (fileInput.disabled) return;
 
@@ -119,7 +111,7 @@ async function openScene(url: string, name: string, showcase?: Showcase): Promis
   );
   if (previous) {
     try {
-      disposeScene(previous);
+      previous.dispose();
     } catch (error) {
       console.error(error);
       showStatus(`Opened ${name}, but cleanup failed. ${errorMessage(error)}`, "error");

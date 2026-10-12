@@ -19,6 +19,17 @@ export interface NodeRecord {
   execution: Execution;
 }
 
+/** Called once when their managed node is disposed. */
+const disposeListeners = new WeakMap<THREE.Object3D, Set<() => void>>();
+
+/** Calls `listener` when the managed `node` is disposed; returns a function that removes it. */
+export function onNodeDispose(node: THREE.Object3D, listener: () => void): () => void {
+  const listeners = disposeListeners.get(node) ?? new Set();
+  disposeListeners.set(node, listeners);
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 export class ManagedNodes {
   /** Undisposed nodes only. */
   readonly #records = new Map<THREE.Object3D, NodeRecord>();
@@ -93,7 +104,9 @@ export class ManagedNodes {
 
     record.disposed = true;
     this.#records.delete(node);
-    record.execution.dispose(node);
+    const listeners = [...disposeListeners.get(node) ?? []];
+    disposeListeners.delete(node);
+    runAll("GLTS node disposal failed", [() => record.execution.dispose(node), ...listeners]);
   }
 
   disposeNested(root: THREE.Object3D, owned: readonly GLTSScene[]): void {

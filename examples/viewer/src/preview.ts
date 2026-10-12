@@ -105,9 +105,6 @@ export function createPreview(
       current = scene;
       renderFailure = undefined;
       setCamera(scene, target);
-    },
-    release(scene: GLTSScene): void {
-      gltsRenderer.release(scene);
     }
   };
 }

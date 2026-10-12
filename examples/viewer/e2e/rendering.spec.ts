@@ -132,9 +132,8 @@ test("applies authored rendering without taking ownership of the host renderer o
     }
     renderer.setViewport(0, 0, 32, 24);
 
-    gltsRenderer.release(scene);
-    const finalDisposals = Reflect.get(globalThis, "__effectDisposals");
     gltsRenderer.dispose();
+    const finalDisposals = Reflect.get(globalThis, "__effectDisposals");
     const replacementRenderer = new window.GLTSRenderer(renderer);
     replacementRenderer.dispose();
 
@@ -313,7 +312,7 @@ test("reloads native scene presentation into the stable root", async ({ page }) 
   });
 });
 
-test("rebuilds effects after reload and recovers after a pass throws", async ({
+test("rebuilds effects after reload, recovers after a pass throws, and frees them with the node", async ({
   page
 }) => {
   const source = `
@@ -377,7 +376,7 @@ test("rebuilds effects after reload and recovers after a pass throws", async ({
       disposals: Reflect.get(globalThis, "__stableEffectDisposals"),
       firstError
     };
-    gltsRenderer.release(scene);
+    scene.dispose();
     const finalDisposals = Reflect.get(globalThis, "__stableEffectDisposals");
 
     const invalid = await loader.loadAsync("/assets/invalid-effect.glts");
@@ -389,7 +388,6 @@ test("rebuilds effects after reload and recovers after a pass throws", async ({
     }
     invalid.dispose();
     gltsRenderer.dispose();
-    scene.dispose();
     loader.dispose();
     renderer.dispose();
     return { ...snapshot, finalDisposals, invalidError };

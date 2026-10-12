@@ -120,10 +120,6 @@ export class GLTSRenderer {
     return renderTarget;
   }
 
-  release(scene: GLTSScene): void {
-    this.#effects.release(scene);
-  }
-
   dispose(): void {
     if (this.#disposed) {
       return;
