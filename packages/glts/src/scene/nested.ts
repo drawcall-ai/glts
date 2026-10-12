@@ -1,6 +1,6 @@
 import type * as THREE from "three";
 
-import { cleanUpAndThrow, GLTSError } from "../errors.js";
+import { GLTSError } from "../errors.js";
 import type { GLTSScene } from "../types.js";
 
 export class NestedLoads {
@@ -12,10 +12,6 @@ export class NestedLoads {
 
   constructor(urls: readonly string[], parent?: NestedLoads) {
     this.#ancestors = new Set([...(parent ? parent.#ancestors : []), ...urls]);
-  }
-
-  get closed(): boolean {
-    return !this.#accepting;
   }
 
   close(): void {
@@ -39,16 +35,9 @@ export class NestedLoads {
     }
   }
 
-  /** Tracks a nested load and owns its node; a node arriving after close is disposed. */
+  /** Tracks a nested load and owns its node. */
   own<T extends GLTSScene>(loading: Promise<T>): Promise<T> {
     return this.#track(loading.then((node) => {
-      if (!this.#accepting) {
-        cleanUpAndThrow(
-          new GLTSError("Nested GLTS load completed after its parent closed", { phase: "dispose", url: node.url }),
-          node.url,
-          () => node.dispose()
-        );
-      }
       this.#nodes.add(node);
       return node;
     }));
@@ -58,15 +47,16 @@ export class NestedLoads {
     return [...this.#nodes];
   }
 
-  /** Waits for every tracked load, closes, and throws their failures. */
+  /** Waits for every tracked load, closes, and throws their failures once. */
   async finish(): Promise<void> {
     while (this.#pending.size > 0) {
       await Promise.allSettled([...this.#pending]);
     }
 
     this.close();
-    if (this.#failures.length > 0) {
-      throw new AggregateError(this.#failures, "Nested GLTS operation failed");
+    const failures = this.#failures.splice(0);
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Nested GLTS operation failed");
     }
   }
 

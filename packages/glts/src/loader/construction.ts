@@ -84,12 +84,10 @@ export class Construction {
     } catch (error) {
       let failure = error;
       scope.cancel(failure);
-      if (!execution.nested.closed) {
-        try {
-          await execution.nested.finish();
-        } catch (nested) {
-          failure = nestedFailure(script.url, failure, nested);
-        }
+      try {
+        await execution.nested.finish();
+      } catch (nested) {
+        failure = nestedFailure(script.url, failure, nested);
       }
       cleanUpAndThrow(failure, script.url, () => execution.dispose());
     } finally {
