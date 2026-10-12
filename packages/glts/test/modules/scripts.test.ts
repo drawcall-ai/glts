@@ -29,8 +29,7 @@ it("prepares a script's helpers once each and tracks the script as their depende
     "b.ts": `import { shared } from "./shared.ts"; import type { GLTSURL } from "@drawcall/glts"; export const b: GLTSURL = shared;`,
     "shared.ts": `export const shared = 1;`,
   });
-  const script = await modules.prepareScript(`${base}scene.glts`);
-  expect([...script.imports.keys()]).toEqual(["./a.ts", "./b.ts"]);
+  await modules.prepareScript(`${base}scene.glts`);
   expect(requests.sort()).toEqual(["a.ts", "b.ts", "scene.glts", "shared.ts"]);
   expect(modules.dependents(`${base}shared.ts`)).toEqual([`${base}scene.glts`]);
   expect(modules.dependents(`${base}other.ts`)).toEqual([]);

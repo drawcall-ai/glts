@@ -2,17 +2,16 @@ import type { ScriptContext } from "../scene/execution.js";
 import { GLTSError, toGLTSError } from "../errors.js";
 import { ExternalModules } from "./external.js";
 import { canonicalize, fetchSource } from "./fetch.js";
-import { importSpecifiers, rewriteModule } from "./rewrite.js";
+import { rewriteModule } from "./rewrite.js";
 import { ModuleBridge } from "./bridge.js";
 import { compileHelper, compileScript } from "./compiler.js";
 import { assertScriptImport, helperURL } from "./resolution.js";
 import type { GLTSFetch, GLTSModules } from "../types.js";
 
 export interface CompiledScript {
-  readonly source: string;
   readonly url: string;
-  /** Module URLs by specifier, for every import but `@drawcall/glts`, which each execution binds. */
-  readonly imports: ReadonlyMap<string, string>;
+  /** The module source, its imports linked but `@drawcall/glts`, which each execution binds. */
+  readonly source: string;
 }
 
 /** The helpers of one script source being prepared. */
@@ -70,24 +69,7 @@ export class ScriptModules {
 
   async executeScript(script: CompiledScript, context: ScriptContext): Promise<void> {
     const contextModule = this.bridge.createContextModule(context);
-    let transformed: string;
-    try {
-      transformed = await rewriteModule({ source: script.source, url: script.url, importChain: [script.url] }, async (specifier) => {
-        if (specifier === "@drawcall/glts") return contextModule.url;
-        const url = script.imports.get(specifier);
-        if (!url) throw new Error(`Import was not prepared: ${specifier}`);
-        return url;
-      });
-    } catch (error) {
-      contextModule.release();
-      throw toGLTSError(error, "Unable to transform GLTS script", {
-        importChain: [script.url],
-        phase: "transform",
-        url: script.url,
-      });
-    }
-
-    const moduleURL = this.bridge.moduleURLs.create(transformed);
+    const moduleURL = this.bridge.moduleURLs.create(script.source.replaceAll(this.bridge.contextToken, contextModule.url));
     try {
       // Blob URLs are resolved by the browser at runtime, never by a bundler.
       await import(/* @vite-ignore */ /* webpackIgnore: true */ moduleURL);
@@ -111,20 +93,14 @@ export class ScriptModules {
     const urls = this.scriptHelpers.get(requestedURL) ?? new Set<string>();
     this.scriptHelpers.set(requestedURL, urls);
     const linking: Linking = { modules: new Map(), urls };
-    const imports = new Map<string, string>();
+    const importChain = [url];
     try {
-      for (const specifier of importSpecifiers({ source: compiled, url, importChain: [url] })) {
-        if (specifier === "@drawcall/glts" || imports.has(specifier)) continue;
-        imports.set(specifier, await this.prepareImport(specifier, url, [url], linking));
-      }
+      const linked = await rewriteModule({ source: compiled, url, importChain }, async (specifier) =>
+        specifier === "@drawcall/glts" ? this.bridge.contextToken : this.prepareImport(specifier, url, importChain, linking));
+      return { url, source: linked };
     } catch (error) {
-      throw toGLTSError(error, "Unable to transform GLTS script", {
-        importChain: [url],
-        phase: "transform",
-        url,
-      });
+      throw toGLTSError(error, "Unable to transform GLTS script", { importChain, phase: "transform", url });
     }
-    return { source: compiled, url, imports };
   }
 
   private async prepareImport(

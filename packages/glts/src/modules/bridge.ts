@@ -22,6 +22,8 @@ export class ModuleBridge {
   readonly #hostModules = new Map<string, HostModule>();
   readonly #contexts = new Map<number, ScriptContext>();
   readonly #bridgeKey = nextBridgeKey();
+  /** Stands in for `@drawcall/glts` in a prepared script until an execution creates its context module. */
+  readonly contextToken = `glts-context:${this.#bridgeKey}`;
   #contextSequence = 0;
 
   constructor(modules: GLTSModules = {}) {
