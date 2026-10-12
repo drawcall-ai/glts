@@ -7,16 +7,16 @@ test("rejects exports and invalid imports at their owning boundaries", async ({ 
   await routeGLTS(
     page,
     "**/assets/class-import.glts",
-    'import { GLTSLoader } from "@drawcall/glts"'
+    'import { GLTSLoader } from "@drawcall/glts"; console.log(GLTSLoader)'
   );
   await routeGLTS(
     page,
     "**/assets/static-import.glts",
-    'import Child from "./child.glts"'
+    'import Child from "./child.glts"; console.log(Child)'
   );
 
-  await routeGLTS(page, "**/assets/missing-import.glts", 'import { missing } from "@drawcall/glts"');
-  await routeGLTS(page, "**/assets/default-import.glts", 'import glts from "@drawcall/glts"');
+  await routeGLTS(page, "**/assets/missing-import.glts", 'import { missing } from "@drawcall/glts"; console.log(missing)');
+  await routeGLTS(page, "**/assets/default-import.glts", 'import glts from "@drawcall/glts"; console.log(glts)');
 
   await page.goto("/test-harness.html");
   const errors = await page.evaluate(async () => {

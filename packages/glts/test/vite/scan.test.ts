@@ -16,13 +16,17 @@ it("collects the runtime package imports scripts do not get from the loader", as
       import * as THREE from "three";
       import { scene } from "@drawcall/glts";
       import type { Options } from "typed";
-      import { type Other } from "kept-for-side-effects";
+      import { type Other } from "elided";
+      import { Options as Same } from "elided-too";
+      import "side-effect";
+      const options: Same | Other | undefined = undefined;
       import noise from "simplex-noise@4";
       import remote from "https://cdn.test/remote.js";
+      console.log(THREE, scene, noise, remote, options);
     `,
   });
   const { specifiers } = await scan(`${temp}/imports`);
-  expect(specifiers).toEqual(["kept-for-side-effects", "simplex-noise@4"]);
+  expect(specifiers).toEqual(["side-effect", "simplex-noise@4"]);
 });
 
 it("scans nested scripts once per import", async () => {
@@ -46,7 +50,7 @@ it("follows helpers to the packages they import", async () => {
 });
 
 it("rejects local imports the loader would reject, which the type check resolves", async () => {
-  await writeFiles(temp, { "extension/scene.glts": `import { tube } from "./geometry.js"`, "extension/geometry.ts": `` });
+  await writeFiles(temp, { "extension/scene.glts": `import { tube } from "./geometry.js"; tube()`, "extension/geometry.ts": `` });
   await expect(scan(`${temp}/extension`)).rejects.toThrow("Unsupported local import: ./geometry.js");
 });
 

@@ -5,9 +5,9 @@ import { transform } from "sucrase";
 
 import { GLTSError, toGLTSError } from "../errors.js";
 
-/** Strips types, keeping every import as written, as TypeScript's verbatimModuleSyntax does. */
+/** Strips types and, as TypeScript does, imports used only as types. */
 function stripTypes(source: string): string {
-  return transform(source, { disableESTransforms: true, keepUnusedImports: true, transforms: ["typescript"] }).code;
+  return transform(source, { disableESTransforms: true, transforms: ["typescript"] }).code;
 }
 
 export function compileScript(source: string, url: string): string {

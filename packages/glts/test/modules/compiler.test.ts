@@ -119,12 +119,14 @@ describe("compileScript", () => {
   });
 });
 
-it("keeps imports as written, even ones used only as types", () => {
+it("drops imports used only as types, as TypeScript does", () => {
   const compiled = compileScript(`
     import { Options, merge } from "./geometry.ts"
     import { type Other } from "./other.ts"
-    const options: Options = merge()
+    import "./side-effect.ts"
+    const options: Options | Other = merge()
   `, url);
-  expect(compiled).toContain('import { Options, merge } from "./geometry.ts"');
-  expect(compiled).toContain('from "./other.ts"');
+  expect(compiled).toContain('import { merge } from "./geometry.ts"');
+  expect(compiled).not.toContain("./other.ts");
+  expect(compiled).toContain('import "./side-effect.ts"');
 });

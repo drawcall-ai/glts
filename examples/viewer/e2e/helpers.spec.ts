@@ -8,9 +8,10 @@ test("runs helpers, shares them within a script, and reloads their scripts when 
       "/assets/scene.glts": () => `
         import * as THREE from "three"
         import { onDispose, scene } from "@drawcall/glts"
-        import { box, registry } from "./parts/box.ts"
+        import { box, registry, Size } from "./parts/box.ts"
         import { registry as same } from "./registry.ts"
-        const mesh = box(2)
+        const size: Size = 2
+        const mesh = box(size)
         scene.add(mesh)
         scene.userData.shared = registry === same
         scene.userData.three = mesh instanceof THREE.Mesh
@@ -24,6 +25,7 @@ test("runs helpers, shares them within a script, and reloads their scripts when 
       "/assets/parts/box.ts": () => `
         import * as THREE from "three"
         export { registry } from "../registry.ts"
+        export type Size = number
         export const label: string = "box v${version}"
         export function box(size: number): THREE.Mesh {
           const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size))

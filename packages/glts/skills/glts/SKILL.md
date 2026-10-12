@@ -44,7 +44,6 @@ Rules:
 
 - Export nothing, including types and interfaces.
 - Do not import `GLTSLoader`, `GLTSRenderer`, or any other runtime value from `@drawcall/glts`; type-only imports are fine.
-- Imports run as written: import types with `import type`, or the browser fails to find them. An inline `type` (`import { type X } from "pkg"`) still loads `pkg`.
 - Import `three`, `three/addons/*`, browser-compatible npm packages, full `https://` module URLs, or helpers (see Helpers).
 - Never import `.glts` files statically, or other local files such as `./data.json`; never use dynamic `import()` or import attributes.
 - Top-level `await` works.
@@ -140,7 +139,7 @@ onDispose(() => {
 ```
 
 - A helper may export anything and import what a script can, including other helpers.
-- Helpers cannot import `@drawcall/glts` at runtime: import its types with `import type`, and pass what a helper needs, such as `loadingManager`, from the script.
+- Helpers cannot import runtime values from `@drawcall/glts`; types are fine. Pass what a helper needs, such as `loadingManager`, from the script.
 - A helper has no `onDispose`. Return what it creates and dispose it in the script.
 - Keep no module-level state in helpers. Each script gets its own instance of each helper, shared by its imports and nodes, so other scripts do not see that state, and the browser keeps it after disposal.
 - `import.meta.url` in a helper is the helper's own URL.
@@ -338,8 +337,7 @@ Needs `vite` 6 or later and Node.js 22.17 or later. It works on the `.glts` file
 Type checking: the plugin type checks the public `.glts` files and their helpers strictly, independently of the app's `tsconfig.json`, using the app's `typescript` 5 or 6; install it as a dev dependency, or `vite build` fails.
 
 - Type errors fail `vite build`. During development they print in the terminal and hot reload continues.
-- Only installed packages are typed: CDN packages and `https://` imports are untyped and cannot be used as types, and `import type` (never fetched) needs the package installed.
-- Importing a type as a value is an error.
+- Only installed packages are typed: CDN packages and `https://` imports are untyped and cannot be used as types. Imports used only as types are never fetched, so they need the package installed.
 
 ## Verify
 

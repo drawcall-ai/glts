@@ -37,8 +37,6 @@ export async function check(scripts: readonly string[]): Promise<string | undefi
     allowNonTsExtensions: true,
     // Helpers are imported by their URL, extension included.
     allowImportingTsExtensions: true,
-    // The loader keeps imports as written, so a type imported as a value would fail at runtime.
-    verbatimModuleSyntax: true,
   };
   const host = ts.createCompilerHost(options);
   const { getSourceFile, readFile } = host;

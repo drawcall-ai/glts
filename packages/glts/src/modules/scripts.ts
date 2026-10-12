@@ -143,7 +143,7 @@ export class ScriptModules {
       rewritten = await rewriteModule({ source, url: fetched.url, importChain }, async (specifier) => {
         if (specifier === "@drawcall/glts") {
           throw new GLTSError(
-            "Helpers cannot import @drawcall/glts at runtime; use import type for its types and pass values from the script",
+            "Helpers cannot import runtime values from @drawcall/glts; pass them from the script",
             { importChain, phase: "resolve", url: fetched.url },
           );
         }

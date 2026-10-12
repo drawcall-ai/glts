@@ -22,7 +22,7 @@ beforeAll(async () => {
     "node_modules/x/index.d.ts": `export declare const marker: object;`,
     "public/scene.glts": `import { marker } from "x";`,
     "public/typed.glts": `import { marker } from "x";`,
-    "public/helped.glts": `import { value } from "./helper.ts"; import "x";`,
+    "public/helped.glts": `import { value } from "./helper.ts"; import "x"; console.log(value);`,
     "public/helper.ts": `export const value = 1;`,
   });
   server = await createServer({
