@@ -1,42 +1,34 @@
-import { relative, resolve } from "node:path";
-import { normalizePath, type DevEnvironment, type ErrorPayload, type Plugin } from "vite";
+import { readFileSync } from "node:fs";
+import { findPackageJSON } from "node:module";
+import { extname, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
+import { normalizePath, type DevEnvironment, type Plugin } from "vite";
 
-import { isBareSpecifier, packageURL } from "../modules/resolution.js";
+import { defaultCDNURL, isBareSpecifier, packageURL } from "../modules/resolution.js";
 import type { GLTSURL } from "../types.js";
-import { checker } from "./check.js";
-import { appDependencies, packageName, scan, type Scan, type ScanOptions } from "./scan.js";
+import { check } from "./check.js";
+import { scan, type Scan } from "./scan.js";
 
 /** Replaces app imports of @drawcall/glts. */
 const loaderId = "\0glts:loader";
 const modulesId = "\0glts:modules";
 /** Prefixes CDN URLs, so Vite serves and bundles the fetched code like any other module. */
 const cdnPrefix = "\0glts:cdn:";
+const cdnId = (url: string): string => cdnPrefix + url;
+const cdnURL = (id: string): string | undefined => id.startsWith(cdnPrefix) ? id.slice(cdnPrefix.length) : undefined;
 
-function loaderSource(cdnURL: string): string {
+function loaderSource(cdn: string): string {
   return `
 import { GLTSLoader as Loader } from "@drawcall/glts";
 import modules from "virtual:glts-modules";
 export * from "@drawcall/glts";
 
-// Fixed scripts close the overlay only while it shows their type errors.
-let typeErrorShown = false;
-import.meta.hot?.on("vite:error", ({ err }) => { typeErrorShown = err.plugin === "glts"; });
-// Vite reloads the page on an app update while an overlay is open; type errors must not cost HMR.
-import.meta.hot?.on("vite:beforeUpdate", () => {
-  if (typeErrorShown) document.querySelector("vite-error-overlay")?.close();
-});
-import.meta.hot?.on("glts:fixed", () => {
-  if (typeErrorShown) document.querySelector("vite-error-overlay")?.close();
-  typeErrorShown = false;
-});
-// Vite resends an error only to the first page that connects.
-import.meta.hot?.send("glts:ready");
-
 export class GLTSLoader extends Loader {
   #update = ({ url }) => void this.reload(new URL(url, location.href));
 
   constructor(manager, options = {}) {
-    super(manager, { cdnURL: ${JSON.stringify(cdnURL)}, ...options, modules: { ...modules, ...options.modules } });
+    super(manager, { cdnURL: ${JSON.stringify(cdn)}, ...options, modules: { ...modules, ...options.modules } });
     import.meta.hot?.on("glts:update", this.#update);
   }
 
@@ -55,75 +47,72 @@ function modulesSource(specifiers: readonly string[]): string {
   return [...imports, `export default { ${entries.join(", ")} };`].join("\n");
 }
 
-interface Project extends ScanOptions {
+/** The package a bare specifier imports from, e.g. `@scope/x` for `@scope/x@1/sub`. */
+function packageName(specifier: string): string {
+  const name = /^(?:@[^/]+\/)?[^/@]+/.exec(specifier)?.[0];
+  if (!name) throw new Error(`Invalid package specifier: ${specifier}`);
+  return name;
+}
+
+/** `three` and the dependencies and devDependencies of the app's nearest package.json. */
+function appDependencies(root: string): string[] {
+  const path = findPackageJSON(pathToFileURL(`${root}/`));
+  if (!path) throw new Error(`No package.json found in ${root} or its parents`);
+  const manifest: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (typeof manifest !== "object" || manifest === null) throw new Error(`Invalid ${path}`);
+  const names = (field: string): string[] => {
+    const dependencies: unknown = Reflect.get(manifest, field);
+    return typeof dependencies === "object" && dependencies !== null ? Object.keys(dependencies) : [];
+  };
+  return ["three", ...names("dependencies"), ...names("devDependencies")];
+}
+
+async function fetchCode(url: string): Promise<string> {
+  // Relative imports resolve against the requested URL, which a redirect would change.
+  const response = await fetch(url, { redirect: "error" });
+  if (!response.ok) throw new Error(`Unable to fetch ${url}: ${response.status} ${response.statusText}`);
+  return response.text();
+}
+
+interface Project {
+  /** Where the app serves the `.glts` files it loads by URL; none when disabled. */
+  readonly publicDir: string | undefined;
+  readonly dependencies: readonly string[];
   scan: Promise<Scan>;
 }
 
-interface CDNModule {
-  /** The URL after redirects, which relative imports resolve against. */
-  readonly url: string;
-  readonly code: string;
-}
-
-async function fetchModule(url: string): Promise<CDNModule> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Unable to fetch ${url}: ${response.status} ${response.statusText}`);
-  return { url: response.url, code: await response.text() };
-}
-
 export interface GLTSPluginOptions {
-  /** Where script imports the app does not depend on come from; defaults to https://esm.sh/. */
+  /** Where script imports the app does not depend on come from; defaults to esm.sh. */
   cdnURL?: GLTSURL;
 }
 
 /**
  * Bundles the packages `.glts` files import, sharing the app's dependencies
- * and fetching the rest from the CDN, and hot reloads edited `.glts` files.
+ * and fetching the rest from the CDN, type checks the scripts, and hot reloads
+ * edited ones.
  */
-export function glts({ cdnURL = "https://esm.sh/" }: GLTSPluginOptions = {}): Plugin {
-  const cdnBase = new URL(cdnURL);
-  const cdnModules = new Map<string, Promise<CDNModule>>();
-  let project: Project | undefined;
-  const check = checker();
-  let checks = 0;
-  /** The type errors the overlay shows. */
-  let shown: string | undefined;
+export function glts(options: GLTSPluginOptions = {}): Plugin {
+  const cdnBase = new URL(options.cdnURL ?? defaultCDNURL);
+  let configuredProject: Project | undefined;
+  let failing = false;
 
-  const current = (): Project => {
-    if (!project) throw new Error("The glts plugin has not been configured");
-    return project;
+  const configured = (): Project => {
+    if (!configuredProject) throw new Error("The glts plugin has not been configured");
+    return configuredProject;
   };
   // An explicit version always comes from the CDN.
-  const isShared = (specifier: string): boolean => {
+  const isDependency = (specifier: string): boolean => {
     const name = packageName(specifier);
-    return !specifier.startsWith(`${name}@`) && current().dependencies.includes(name);
+    return !specifier.startsWith(`${name}@`) && configured().dependencies.includes(name);
   };
-  const typeErrors = async (root: string): Promise<string | undefined> => {
-    const { scripts, importers } = await current().scan;
-    return check({ root, scripts, untyped: [...importers.keys()].filter((specifier) => !isShared(specifier)) });
-  };
-  const overlay = (message: string): ErrorPayload => ({ type: "error", err: { message, stack: "", plugin: "glts" } });
-  // Reports in the terminal and overlay, never blocking the server or hot reload.
-  const report = async (environment: DevEnvironment): Promise<void> => {
-    const id = ++checks;
-    const errors = await typeErrors(environment.config.root).catch((error: unknown) => String(error));
-    if (id !== checks) return;
-    if (errors) {
-      environment.logger.error(errors, { timestamp: true });
-      environment.hot.send(overlay(errors));
-    } else if (shown) {
-      environment.logger.info("glts: no type errors", { timestamp: true });
-      environment.hot.send("glts:fixed");
-    }
-    shown = errors;
-  };
-  const cdnModule = (url: string): Promise<CDNModule> => {
-    const cached = cdnModules.get(url);
-    if (cached) return cached;
-    const module = fetchModule(url);
-    cdnModules.set(url, module);
-    void module.catch(() => cdnModules.delete(url));
-    return module;
+  // Reports in the terminal without blocking the server or hot reload.
+  const report = async (environment: DevEnvironment, scan: Promise<Scan>): Promise<void> => {
+    const errors = await scan.then(({ scripts }) => check(scripts)).catch((error: unknown) => String(error));
+    // A newer scan reports its own check.
+    if (scan !== configured().scan) return;
+    if (errors) environment.logger.error(errors, { timestamp: true });
+    else if (failing) environment.logger.info("glts: type errors fixed", { timestamp: true });
+    failing = errors !== undefined;
   };
 
   return {
@@ -135,71 +124,65 @@ export function glts({ cdnURL = "https://esm.sh/" }: GLTSPluginOptions = {}): Pl
       const root = normalizePath(resolve(config.root ?? ""));
       const publicDir = config.publicDir === false ? undefined
         : normalizePath(resolve(root, config.publicDir ?? "public"));
-      const options = { publicDir, dependencies: appDependencies(root) };
-      project = { ...options, scan: scan(options) };
+      const project = { publicDir, dependencies: appDependencies(root), scan: scan(publicDir) };
+      configuredProject = project;
       // A failed scan rejects again where the map loads.
-      const specifiers = await project.scan.then(({ importers }) => [...importers.keys()], () => []);
+      const specifiers = await project.scan.then(({ specifiers }) => specifiers, () => []);
       // Vite's dependency scan cannot see through the virtual modules.
-      return { optimizeDeps: { include: ["@drawcall/glts", ...specifiers.filter(isShared)] } };
+      return { optimizeDeps: { include: ["@drawcall/glts", ...specifiers.filter(isDependency)] } };
     },
     async buildStart() {
       if (this.environment.config.command !== "build") return;
-      const errors = await typeErrors(this.environment.config.root);
+      const errors = await check((await configured().scan).scripts);
       // The diagnostics locate the errors; a plugin stack trace would only bury them.
       if (errors) this.error({ message: errors, stack: "" });
     },
     configureServer({ environments: { client } }) {
-      client.hot.on("glts:ready", (_data, page) => {
-        if (shown) page.send(overlay(shown));
-      });
-      void report(client);
+      void report(client, configured().scan);
     },
     async resolveId(id, importer) {
       if (id === "@drawcall/glts") return importer === loaderId ? undefined : loaderId;
       if (id === "virtual:glts-modules") return modulesId;
-      if (id.startsWith(cdnPrefix)) return id;
-      if (importer?.startsWith(cdnPrefix) && !isBareSpecifier(id)) {
-        const { url } = await cdnModule(importer.slice(cdnPrefix.length));
-        return cdnPrefix + new URL(id, url).href;
-      }
-      if (importer !== modulesId && !importer?.startsWith(cdnPrefix)) return;
+      // Dev serves modules by id and resolves those ids again.
+      if (cdnURL(id) !== undefined) return id;
+      const importerURL = importer && cdnURL(importer);
+      if (importer !== modulesId && !importerURL) return;
+      if (importerURL && !isBareSpecifier(id)) return cdnId(new URL(id, importerURL).href);
 
-      if (isShared(id)) {
+      if (isDependency(id)) {
         // Resolved like an app import, so scripts share the app's (optimized) instance.
         const resolved = await this.resolve(id);
         if (!resolved) this.error(`${id} is declared in package.json but cannot be resolved`);
         return resolved;
       }
-
-      const { importers, external, versions } = await current().scan;
-      const specifier = versions.get(id) ?? id;
+      // CDN bundles import the app's and the scripts' packages, so each has one instance.
+      const { dependencies, scan } = configured();
+      const names = [...dependencies, ...(await scan).specifiers.map(packageName)];
       // A package in its own external list comes back unbundled, one module per file.
-      const url = packageURL(specifier, cdnBase, external.filter((name) => name !== packageName(specifier))).href;
-      if (importer === modulesId) {
-        await cdnModule(url).catch((error: unknown) =>
-          this.error(`Unable to load ${id}, imported by ${importers.get(id)?.join(", ")}: ${String(error)}`));
-      }
-      return cdnPrefix + url;
+      const external = [...new Set(names)].filter((name) => name !== packageName(id)).sort();
+      return cdnId(packageURL(id, cdnBase, external).href);
     },
     async load(id) {
       if (id === loaderId) return loaderSource(cdnBase.href);
-      if (id === modulesId) return modulesSource([...(await current().scan).importers.keys()]);
-      if (id.startsWith(cdnPrefix)) return (await cdnModule(id.slice(cdnPrefix.length))).code;
+      if (id === modulesId) return modulesSource((await configured().scan).specifiers);
+      const url = cdnURL(id);
+      if (url !== undefined) return fetchCode(url);
     },
     async hotUpdate({ type, file }) {
-      const { publicDir, base } = this.environment.config;
-      const path = publicDir && relative(publicDir, file);
+      const project = configured();
       // Apps load scripts by URL, so only public ones are scanned and reloaded.
-      if (!path || path.startsWith("..") || !file.endsWith(".glts")) return;
-      const state = current();
-      const specifiers = (scan: Promise<Scan>): Promise<string | undefined> =>
-        scan.then(({ importers }) => [...importers.keys()].join(), () => undefined);
-      const before = await specifiers(state.scan);
-      state.scan = scan(state);
+      if (!project.publicDir || extname(file) !== ".glts") return;
+      const path = relative(project.publicDir, file);
+      if (path.startsWith("..")) return;
+      const previous = project.scan;
+      project.scan = scan(project.publicDir);
       // A broken script keeps the page; the loader reports its syntax error.
-      const after = await specifiers(state.scan);
-      void report(this.environment);
-      if (after !== undefined && after !== before) {
+      const [before, after] = await Promise.all([previous, project.scan]
+        .map((scanned) => scanned.then(({ specifiers }) => specifiers, () => undefined)));
+      // The synchronous check would delay serving the reloaded script.
+      const scanned = project.scan;
+      setTimeout(() => void report(this.environment, scanned), 100);
+      if (after && !isDeepStrictEqual(before, after)) {
         const module = this.environment.moduleGraph.getModuleById(modulesId);
         if (module) this.environment.moduleGraph.invalidateModule(module);
         this.environment.hot.send({ type: "full-reload" });
@@ -207,7 +190,7 @@ export function glts({ cdnURL = "https://esm.sh/" }: GLTSPluginOptions = {}): Pl
       }
       if (type !== "update") return;
 
-      this.environment.hot.send("glts:update", { url: base + normalizePath(path) });
+      this.environment.hot.send("glts:update", { url: this.environment.config.base + normalizePath(path) });
     }
   };
 }

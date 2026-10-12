@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { resolveModuleURL } from "../../src/modules/resolution.js";
 
-const options = { cdnURL: new URL("https://cdn.test/"), threeRevision: "185", hostSpecifiers: ["three", "simplex-noise"] };
+const options = { cdnURL: new URL("https://cdn.test/"), threeRevision: "185", external: ["three", "simplex-noise"] };
 const importer = "https://assets.test/path/asset.glts";
 
 it("bundles packages and pins both Three addon spellings to the host revision", () => {

@@ -11,6 +11,7 @@ import { ScriptModules } from "../modules/scripts.js";
 import { canonicalize } from "../modules/fetch.js";
 import { ModuleBridge } from "../modules/bridge.js";
 import { ModuleURLStore } from "../modules/urls.js";
+import { defaultCDNURL } from "../modules/resolution.js";
 import type {
   GLTSErrorCallback,
   GLTSFetch,
@@ -66,7 +67,7 @@ export class GLTSLoader extends Loader {
     this.#bridge = moduleBridge;
 
     const modules = new ScriptModules({
-      cdnURL: resolvedOptionURL(options.cdnURL, "https://esm.sh/", baseURL),
+      cdnURL: resolvedOptionURL(options.cdnURL, defaultCDNURL, baseURL),
       fetch: (input, init) => this.#fetch(input, init),
       moduleURLs,
       bridge: moduleBridge,

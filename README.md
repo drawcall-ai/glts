@@ -393,22 +393,26 @@ export default defineConfig({ plugins: [glts()] })
 Every `GLTSLoader` the app creates receives, as `modules`, the packages
 imported by the `.glts` files in Vite's public directory, which is where a
 built app serves the scripts it loads by URL (`modules` passed by the app take
-precedence). `three` and the packages in
-the `dependencies` and `devDependencies` of the app's nearest `package.json`
-are the app's own instances. Vite fetches the other packages, and explicitly
-versioned imports such as `pkg@2`, from `cdnURL` (default `https://esm.sh/`)
-during development and builds, and bundles them with the app. Full `https://`
-imports and scripts outside the public directory are still fetched at runtime.
-Changing a script's imports triggers a full page reload. The plugin needs
-Node.js 22.17 or later.
+precedence). `three` and the packages in the `dependencies` and
+`devDependencies` of the app's nearest `package.json` are the app's own
+instances. Vite fetches the other packages from the plugin's `cdnURL` option
+(default `https://esm.sh/`) during development and builds, and bundles them
+with the app; CDN packages share one instance of each package scripts import
+or the app declares, while their other dependencies are inlined per bundle.
+Versioned imports such as `pkg@2` are fetched as written. The plugin also
+passes `cdnURL` to every `GLTSLoader` as its default, where scripts outside the
+public directory get their packages at runtime; full `https://` imports are
+fetched at runtime too. Changing a script's imports triggers a full page
+reload. The plugin needs Node.js 22.17 or later.
 
 The plugin also type checks the public `.glts` files, strictly and
-independently of the app's `tsconfig.json`, with the app's `typescript`, an
-optional peer dependency it needs installed. Type errors fail `vite build`;
-during development they appear in the terminal and error overlay without
-stopping hot reload. Packages fetched from the CDN and `https://` imports are
-typed as `any`; type-only imports are not fetched, so they need the package
-installed.
+independently of the app's `tsconfig.json`, with the app's `typescript` 5 or 6,
+an optional peer dependency it needs installed. Type errors fail `vite build`;
+during development they are reported in the terminal without stopping hot
+reload. Imports from packages that aren't installed, including CDN packages
+and `https://` imports, are untyped values whose types can't be used in
+annotations; install a package to type it. Type-only imports are not fetched,
+so they also need the package installed.
 
 ## Workspace
 

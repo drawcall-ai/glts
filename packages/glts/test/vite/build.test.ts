@@ -20,7 +20,8 @@ const cdnFiles: Readonly<Record<string, string>> = {
   "/y@1.0.0/es2022/util.mjs": `export const y = "code-of-y";`,
   "/z": `export const token = {};`,
   "/buffer": `export const Buffer = "cdn-buffer";`,
-  "/w@2": `export const w = {};`,
+  "/w@2": `export const w = "w@2";`,
+  "/w": `export const w = "w";`,
 };
 const requests: URL[] = [];
 const cdn = createServer((request, response) => {
@@ -30,6 +31,9 @@ const cdn = createServer((request, response) => {
   response.writeHead(code === undefined ? 404 : 200, { "content-type": "text/javascript" });
   response.end(code);
 });
+/** The packages the CDN bundle at `path` was asked to import instead of inlining. */
+const external = (path: string): string[] | undefined =>
+  requests.find((url) => url.pathname === path)?.searchParams.get("external")?.split(",");
 const temp = await mkdtemp(join(tmpdir(), "glts-build-"));
 let built: unknown;
 
@@ -70,12 +74,12 @@ afterAll(async () => {
   await rm(temp, { recursive: true });
 });
 
-it("bundles each script import once, from the app or the CDN", () => {
+it("bundles each script import once, from the app or the CDN, pinned versions as written", () => {
   expect(JSON.parse(JSON.stringify(get(built, "default")))).toEqual({
     buffer: { Buffer: "cdn-buffer" },
-    "w@2": { w: {} },
+    "w@2": { w: "w@2" },
     x: { marker: {} },
-    y: { marker: {}, token: {}, w: {}, y: "code-of-y" },
+    y: { marker: {}, token: {}, w: "w", y: "code-of-y" },
     z: { token: {} },
   });
 });
@@ -84,13 +88,12 @@ it("shares the app's dependencies with CDN packages", () => {
   expect(get(built, "default", "y", "marker")).toBe(get(built, "default", "x", "marker"));
 });
 
-it("shares CDN packages with each other, versioned ones by package name", () => {
+it("shares CDN packages with each other, by package name", () => {
   expect(get(built, "default", "y", "token")).toBe(get(built, "default", "z", "token"));
-  expect(get(built, "default", "y", "w")).toBe(get(built, "default", "w@2", "w"));
-  const external = (path: string) => requests.find((url) => url.pathname === path)?.searchParams.get("external")?.split(",");
-  expect(external("/y")).toEqual(expect.arrayContaining(["w", "x", "z"]));
+  // The test CDN never inlines, so only the request shows y shares w, which scripts only import pinned.
+  expect(external("/y")).toContain("w");
 });
 
 it("bundles each CDN package whole, never external to itself", () => {
-  expect(requests.find((url) => url.pathname === "/z")?.searchParams.get("external")?.split(",")).not.toContain("z");
+  expect(external("/z")).not.toContain("z");
 });

@@ -23,29 +23,19 @@ it("collects the runtime package imports scripts do not get from the loader", as
       const lazy = await import("dynamic");
     `,
   });
-  const { importers } = await scan({ publicDir: `${temp}/imports`, dependencies: [] });
-  expect([...importers.keys()]).toEqual(["kept-for-side-effects", "simplex-noise@4"]);
+  const { specifiers } = await scan(`${temp}/imports`);
+  expect(specifiers).toEqual(["kept-for-side-effects", "simplex-noise@4"]);
 });
 
-it("scans nested scripts in the public directory, outside hidden directories", async () => {
-  await writeFiles(temp, {
-    "public/a.glts": `import "a"`,
-    "public/nested/b.glts": `import "b"; import "a"`,
-    "public/.cache/d.glts": `import "d"`,
-    "src/e.glts": `import "e"`,
+it("scans nested scripts once per import", async () => {
+  await writeFiles(temp, { "public/a.glts": `import "a"`, "public/nested/b.glts": `import "b"; import "a"` });
+  expect(await scan(`${temp}/public`)).toEqual({
+    scripts: [`${temp}/public/a.glts`, `${temp}/public/nested/b.glts`],
+    specifiers: ["a", "b"],
   });
-  const { importers } = await scan({ publicDir: `${temp}/public`, dependencies: [] });
-  expect([...importers.keys()]).toEqual(["a", "b"]);
-  expect(importers.get("a")).toEqual([`${temp}/public/a.glts`, `${temp}/public/nested/b.glts`]);
 });
 
 it("rejects a script that does not parse, naming it", async () => {
   await writeFiles(temp, { "broken/scene.glts": "import {" });
-  await expect(scan({ publicDir: `${temp}/broken`, dependencies: [] })).rejects.toThrow(`${temp}/broken/scene.glts`);
-});
-
-it("rejects scripts that import several versions of one package", async () => {
-  await writeFiles(temp, { "versions/a.glts": `import "w@1"`, "versions/b.glts": `import "w@2"` });
-  await expect(scan({ publicDir: `${temp}/versions`, dependencies: [] }))
-    .rejects.toThrow("Scripts import several versions of w: w@1, w@2");
+  await expect(scan(`${temp}/broken`)).rejects.toThrow(`${temp}/broken/scene.glts`);
 });

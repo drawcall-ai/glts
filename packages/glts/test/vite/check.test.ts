@@ -5,12 +5,11 @@ import { fileURLToPath } from "node:url";
 import { build, normalizePath } from "vite";
 import { afterAll, beforeAll, expect, it } from "vitest";
 
-import { checker } from "../../src/vite/check.js";
+import { check } from "../../src/vite/check.js";
 import { glts } from "../../src/vite/index.js";
 import { linkThree, writeFiles } from "./fixture.js";
 
 const local = (path: string): string => fileURLToPath(new URL(`../../${path}`, import.meta.url));
-const check = checker();
 const temp = normalizePath(await mkdtemp(join(tmpdir(), "glts-check-")));
 
 beforeAll(async () => {
@@ -46,7 +45,7 @@ beforeAll(async () => {
 afterAll(() => rm(temp, { recursive: true }));
 
 it("passes scripts using the context, the DOM, installed packages, CDN packages, and URL imports", async () => {
-  await expect(check({ root: `${temp}/app`, scripts: [`${temp}/app/public/valid.glts`], untyped: ["y"] }))
+  await expect(check([`${temp}/app/public/valid.glts`]))
     .resolves.toBeUndefined();
 });
 

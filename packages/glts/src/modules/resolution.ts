@@ -4,8 +4,11 @@ export interface ResolutionOptions {
   readonly cdnURL: URL;
   readonly threeRevision: string;
   /** Packages the host shares; CDN bundles import them instead of inlining copies. */
-  readonly hostSpecifiers: readonly string[];
+  readonly external: readonly string[];
 }
+
+/** Where packages come from unless configured otherwise. */
+export const defaultCDNURL = "https://esm.sh/";
 
 export type ImportSource = "script" | "module";
 
@@ -17,8 +20,10 @@ export function isBareSpecifier(specifier: string): boolean {
 /** The CDN bundle of a package, importing the `external` packages instead of inlining them. */
 export function packageURL(path: string, cdnURL: URL, external: readonly string[]): URL {
   const url = new URL(path, cdnURL);
-  const separator = url.search ? "&" : "?";
-  return new URL(`${url.href}${separator}bundle&external=${external.join(",")}&target=es2022`);
+  url.searchParams.set("bundle", "");
+  url.searchParams.set("external", external.join(","));
+  url.searchParams.set("target", "es2022");
+  return url;
 }
 
 function packagePath(specifier: string, threeRevision: string): string {
@@ -51,7 +56,7 @@ export function resolveModuleURL(
   }
   if (isBareSpecifier(specifier)) {
     const path = packagePath(specifier, options.threeRevision);
-    return { url: packageURL(path, options.cdnURL, options.hostSpecifiers), transform: true };
+    return { url: packageURL(path, options.cdnURL, options.external), transform: true };
   }
 
   const url = new URL(specifier, importerURL);

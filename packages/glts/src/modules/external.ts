@@ -39,7 +39,7 @@ export class ExternalModules {
     const { url, transform } = resolveModuleURL(specifier, importerURL, importChain, {
       cdnURL: this.#options.cdnURL,
       threeRevision: this.#options.threeRevision,
-      hostSpecifiers: bridge.hostSpecifiers,
+      external: bridge.hostSpecifiers,
     }, source);
     return transform ? this.#prepare(url, importChain) : url.href;
   }
