@@ -38,8 +38,9 @@ class UnavailableScriptLoader implements GLTSScriptLoader {
 }
 
 export const gltsLoader: GLTSScriptLoader = new UnavailableScriptLoader();
-export const instanceCount = 1;
-export const isPreview = false;
+// Annotated so scripts may compare them with any value when type checked.
+export const instanceCount: number = 1;
+export const isPreview: boolean = false;
 
 export function onDispose(_callback: GLTSDisposeCallback): void {
   unavailable("onDispose");

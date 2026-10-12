@@ -378,6 +378,42 @@ const loader = new GLTSLoader(manager, {
 The page must allow CORS access to sources and dependencies and permit `blob:`
 ES modules in its CSP.
 
+## Vite
+
+The `glts()` Vite plugin bundles the packages your `.glts` files import and
+hot reloads edited scripts without a page reload. `vite` is an optional peer
+dependency:
+
+```ts
+// vite.config.ts
+import { glts } from "@drawcall/glts/vite"
+export default defineConfig({ plugins: [glts()] })
+```
+
+Every `GLTSLoader` the app creates receives, as `modules`, the packages
+imported by the `.glts` files in Vite's public directory, which is where a
+built app serves the scripts it loads by URL (`modules` passed by the app take
+precedence). `three` and the packages in the `dependencies` and
+`devDependencies` of the app's nearest `package.json` are the app's own
+instances. Vite fetches the other packages from the plugin's `cdnURL` option
+(default `https://esm.sh/`) during development and builds, and bundles them
+with the app; CDN packages share one instance of each package scripts import
+or the app declares, while their other dependencies are inlined per bundle.
+Versioned imports such as `pkg@2` are fetched as written. The plugin also
+passes `cdnURL` to every `GLTSLoader` as its default, where scripts outside the
+public directory get their packages at runtime; full `https://` imports are
+fetched at runtime too. Changing a script's imports triggers a full page
+reload. The plugin needs Node.js 22.17 or later.
+
+The plugin also type checks the public `.glts` files, strictly and
+independently of the app's `tsconfig.json`, with the app's `typescript` 5 or 6,
+an optional peer dependency it needs installed. Type errors fail `vite build`;
+during development they are reported in the terminal without stopping hot
+reload. Imports from packages that aren't installed, including CDN packages
+and `https://` imports, are untyped values whose types can't be used in
+annotations; install a package to type it. Type-only imports are not fetched,
+so they also need the package installed.
+
 ## Workspace
 
 ```sh
@@ -408,5 +444,5 @@ links it automatically from `node_modules`, at the version you have installed.
 ## Physics example
 
 GLTS has no physics integration of its own. [`examples/physics`](examples/physics)
-shares `@drawcall/physics` with scripts through `modules` and simulates a
-ragdoll.
+simulates a ragdoll whose script imports the app's `@drawcall/physics` through
+the Vite plugin.

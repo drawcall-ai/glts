@@ -12,11 +12,7 @@ interface CompilationContext {
 
 export function compileScript(source: string, context: CompilationContext): string {
   try {
-    const { program } = parse(source, {
-      plugins: ["typescript"],
-      sourceFilename: context.url,
-      sourceType: "module"
-    });
+    const program = parseScript(source, context.url);
     isolateScriptBody(program, context);
     return transform(generate(program, { retainLines: true }, source).code, {
       disableESTransforms: true,
@@ -29,6 +25,10 @@ export function compileScript(source: string, context: CompilationContext): stri
       phase: "transform"
     });
   }
+}
+
+export function parseScript(source: string, url: string): t.Program {
+  return parse(source, { plugins: ["typescript"], sourceFilename: url, sourceType: "module" }).program;
 }
 
 /**

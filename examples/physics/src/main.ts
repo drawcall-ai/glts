@@ -24,10 +24,8 @@ async function start(
   reset: HTMLButtonElement,
   exportButton: HTMLButtonElement,
 ) {
-  // Scripts import the host's physics, so the world simulates the bodies they create.
-  const loader = new GLTSLoader(new THREE.LoadingManager(), {
-    modules: { "@drawcall/physics": physics },
-  });
+  // The glts() Vite plugin gives scripts the app's physics, so the world simulates their bodies.
+  const loader = new GLTSLoader(new THREE.LoadingManager());
   const assembly = await loader.loadAsync("/ragdoll.glts");
   const scene = new THREE.Scene();
   scene.add(assembly, new THREE.HemisphereLight(0xffffff, 0x667788, 3));
