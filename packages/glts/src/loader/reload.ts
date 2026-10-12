@@ -31,7 +31,7 @@ export async function reloadRecords(
       const prepared = await construction.execute(script, {
         matrices: record.matrices,
         isPreview: record.isPreview,
-        instances: record.type === "instances",
+        instances: record.instances,
         requestedURL: url
       });
       replacements.push({ prepared, record });

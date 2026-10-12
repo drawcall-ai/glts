@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 import type { Execution } from "../scene/execution.js";
-import { GLTSError, toGLTSError } from "../errors.js";
+import { cleanUpAndThrow, GLTSError, toGLTSError } from "../errors.js";
 import { Construction } from "./construction.js";
 import { reloadRecords } from "./reload.js";
 import type { Revision } from "../scene/revision.js";
@@ -88,9 +88,9 @@ export class LoaderRuntime {
       try {
         return create(revision, matrices);
       } catch (error) {
-        throw toGLTSError(error, `Unable to construct GLTS ${options.instances ? "instances" : "scene"}`, {
+        cleanUpAndThrow(toGLTSError(error, `Unable to construct GLTS ${options.instances ? "instances" : "scene"}`, {
           phase: "construct", url
-        });
+        }), url, () => revision.dispose());
       }
     }));
   }

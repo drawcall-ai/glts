@@ -4,9 +4,6 @@ import type { GLTSInstances, GLTSScene } from "../types.js";
 import type { NodeRecord } from "./registry.js";
 import type { GLTSScriptScene } from "./state.js";
 
-export type GLTSNode = GLTSInstances | GLTSScene;
-export type GLTSNodeKind = "instances" | "scene";
-
 export interface SceneMethods {
   readonly dispose: () => void;
   readonly reload: () => Promise<void>;

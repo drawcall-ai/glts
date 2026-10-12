@@ -1,29 +1,28 @@
-import * as THREE from "three";
+import type * as THREE from "three";
 
 import type { Execution } from "./execution.js";
-import { cleanUpAndThrow, GLTSError, runAll } from "../errors.js";
+import { GLTSError, runAll } from "../errors.js";
 import type { AutoInstances } from "./instances.js";
 import {
   attachInstanceMethods,
   createInstanceMatrixMethods,
-  attachSceneMethods,
-  type GLTSNode,
-  type GLTSNodeKind
+  attachSceneMethods
 } from "./methods.js";
 import type { GLTSInstances, GLTSScene } from "../types.js";
 import { Revision } from "./revision.js";
 
 export interface NodeRecord {
+  readonly instances: boolean;
   readonly isPreview: boolean;
   readonly matrices: THREE.Matrix4[];
-  readonly node: GLTSNode;
-  readonly type: GLTSNodeKind;
+  readonly node: GLTSScene;
   readonly url: string;
   disposed: boolean;
   revision: Revision;
 }
 
 export class ManagedNodes {
+  /** Undisposed nodes only. */
   readonly #records = new Map<THREE.Object3D, NodeRecord>();
   readonly #reload: (record: NodeRecord) => Promise<void>;
 
@@ -32,48 +31,46 @@ export class ManagedNodes {
   }
 
   createScene(
-    prepared: Revision,
+    revision: Revision,
     url: string,
     isPreview: boolean,
     matrices: THREE.Matrix4[]
   ): GLTSScene {
-    const root = prepared.execution.scene;
-    return this.#create(prepared, url, isPreview, matrices, "scene", () =>
-      attachSceneMethods(root, url, {
-        dispose: () => this.dispose(root),
-        reload: () => this.#reload(this.getRecord(root)),
-        update: (delta) => this.update(root, delta)
-      })
-    );
+    const root = revision.execution.scene;
+    const node = attachSceneMethods(root, url, {
+      dispose: () => this.dispose(root),
+      reload: () => this.#reload(this.getRecord(root)),
+      update: (delta) => this.update(root, delta)
+    });
+    this.#records.set(node, { disposed: false, instances: false, isPreview, matrices, node, revision, url });
+    return node;
   }
 
   createInstances(
-    prepared: Revision,
+    revision: Revision,
     url: string,
     isPreview: boolean,
     matrices: THREE.Matrix4[]
   ): GLTSInstances {
-    const root = prepared.execution.scene;
-    return this.#create(prepared, url, isPreview, matrices, "instances", () =>
-      attachInstanceMethods(root, url, {
-        count: matrices.length,
-        dispose: () => this.dispose(root),
-        ...createInstanceMatrixMethods(() => this.getRecord(root)),
-        reload: () => this.#reload(this.getRecord(root)),
-        update: (delta) => this.update(root, delta)
-      })
-    );
+    const root = revision.execution.scene;
+    const node = attachInstanceMethods(root, url, {
+      count: matrices.length,
+      dispose: () => this.dispose(root),
+      ...createInstanceMatrixMethods(() => this.getRecord(root)),
+      reload: () => this.#reload(this.getRecord(root)),
+      update: (delta) => this.update(root, delta)
+    });
+    this.#records.set(node, { disposed: false, instances: true, isPreview, matrices, node, revision, url });
+    return node;
   }
 
   recordsForURL(url: string): NodeRecord[] {
-    return [...this.#records.values()].filter(
-      (record) => !record.disposed && record.url === url
-    );
+    return [...this.#records.values()].filter((record) => record.url === url);
   }
 
   getRecord(node: THREE.Object3D): NodeRecord {
     const record = this.#records.get(node);
-    if (record && !record.disposed) {
+    if (record) {
       return record;
     }
 
@@ -82,10 +79,6 @@ export class ManagedNodes {
       phase: "dispose",
       url: typeof value === "string" ? value : "glts://node"
     });
-  }
-
-  find(node: THREE.Object3D): NodeRecord | undefined {
-    return this.#records.get(node);
   }
 
   update(node: THREE.Object3D, delta: number): void {
@@ -102,78 +95,42 @@ export class ManagedNodes {
 
   dispose(node: THREE.Object3D): void {
     const record = this.#records.get(node);
-    if (!record || record.disposed) {
-      return;
-    }
-    this.#disposeRecord(record);
-  }
-
-  createRevision(execution: Execution, automatic?: AutoInstances): Revision {
-    return new Revision(execution, automatic, (root) => {
-      const owned = execution.nested.nodes
-        .map((node) => this.#records.get(node))
-        .filter((record): record is NodeRecord => Boolean(record));
-      const descendants = this.#descendants(root).filter((record) => !owned.includes(record));
-      this.#disposeRecords([...owned, ...descendants].reverse());
-    });
-  }
-
-  #disposeRecords(records: readonly NodeRecord[]): void {
-    runAll("GLTS node disposal failed", records.map((record) => () => this.#disposeRecord(record)));
-  }
-
-  disposeAll(): void {
-    this.#disposeRecords([...this.#records.values()]);
-  }
-
-  #disposeRecord(record: NodeRecord): void {
-    if (record.disposed) {
+    if (!record) {
       return;
     }
 
     record.disposed = true;
-    this.#records.delete(record.node);
-    record.revision.dispose(record.node);
+    this.#records.delete(node);
+    record.revision.dispose(node);
+  }
+
+  createRevision(execution: Execution, automatic?: AutoInstances): Revision {
+    return new Revision(execution, automatic, (root) => {
+      const nodes = new Set<THREE.Object3D>([
+        ...execution.nested.nodes,
+        ...this.#descendants(root).map(({ node }) => node)
+      ]);
+      this.#disposeAll([...nodes].reverse());
+    });
+  }
+
+  disposeAll(): void {
+    this.#disposeAll([...this.#records.keys()]);
+  }
+
+  /** Disposes in order; a node an earlier disposal already disposed is skipped. */
+  #disposeAll(nodes: readonly THREE.Object3D[]): void {
+    runAll("GLTS node disposal failed", nodes.map((node) => () => this.dispose(node)));
   }
 
   #descendants(root: THREE.Object3D): NodeRecord[] {
     const descendants: NodeRecord[] = [];
     root.traverse((object) => {
-      if (object === root) {
-        return;
-      }
       const record = this.#records.get(object);
-      if (record && !record.disposed) {
+      if (record && object !== root) {
         descendants.push(record);
       }
     });
     return descendants;
-  }
-
-  #create<T extends GLTSNode>(
-    prepared: Revision,
-    url: string,
-    isPreview: boolean,
-    matrices: THREE.Matrix4[],
-    type: GLTSNodeKind,
-    create: () => T
-  ): T {
-    let node: T;
-    try {
-      node = create();
-    } catch (error) {
-      cleanUpAndThrow(error, url, () => prepared.dispose());
-    }
-
-    this.#records.set(node, {
-      disposed: false,
-      revision: prepared,
-      isPreview,
-      matrices,
-      node,
-      type,
-      url
-    });
-    return node;
   }
 }
