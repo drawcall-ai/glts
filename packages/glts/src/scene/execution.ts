@@ -8,7 +8,7 @@ import type {
   GLTSMatrixUpdateCallback,
   GLTSScriptLoader,
 } from "../types.js";
-import { createScriptScene, type GLTSScriptScene } from "./state.js";
+import { createScriptScene, type GLTSScriptScene } from "./root.js";
 import { createAutoInstances, type AutoInstances } from "./instances.js";
 import { NestedLoads } from "./nested.js";
 

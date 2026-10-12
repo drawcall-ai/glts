@@ -1,5 +1,5 @@
 import type * as THREE from "three";
-import type { GLTSScriptScene } from "./scene/state.js";
+import type { GLTSScriptScene } from "./scene/root.js";
 
 export type GLTSURL = string | URL;
 

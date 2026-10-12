@@ -55,7 +55,7 @@ export class Construction {
     this.#signal = options.signal;
   }
 
-  async execute(
+  async construct(
     script: CompiledScript,
     { matrices, isPreview, instances, parent, requestedURL }: ExecutionRequest
   ): Promise<Execution> {
@@ -65,7 +65,7 @@ export class Construction {
     const cancel = (): void => scope.cancel(this.#signal.reason);
     this.#signal.addEventListener("abort", cancel);
     try {
-      await this.#modules.executeScript(script, execution.context({
+      await this.#modules.evaluate(script, execution.context({
         gltsLoader: this.#contextLoader(execution),
         isPreview,
         loadingManager: scope.manager

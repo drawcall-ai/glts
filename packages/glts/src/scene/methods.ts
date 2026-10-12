@@ -1,8 +1,8 @@
 import * as THREE from "three";
 
 import type { GLTSInstances, GLTSScene } from "../types.js";
-import type { NodeRecord } from "./registry.js";
-import type { GLTSScriptScene } from "./state.js";
+import type { NodeRecord } from "./nodes.js";
+import type { GLTSScriptScene } from "./root.js";
 
 export interface SceneMethods {
   readonly dispose: () => void;

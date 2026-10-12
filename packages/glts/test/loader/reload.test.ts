@@ -4,7 +4,7 @@ import { reloadRecords } from "../../src/loader/reload.js";
 import { Construction } from "../../src/loader/construction.js";
 import { ScriptModules } from "../../src/modules/scripts.js";
 import { Execution } from "../../src/scene/execution.js";
-import { ManagedNodes, type NodeRecord } from "../../src/scene/registry.js";
+import { ManagedNodes, type NodeRecord } from "../../src/scene/nodes.js";
 
 function context(execution: Execution) {
   return execution.context({
@@ -30,7 +30,7 @@ async function reload(nodes: ManagedNodes, record: NodeRecord, next: Execution):
     signal: new AbortController().signal
   });
   // Exercise reload orchestration with a prepared execution, without browser imports.
-  vi.spyOn(construction, "execute").mockResolvedValue(next);
+  vi.spyOn(construction, "construct").mockResolvedValue(next);
   try {
     await reloadRecords(record.url, [record], { construction, modules });
   } finally {

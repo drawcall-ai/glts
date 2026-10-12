@@ -32,7 +32,7 @@ Import the context by name from `@drawcall/glts`. Each execution gets its own va
 | Import | Meaning |
 | --- | --- |
 | `scene` | The asset's root scene. |
-| `onDispose(fn)` | Runs `fn` when this revision is disposed or replaced by a reload; reverse registration order. |
+| `onDispose(fn)` | Runs `fn` when this execution is disposed or replaced by a reload; reverse registration order. |
 | `onFrame(fn)` | Runs `fn(delta)` when the host calls `update(delta)`. |
 | `loadingManager` | The `LoadingManager` to pass to Three.js loaders. |
 | `gltsLoader` | Loads nested `.glts` files (`loadAsync`, `loadInstancesAsync`). |

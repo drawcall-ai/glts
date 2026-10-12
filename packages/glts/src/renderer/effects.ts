@@ -3,7 +3,7 @@ import type { Pass } from "three/addons/postprocessing/Pass.js";
 
 import { cleanUpAndThrow, runAll } from "../errors.js";
 import type { GLTSScene } from "../types.js";
-import type { GLTSEffect } from "../scene/state.js";
+import type { GLTSEffect } from "../scene/root.js";
 
 interface EffectSet {
   readonly camera: THREE.Camera;

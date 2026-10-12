@@ -15,7 +15,7 @@ export type {
   GLTSEffect,
   GLTSEffectContext,
   GLTSRenderingProfile
-} from "./scene/state.js";
+} from "./scene/root.js";
 export type {
   GLTSDisposeCallback,
   GLTSErrorCallback,

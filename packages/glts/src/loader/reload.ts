@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { cleanUpAndThrow, GLTSError, runAll } from "../errors.js";
-import { copyRootState } from "../scene/state.js";
-import type { NodeRecord } from "../scene/registry.js";
+import { copyRootState } from "../scene/root.js";
+import type { NodeRecord } from "../scene/nodes.js";
 import type { Execution } from "../scene/execution.js";
 import type { ScriptModules } from "../modules/scripts.js";
 import type { Construction } from "./construction.js";
@@ -25,7 +25,7 @@ export async function reloadRecords(
   const replacements: Replacement[] = [];
   try {
     for (const record of records) {
-      const prepared = await construction.execute(script, {
+      const prepared = await construction.construct(script, {
         matrices: record.matrices,
         isPreview: record.isPreview,
         instances: record.instances,

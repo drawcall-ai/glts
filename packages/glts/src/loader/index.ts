@@ -5,7 +5,7 @@ import { canonicalize } from "../modules/fetch.js";
 import { defaultCDNURL } from "../modules/resolution.js";
 import { ScriptModules } from "../modules/scripts.js";
 import type { Execution } from "../scene/execution.js";
-import { ManagedNodes, type NodeRecord } from "../scene/registry.js";
+import { ManagedNodes, type NodeRecord } from "../scene/nodes.js";
 import type {
   GLTSErrorCallback,
   GLTSFetch,
@@ -169,7 +169,7 @@ export class GLTSLoader extends Loader {
     return this.#locked(lock, () => trackItem(this.manager, url, this.#lifetime.signal, async () => {
       const script = await this.#modules.prepareScript(url);
       const matrices = Array.from({ length: count }, () => new Matrix4());
-      const execution = await this.#construction.execute(script, {
+      const execution = await this.#construction.construct(script, {
         ...options, matrices, parent, requestedURL: url
       });
       try {

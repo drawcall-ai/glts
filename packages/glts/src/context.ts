@@ -9,7 +9,7 @@ import type {
   GLTSScriptLoader,
   GLTSURL
 } from "./types.js";
-import { createScriptScene, type GLTSScriptScene } from "./scene/state.js";
+import { createScriptScene, type GLTSScriptScene } from "./scene/root.js";
 
 function unavailable(name: string): never {
   throw new Error(
