@@ -11,12 +11,19 @@ describe("script exports", () => {
     "export const value = 1",
     "export default 1",
     'export * from "three"',
-    "export type State = number",
-    "export = 1",
-    "export as namespace GLTS"
-  ])("rejects exports: %s", (source) => {
+    "type T = 1; const value = 1; export { type T, value }"
+  ])("rejects value exports: %s", (source) => {
     expect(() => compileScript(source, url))
       .toThrow("GLTS scripts must not export values");
+  });
+
+  it.each([
+    "export type State = number",
+    "export interface State { elapsed: number }",
+    "type T = 1; export type { T }",
+    "type T = 1; export { type T }"
+  ])("accepts type-only exports: %s", (source) => {
+    expect(() => compileScript(source, url)).not.toThrow();
   });
 });
 
@@ -64,7 +71,7 @@ describe("compileScript", () => {
     expect(() => parseModule(isolated)).not.toThrow();
   });
 
-  it("isolates TypeScript state before stripping types", async () => {
+  it("strips types and isolates the state they annotate", async () => {
     const compiled = compileScript([
       'import type { Group } from "three";',
       "interface State { elapsed: number }",

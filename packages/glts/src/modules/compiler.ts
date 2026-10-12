@@ -12,9 +12,9 @@ function stripTypes(source: string): string {
 
 export function compileScript(source: string, url: string): string {
   try {
-    const { program } = parse(source, { plugins: ["typescript"], sourceFilename: url, sourceType: "module" });
+    const { program } = parse(stripTypes(source), { sourceFilename: url, sourceType: "module" });
     isolateScriptBody(program, url);
-    return stripTypes(generate(program, { retainLines: true }, source).code);
+    return generate(program, { retainLines: true }).code;
   } catch (error) {
     throw toGLTSError(error, "Unable to compile GLTS script", {
       importChain: [url],
@@ -36,16 +36,18 @@ export function compileHelper(source: string, url: string, importChain: readonly
   }
 }
 
+/** Stripping `export { type T }` leaves `export {}`, which exports no values. */
+function isEmptyExport(statement: t.Statement): boolean {
+  return t.isExportNamedDeclaration(statement) && !statement.declaration && !statement.source &&
+    statement.specifiers.length === 0;
+}
+
 /**
  * Browsers retain evaluated modules for the page's lifetime. Keep imports at
  * module scope, but put script state in a function that disposal can release.
  */
 function isolateScriptBody(program: t.Program, url: string): void {
-  if (program.body.some((statement) =>
-    t.isExportDeclaration(statement) ||
-    statement.type === "TSExportAssignment" ||
-    statement.type === "TSNamespaceExportDeclaration"
-  )) {
+  if (program.body.some((statement) => t.isExportDeclaration(statement) && !isEmptyExport(statement))) {
     throw new GLTSError("GLTS scripts must not export values", {
       importChain: [url],
       phase: "transform",
