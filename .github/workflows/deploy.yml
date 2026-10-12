@@ -61,3 +61,27 @@ jobs:
       - name: Publish @drawcall/glts
         working-directory: ./packages/glts
         run: npm publish --access public --provenance --tag latest
+
+      - name: Wait for @drawcall/glts on npm
+        env:
+          PACKAGE_VERSION: ${{ steps.gitversion.outputs.fullSemVer }}
+        run: |
+          for attempt in $(seq 1 60); do
+            if [ "$(npm view "@drawcall/glts@latest" version 2>/dev/null || true)" = "$PACKAGE_VERSION" ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "@drawcall/glts@$PACKAGE_VERSION was not visible on npm after 5 minutes." >&2
+          exit 1
+
+      - name: Trigger @drawcall/vite release
+        env:
+          GH_TOKEN: ${{ secrets.DRAWCALL_RELEASE_TOKEN }}
+          PACKAGE_VERSION: ${{ steps.gitversion.outputs.fullSemVer }}
+        run: |
+          gh api --method POST repos/drawcall-ai/vite/dispatches \
+            --raw-field event_type=drawcall-dependency-published \
+            --raw-field "client_payload[package]=@drawcall/glts" \
+            --raw-field "client_payload[version]=$PACKAGE_VERSION"
