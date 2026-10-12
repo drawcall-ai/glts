@@ -104,3 +104,24 @@ it("disposes automatic instance resources once when execution cleanup reenters t
     material.dispose();
   }
 });
+
+it("runs the previous execution's disposal callbacks with its children still attached", async () => {
+  const url = "https://example.test/scene.glts";
+  const matrices = [new Matrix4()];
+  const nodes = new ManagedNodes();
+  const previous = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
+  const next = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
+  const node = nodes.createScene(previous, url, false, matrices);
+  node.add(Object.assign(new Group(), { name: "previous" }));
+  next.scene.add(Object.assign(new Group(), { name: "next" }));
+  const hooks = context(previous);
+  const seen: string[] = [];
+  hooks.onDispose(() => hooks.scene.traverse((object) => {
+    if (object !== hooks.scene) seen.push(object.name);
+  }));
+
+  await reload(nodes, nodes.getRecord(node), next);
+  expect(seen).toEqual(["previous"]);
+  expect(node.children.map(({ name }) => name)).toEqual(["next"]);
+  nodes.disposeAll();
+});

@@ -1,4 +1,3 @@
-import * as THREE from "three";
 import { cleanUpAndThrow, GLTSError, runAll } from "../errors.js";
 import { copyRootState } from "../scene/root.js";
 import type { NodeRecord } from "../scene/nodes.js";
@@ -60,13 +59,9 @@ export async function reloadRecords(
 }
 
 function replaceExecution(record: NodeRecord, prepared: Execution): void {
-  const previous = new THREE.Group();
-  for (const child of [...record.node.children]) {
-    previous.add(child);
-  }
-
   runAll("GLTS execution replacement failed", [
-    () => record.execution.dispose(previous),
+    // The node keeps its children until the previous execution's disposal callbacks have run.
+    () => record.execution.dispose(record.node),
     () => {
       // The previous execution's disposal callbacks may have disposed the node.
       if (record.disposed) {
