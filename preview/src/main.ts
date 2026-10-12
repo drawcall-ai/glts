@@ -1,3 +1,6 @@
+// Loads the asset at `?url=<asset.glts>` (served with CORS) with `isPreview: true`, renders
+// one frame with its `defaultCamera` or a camera fitted to its bounds, then logs "ready",
+// or logs and shows the error.
 import { GLTSLoader, GLTSRenderer, type GLTSScene } from "@drawcall/glts";
 import * as THREE from "three";
 

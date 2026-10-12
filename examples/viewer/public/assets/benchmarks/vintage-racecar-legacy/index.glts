@@ -10,8 +10,6 @@ import { gltsLoader, isPreview, onDispose, scene } from "@drawcall/glts";
 //   - `export const previewCamera` -> `scene.defaultCamera`
 //   - `export const previewLighting` -> added to `scene` only when `isPreview`
 //   - `dispose()` -> registered with `onDispose`
-// See ../../../../../benchmarks/vintage-racecar/comparison.md for the full list
-// of semantic differences.
 
 // Root assembly of a pre-war grand prix car. Ground plane is y = 0, the nose
 // points toward +Z, the driver's right side is +X. Lengths are metres.

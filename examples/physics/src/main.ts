@@ -1,3 +1,5 @@
+// Ragdoll example: run `pnpm --filter @drawcall/glts-example-physics dev`.
+// public/ragdoll.glts authors bodies and joints; this app builds and steps the world.
 import { GLTSLoader } from "@drawcall/glts";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
