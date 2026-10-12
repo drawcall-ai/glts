@@ -14,7 +14,7 @@ function context(execution: Execution) {
 }
 
 it("rejects retained lifecycle registrations after disposal and disposes reentrantly once", () => {
-  const execution = new Execution([new Matrix4()], ["https://example.test/scene.glts"]);
+  const execution = new Execution([new Matrix4()], ["https://example.test/scene.glts"], () => {});
   const hooks = context(execution);
   const disposed = vi.fn(() => execution.dispose());
   hooks.onDispose(disposed);

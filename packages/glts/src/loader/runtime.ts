@@ -4,7 +4,6 @@ import type { Execution } from "../scene/execution.js";
 import { cleanUpAndThrow, GLTSError, toGLTSError } from "../errors.js";
 import { Construction } from "./construction.js";
 import { reloadRecords } from "./reload.js";
-import type { Revision } from "../scene/revision.js";
 import {
   ManagedNodes,
   type NodeRecord
@@ -57,7 +56,7 @@ export class LoaderRuntime {
 
   load(url: string, isPreview: boolean, parent?: Execution): Promise<GLTSScene> {
     return this.#load({ url, count: 1, isPreview, parent, instances: false },
-      (revision, matrices) => this.#nodes.createScene(revision, url, isPreview, matrices));
+      (execution, matrices) => this.#nodes.createScene(execution, url, isPreview, matrices));
   }
 
   loadInstances(
@@ -70,27 +69,27 @@ export class LoaderRuntime {
       return Promise.reject(new RangeError("GLTS instance count must be a positive integer"));
     }
     return this.#load({ url, count, isPreview, parent, instances: true },
-      (revision, matrices) => this.#nodes.createInstances(revision, url, isPreview, matrices));
+      (execution, matrices) => this.#nodes.createInstances(execution, url, isPreview, matrices));
   }
 
   #load<T extends GLTSScene>(
     request: LoadRequest,
-    create: (revision: Revision, matrices: THREE.Matrix4[]) => T
+    create: (execution: Execution, matrices: THREE.Matrix4[]) => T
   ): Promise<T> {
     const { url, parent, count, ...options } = request;
     return this.#runLoad(url, parent, () => this.#runWithProgress(url, async () => {
       const script = await this.#modules.prepareScript(url);
       const matrices = identityMatrices(count);
-      const revision = await this.#construction.execute(script, {
+      const execution = await this.#construction.execute(script, {
         ...options, matrices, parent, requestedURL: url
       });
       this.#operations.assertActive(url);
       try {
-        return create(revision, matrices);
+        return create(execution, matrices);
       } catch (error) {
         cleanUpAndThrow(toGLTSError(error, `Unable to construct GLTS ${options.instances ? "instances" : "scene"}`, {
           phase: "construct", url
-        }), url, () => revision.dispose());
+        }), url, () => execution.dispose());
       }
     }));
   }

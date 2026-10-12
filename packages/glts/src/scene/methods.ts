@@ -97,12 +97,7 @@ export function createInstanceMatrixMethods(getRecord: () => NodeRecord): Pick<I
     getMatrixAt: (index, matrix) => matrix.copy(matrixAt(getRecord(), index)),
     setMatrixAt: (index, matrix) => {
       const current = getRecord();
-      const target = matrixAt(current, index).copy(matrix);
-      if (current.revision.execution.nativeInstances) {
-        current.revision.execution.setMatrixAt(index, target);
-      } else {
-        current.revision.automatic?.setMatrixAt(index, target);
-      }
+      current.execution.setMatrixAt(index, matrixAt(current, index).copy(matrix));
     }
   };
 }

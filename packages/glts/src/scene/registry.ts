@@ -2,14 +2,12 @@ import type * as THREE from "three";
 
 import type { Execution } from "./execution.js";
 import { GLTSError, runAll } from "../errors.js";
-import type { AutoInstances } from "./instances.js";
 import {
   attachInstanceMethods,
   createInstanceMatrixMethods,
   attachSceneMethods
 } from "./methods.js";
 import type { GLTSInstances, GLTSScene } from "../types.js";
-import { Revision } from "./revision.js";
 
 export interface NodeRecord {
   readonly instances: boolean;
@@ -18,7 +16,7 @@ export interface NodeRecord {
   readonly node: GLTSScene;
   readonly url: string;
   disposed: boolean;
-  revision: Revision;
+  execution: Execution;
 }
 
 export class ManagedNodes {
@@ -31,28 +29,28 @@ export class ManagedNodes {
   }
 
   createScene(
-    revision: Revision,
+    execution: Execution,
     url: string,
     isPreview: boolean,
     matrices: THREE.Matrix4[]
   ): GLTSScene {
-    const root = revision.execution.scene;
+    const root = execution.scene;
     const node = attachSceneMethods(root, url, {
       dispose: () => this.dispose(root),
       reload: () => this.#reload(this.getRecord(root)),
       update: (delta) => this.update(root, delta)
     });
-    this.#records.set(node, { disposed: false, instances: false, isPreview, matrices, node, revision, url });
+    this.#records.set(node, { disposed: false, instances: false, isPreview, matrices, node, execution, url });
     return node;
   }
 
   createInstances(
-    revision: Revision,
+    execution: Execution,
     url: string,
     isPreview: boolean,
     matrices: THREE.Matrix4[]
   ): GLTSInstances {
-    const root = revision.execution.scene;
+    const root = execution.scene;
     const node = attachInstanceMethods(root, url, {
       count: matrices.length,
       dispose: () => this.dispose(root),
@@ -60,7 +58,7 @@ export class ManagedNodes {
       reload: () => this.#reload(this.getRecord(root)),
       update: (delta) => this.update(root, delta)
     });
-    this.#records.set(node, { disposed: false, instances: true, isPreview, matrices, node, revision, url });
+    this.#records.set(node, { disposed: false, instances: true, isPreview, matrices, node, execution, url });
     return node;
   }
 
@@ -87,9 +85,9 @@ export class ManagedNodes {
       throw new RangeError("GLTS update delta must be a non-negative finite number");
     }
 
-    record.revision.execution.update(delta);
+    record.execution.update(delta);
     for (const descendant of this.#descendants(node)) {
-      descendant.revision.execution.update(delta);
+      descendant.execution.update(delta);
     }
   }
 
@@ -101,17 +99,15 @@ export class ManagedNodes {
 
     record.disposed = true;
     this.#records.delete(node);
-    record.revision.dispose(node);
+    record.execution.dispose(node);
   }
 
-  createRevision(execution: Execution, automatic?: AutoInstances): Revision {
-    return new Revision(execution, automatic, (root) => {
-      const nodes = new Set<THREE.Object3D>([
-        ...execution.nested.nodes,
-        ...this.#descendants(root).map(({ node }) => node)
-      ]);
-      this.#disposeAll([...nodes].reverse());
-    });
+  disposeNested(root: THREE.Object3D, owned: readonly GLTSScene[]): void {
+    const nodes = new Set<THREE.Object3D>([
+      ...owned,
+      ...this.#descendants(root).map(({ node }) => node)
+    ]);
+    this.#disposeAll([...nodes].reverse());
   }
 
   disposeAll(): void {

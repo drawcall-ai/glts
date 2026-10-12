@@ -1,9 +1,7 @@
 import type * as THREE from "three";
 import { Execution } from "../scene/execution.js";
 import { cleanUpAndThrow, GLTSError, toGLTSError } from "../errors.js";
-import { createAutoInstances, type AutoInstances } from "../scene/instances.js";
 import type { ManagedNodes } from "../scene/registry.js";
-import type { Revision } from "../scene/revision.js";
 import type { ScriptModules, CompiledScript } from "../modules/scripts.js";
 import type { GLTSScriptLoader } from "../types.js";
 import type { Operations } from "./operations.js";
@@ -75,12 +73,16 @@ export class Construction {
   async execute(
     script: CompiledScript,
     { matrices, isPreview, instances, parent, requestedURL }: ExecutionRequest
-  ): Promise<Revision> {
+  ): Promise<Execution> {
     this.#operations.assertActive(script.url);
-    const execution = new Execution(matrices, [requestedURL, script.url], parent);
+    const execution = new Execution(
+      matrices,
+      [requestedURL, script.url],
+      (root, owned) => this.#nodes.disposeNested(root, owned),
+      parent
+    );
     const scope = new LoadingScope(this.#manager, script.url);
     this.#scopes.add(scope);
-    let automatic: AutoInstances | undefined;
     try {
       await this.#modules.executeScript(script, execution.context({
         gltsLoader: this.#contextLoader(execution),
@@ -90,24 +92,12 @@ export class Construction {
       await execution.nested.finishAndValidateAttachment(execution.scene);
       await scope.waitAndClose();
 
-      if (instances && !execution.nativeInstances) {
-        if (execution.animated) {
-          throw new GLTSError(
-            "Automatically instanced scripts cannot use onFrame(); implement native instancing with onMatrixUpdateAt()",
-            { phase: "construct", url: script.url }
-          );
-        }
-        if (execution.nested.nodes.length > 0) {
-          throw new GLTSError(
-            "Automatically instanced scripts cannot contain nested GLTS scenes; implement native instancing with onMatrixUpdateAt()",
-            { phase: "construct", url: script.url }
-          );
-        }
-        automatic = createAutoInstances(execution.scene, matrices, script.url);
+      if (instances) {
+        execution.prepareInstances(script.url);
       }
 
       this.#operations.assertActive(script.url);
-      return this.#nodes.createRevision(execution, automatic);
+      return execution;
     } catch (error) {
       let failure = error;
       scope.cancel(failure);
@@ -118,7 +108,7 @@ export class Construction {
           failure = nestedFailure(script.url, failure, nested);
         }
       }
-      cleanUpAndThrow(failure, script.url, () => this.#nodes.createRevision(execution, automatic).dispose());
+      cleanUpAndThrow(failure, script.url, () => execution.dispose());
     } finally {
       this.#scopes.delete(scope);
     }

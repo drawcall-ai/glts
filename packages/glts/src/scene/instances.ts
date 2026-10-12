@@ -125,13 +125,11 @@ export function createAutoInstances(
     setMatrixAt(index, matrix);
   }
 
-  let disposed = false;
   return {
-    dispose: () => {
-      if (disposed) return;
-      disposed = true;
-      runAll("Automatic instance disposal failed", targets.map(({ target }) => () => target.dispose()));
-    },
+    dispose: () => runAll(
+      "Automatic instance disposal failed",
+      targets.map(({ target }) => () => target.dispose())
+    ),
     setMatrixAt
   };
 }

@@ -5,7 +5,6 @@ import { Construction } from "../../src/loader/construction.js";
 import { Operations } from "../../src/loader/operations.js";
 import { ScriptModules } from "../../src/modules/scripts.js";
 import { Execution } from "../../src/scene/execution.js";
-import { createAutoInstances } from "../../src/scene/instances.js";
 import { ManagedNodes, type NodeRecord } from "../../src/scene/registry.js";
 
 function context(execution: Execution) {
@@ -31,7 +30,7 @@ async function reload(nodes: ManagedNodes, record: NodeRecord, next: Execution):
     manager, modules, nodes, operations
   });
   // Exercise reload orchestration with a prepared revision, without browser imports.
-  vi.spyOn(construction, "execute").mockResolvedValue(nodes.createRevision(next));
+  vi.spyOn(construction, "execute").mockResolvedValue(next);
   try {
     await reloadRecords(record.url, [record], { modules, construction, operations });
   } finally {
@@ -52,9 +51,9 @@ it.each(["node", "registry"])("cleans a replacement when old cleanup disposes it
   const url = "https://example.test/scene.glts";
   const matrices = [new Matrix4()];
   const nodes = new ManagedNodes(async () => {});
-  const previous = new Execution(matrices, [url]);
-  const next = new Execution(matrices, [url]);
-  const node = nodes.createScene(nodes.createRevision(previous), url, false, matrices);
+  const previous = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
+  const next = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
+  const node = nodes.createScene(previous, url, false, matrices);
   const record = nodes.getRecord(node);
   const previousFailure = new Error("Previous cleanup failed");
   const nextFailure = new Error("Replacement cleanup failed");
@@ -90,29 +89,27 @@ it.each(["node", "registry"])("cleans a replacement when old cleanup disposes it
 });
 
 
-it("disposes automatic instance resources once when revision cleanup reenters the node", async () => {
+it("disposes automatic instance resources once when execution cleanup reenters the node", async () => {
   const url = "https://example.test/instances.glts";
   const matrices = [new Matrix4()];
   const nodes = new ManagedNodes(async () => {});
-  const previous = new Execution(matrices, [url]);
+  const previous = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
   const geometry = new BoxGeometry();
   const material = new MeshBasicMaterial();
   previous.scene.add(new Mesh(geometry, material));
-  const automatic = createAutoInstances(previous.scene, matrices, url);
-  const node = nodes.createInstances(nodes.createRevision(previous, automatic), url, false, matrices);
+  previous.prepareInstances(url);
+  const node = nodes.createInstances(previous, url, false, matrices);
   const disposed = vi.fn();
   node.traverse((object) => {
     if (object instanceof InstancedMesh) object.addEventListener("dispose", disposed);
   });
   context(previous).onDispose(() => node.dispose());
-  const next = new Execution(matrices, [url]);
+  const next = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
   try {
     const failure = await reload(nodes, nodes.getRecord(node), next).catch((error: unknown) => error);
     expect(errorCauses(failure).some((error) =>
       error instanceof Error && error.message.includes("disposed during reload")))
       .toBe(true);
-    expect(disposed).toHaveBeenCalledTimes(1);
-    automatic.dispose();
     expect(disposed).toHaveBeenCalledTimes(1);
   } finally {
     nodes.disposeAll();

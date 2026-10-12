@@ -1,5 +1,7 @@
 import type * as THREE from "three";
 
+import { GLTSError, runAll } from "../errors.js";
+
 import type {
   GLTSDisposeCallback,
   GLTSFrameCallback,
@@ -8,8 +10,8 @@ import type {
   GLTSScriptLoader,
 } from "../types.js";
 import { createScriptScene, type GLTSScriptScene } from "./state.js";
+import { createAutoInstances, type AutoInstances } from "./instances.js";
 import { NestedLoads } from "./nested.js";
-import { runAll } from "../errors.js";
 
 export interface ScriptContext {
   readonly gltsLoader: GLTSScriptLoader;
@@ -22,6 +24,9 @@ export interface ScriptContext {
   readonly scene: GLTSScriptScene;
   readonly bindScene: (bind: (scene: GLTSScene) => void) => void;
 }
+
+/** Disposes the managed nodes `owned` by an execution or found below `root`. */
+export type DisposeNodes = (root: THREE.Object3D, owned: readonly GLTSScene[]) => void;
 
 function assertCallback(value: unknown, name: string): void {
   if (typeof value !== "function") {
@@ -36,24 +41,20 @@ export class Execution {
   readonly #frames: GLTSFrameCallback[] = [];
   readonly #matrixUpdates: GLTSMatrixUpdateCallback[] = [];
   readonly #matrices: readonly THREE.Matrix4[];
-  #disposed = false;
+  readonly #disposeNodes: DisposeNodes;
+  #automatic: AutoInstances | undefined;
   #bindScene: ((scene: GLTSScene) => void) | undefined;
+  #disposed = false;
 
   constructor(
     matrices: readonly THREE.Matrix4[],
     urls: readonly string[],
+    disposeNodes: DisposeNodes,
     parent?: Execution,
   ) {
     this.#matrices = matrices;
+    this.#disposeNodes = disposeNodes;
     this.nested = new NestedLoads(urls, parent?.nested);
-  }
-
-  get animated(): boolean {
-    return this.#frames.length > 0;
-  }
-
-  get nativeInstances(): boolean {
-    return this.#matrixUpdates.length > 0;
   }
 
   context(options: {
@@ -96,17 +97,49 @@ export class Execution {
     this.#bindScene?.(scene);
   }
 
-  dispose(): void {
-    if (this.#disposed) return;
+  /** Instances scripts without onMatrixUpdateAt() automatically. */
+  prepareInstances(url: string): void {
+    if (this.#matrixUpdates.length > 0) return;
+    if (this.#frames.length > 0) {
+      throw new GLTSError(
+        "Automatically instanced scripts cannot use onFrame(); implement native instancing with onMatrixUpdateAt()",
+        { phase: "construct", url }
+      );
+    }
+    if (this.nested.nodes.length > 0) {
+      throw new GLTSError(
+        "Automatically instanced scripts cannot contain nested GLTS scenes; implement native instancing with onMatrixUpdateAt()",
+        { phase: "construct", url }
+      );
+    }
+    this.#automatic = createAutoInstances(this.scene, this.#matrices, url);
+  }
+
+  /** Disposes nested nodes, automatic instances, and callbacks, then empties `root`. */
+  dispose(root: THREE.Object3D = this.scene): void {
+    if (this.#disposed) {
+      // A disposal callback disposing this node again still empties it.
+      root.clear();
+      return;
+    }
     this.#disposed = true;
     this.nested.close();
     const callbacks = this.#disposals.splice(0).reverse();
     this.#frames.length = 0;
     this.#matrixUpdates.length = 0;
-    runAll("GLTS disposal callbacks failed", callbacks);
+    runAll("GLTS execution disposal failed", [
+      () => this.#disposeNodes(root, this.nested.nodes),
+      () => this.#automatic?.dispose(),
+      ...callbacks,
+      () => root.clear()
+    ]);
   }
 
   setMatrixAt(index: number, matrix: THREE.Matrix4): void {
+    if (this.#automatic) {
+      this.#automatic.setMatrixAt(index, matrix);
+      return;
+    }
     for (const callback of this.#matrixUpdates) {
       callback(index, matrix.clone());
     }
