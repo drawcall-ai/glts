@@ -58,7 +58,8 @@ export class NestedLoads {
     return [...this.#nodes];
   }
 
-  async finishAndValidateAttachment(scene: THREE.Object3D): Promise<void> {
+  /** Waits for every tracked load, closes, and throws their failures. */
+  async finish(): Promise<void> {
     while (this.#pending.size > 0) {
       await Promise.allSettled([...this.#pending]);
     }
@@ -67,11 +68,9 @@ export class NestedLoads {
     if (this.#failures.length > 0) {
       throw new AggregateError(this.#failures, "Nested GLTS operation failed");
     }
-
-    this.#assertNodesAttached(scene);
   }
 
-  #assertNodesAttached(scene: THREE.Object3D): void {
+  assertAttached(scene: THREE.Object3D): void {
     const attached = new Set<THREE.Object3D>();
     scene.traverse((object) => attached.add(object));
     const orphan = [...this.#nodes].find((node) => !attached.has(node));

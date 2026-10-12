@@ -74,7 +74,8 @@ export class Construction {
         isPreview,
         loadingManager: scope.manager
       }));
-      await execution.nested.finishAndValidateAttachment(execution.scene);
+      await execution.nested.finish();
+      execution.nested.assertAttached(execution.scene);
       await scope.waitAndClose();
       if (instances) {
         execution.prepareInstances(script.url);
@@ -85,7 +86,7 @@ export class Construction {
       scope.cancel(failure);
       if (!execution.nested.closed) {
         try {
-          await execution.nested.finishAndValidateAttachment(execution.scene);
+          await execution.nested.finish();
         } catch (nested) {
           failure = nestedFailure(script.url, failure, nested);
         }
