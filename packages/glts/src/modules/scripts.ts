@@ -6,6 +6,7 @@ import { rewriteModule } from "./rewrite.js";
 import { ModuleBridge } from "./bridge.js";
 import { compileHelper, compileScript } from "./compiler.js";
 import { assertScriptImport, helperURL } from "./resolution.js";
+import { ModuleURLStore } from "./urls.js";
 import type { GLTSModules } from "../types.js";
 
 export interface LinkedScript {
@@ -24,6 +25,8 @@ interface Linking {
 
 export class ScriptModules {
   readonly #fetch: Fetch;
+  /** Every module URL of one loader, revoked with it. */
+  readonly #urls = new ModuleURLStore();
   readonly #bridge: ModuleBridge;
   readonly #external: ExternalModules;
   readonly #scriptCache = new Map<string, Promise<LinkedScript>>();
@@ -32,8 +35,8 @@ export class ScriptModules {
 
   constructor({ cdnURL, fetch, modules }: { readonly cdnURL: URL; readonly fetch: Fetch; readonly modules?: GLTSModules | undefined }) {
     this.#fetch = fetch;
-    this.#bridge = new ModuleBridge(modules);
-    this.#external = new ExternalModules({ cdnURL, fetch, bridge: this.#bridge });
+    this.#bridge = new ModuleBridge(modules ?? {}, this.#urls);
+    this.#external = new ExternalModules({ cdnURL, fetch, bridge: this.#bridge, urls: this.#urls });
   }
 
   /** The script at `requestedURL`, linked once until invalidated. */
@@ -70,7 +73,7 @@ export class ScriptModules {
   async evaluate(script: LinkedScript, context: ScriptContext): Promise<void> {
     const contextModule = this.#bridge.createContextModule(context);
     const source = script.source.replaceAll(this.#bridge.contextToken, contextModule.url);
-    const moduleURL = this.#bridge.moduleURLs.create(source);
+    const moduleURL = this.#urls.create(source);
     try {
       // Blob URLs are resolved by the browser at runtime, never by a bundler.
       await import(/* @vite-ignore */ /* webpackIgnore: true */ moduleURL);
@@ -81,7 +84,7 @@ export class ScriptModules {
         url: script.url,
       });
     } finally {
-      this.#bridge.moduleURLs.release(moduleURL);
+      this.#urls.release(moduleURL);
       contextModule.release();
     }
   }
@@ -153,10 +156,11 @@ export class ScriptModules {
       throw toGLTSError(error, "Unable to transform helper", { importChain, phase: "transform", url: fetched.url });
     }
     // Released with the loader; the browser keeps evaluated modules anyway.
-    return this.#bridge.moduleURLs.create(rewritten);
+    return this.#urls.create(rewritten);
   }
 
   dispose(): void {
     this.#bridge.dispose();
+    this.#urls.dispose();
   }
 }
