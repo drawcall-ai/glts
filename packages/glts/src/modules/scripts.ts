@@ -10,7 +10,7 @@ import type { GLTSFetch, GLTSModules } from "../types.js";
 
 export interface CompiledScript {
   readonly url: string;
-  /** The module source, its imports linked but `@drawcall/glts`, which each execution binds. */
+  /** The module source with its imports linked; `@drawcall/glts` stays a token each execution binds. */
   readonly source: string;
 }
 
@@ -69,7 +69,8 @@ export class ScriptModules {
 
   async evaluate(script: CompiledScript, context: ScriptContext): Promise<void> {
     const contextModule = this.#bridge.createContextModule(context);
-    const moduleURL = this.#bridge.moduleURLs.create(script.source.replaceAll(this.#bridge.contextToken, contextModule.url));
+    const source = script.source.replaceAll(this.#bridge.contextToken, contextModule.url);
+    const moduleURL = this.#bridge.moduleURLs.create(source);
     try {
       // Blob URLs are resolved by the browser at runtime, never by a bundler.
       await import(/* @vite-ignore */ /* webpackIgnore: true */ moduleURL);
