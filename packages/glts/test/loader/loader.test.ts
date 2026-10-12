@@ -24,3 +24,11 @@ it("fetches scripts past the HTTP cache with the loader's request header and cre
     header: new Headers(headers).get("x-test")
   }))).toEqual([{ cache: "no-cache", credentials: "include", header: "header" }]);
 });
+
+it("rejects a relative URL without a page to resolve it against, but loads absolute ones", async () => {
+  vi.stubGlobal("fetch", async () => new Response(null, { status: 404 }));
+  const loader = new GLTSLoader(new LoadingManager());
+  await expect(loader.loadAsync("scene.glts")).rejects.toThrow("A relative URL needs document.baseURI or location.href");
+  await expect(loader.setPath("https://assets.test/").loadAsync("scene.glts")).rejects.toMatchObject({ phase: "fetch" });
+  loader.dispose();
+});

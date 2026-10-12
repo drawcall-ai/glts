@@ -29,21 +29,21 @@ interface LoadRequest {
   readonly parent: Execution | undefined;
 }
 
-function environmentBaseURL(): URL {
-  if (typeof document !== "undefined") {
-    return new URL(document.baseURI);
-  }
-
-  if (typeof location !== "undefined") {
-    return new URL(location.href);
-  }
-
-  return new URL("http://localhost/");
+/** Resolves `url` against the page's base URL; without a page, only an absolute `url` resolves. */
+function pageURL(url: GLTSURL): URL {
+  const base = typeof document !== "undefined" ? document.baseURI
+    : typeof location !== "undefined" ? location.href
+    : undefined;
+  if (base !== undefined) return new URL(url, base);
+  if (URL.canParse(url)) return new URL(url);
+  throw new GLTSError("A relative URL needs document.baseURI or location.href to resolve against", {
+    phase: "resolve",
+    url: String(url)
+  });
 }
 
 export class GLTSLoader extends Loader {
   readonly #isPreview: boolean;
-  readonly #baseURL: URL;
   readonly #modules: ScriptModules;
   readonly #construction: Construction;
   readonly #lifetime = new AbortController();
@@ -59,11 +59,9 @@ export class GLTSLoader extends Loader {
       throw new TypeError("GLTSLoader requires a Three.js LoadingManager");
     }
 
-    const environmentBase = environmentBaseURL();
     this.#isPreview = options.isPreview ?? false;
-    this.#baseURL = new URL(options.baseURL ?? environmentBase, environmentBase);
     this.#modules = new ScriptModules({
-      cdnURL: new URL(options.cdnURL ?? defaultCDNURL, this.#baseURL),
+      cdnURL: pageURL(options.cdnURL ?? defaultCDNURL),
       fetch: (input, init) => this.#fetch(input, init),
       modules: options.modules
     });
@@ -215,7 +213,7 @@ export class GLTSLoader extends Loader {
   #resolveURL(url: GLTSURL, path = this.path): string {
     const input = url instanceof URL ? url.href : `${path}${url}`;
     const managedURL = this.manager.resolveURL(input);
-    return canonicalize(new URL(managedURL, this.#baseURL));
+    return canonicalize(pageURL(managedURL));
   }
 
   #fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

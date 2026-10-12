@@ -130,7 +130,7 @@ test("enables preview only for the root across recursion and reload", async ({ p
 
 test("scopes nested URLs while reading current host request configuration", async ({ page }) => {
   const requests: { path: string; header: string | undefined }[] = [];
-  await page.route("**/base/**", (route) => {
+  await page.route(/\.glts\?mapped$/, (route) => {
     const url = new URL(route.request().url());
     requests.push({ path: url.pathname + url.search, header: route.request().headers()["x-context"] });
     return fulfillGLTS(route, url.pathname.endsWith("parent.glts") ? `
@@ -149,7 +149,7 @@ test("scopes nested URLs while reading current host request configuration", asyn
       resolved.push(url);
       return `${url}?mapped`;
     });
-    const loader = new window.GLTSLoader(manager, { baseURL: new URL("/base/", location.href) });
+    const loader = new window.GLTSLoader(manager);
     Reflect.set(globalThis, "__contextHost", loader);
     loader.setPath("host/");
     loader.setRequestHeader({ "x-context": "parent" });
@@ -166,8 +166,8 @@ test("scopes nested URLs while reading current host request configuration", asyn
     contextualHost: false
   });
   expect(requests).toEqual([
-    { path: "/base/host/parent.glts?mapped", header: "parent" },
-    { path: "/base/child.glts?mapped", header: "child" }
+    { path: "/host/parent.glts?mapped", header: "parent" },
+    { path: "/child.glts?mapped", header: "child" }
   ]);
 });
 

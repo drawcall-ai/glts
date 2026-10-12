@@ -7,7 +7,6 @@ export type GLTSURL = string | URL;
 export type GLTSModules = Readonly<Record<string, object>>;
 
 export interface GLTSLoaderOptions {
-  baseURL?: GLTSURL;
   cdnURL?: GLTSURL;
   isPreview?: boolean;
   modules?: GLTSModules;
