@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { resolveModuleURL } from "../../src/modules/resolution.js";
+import { helperURL, resolveModuleURL } from "../../src/modules/resolution.js";
 
 const options = { cdnURL: new URL("https://cdn.test/"), threeRevision: "185", external: ["three", "simplex-noise"] };
 const importer = "https://assets.test/path/asset.glts";
@@ -18,7 +18,7 @@ it("permits relative dependencies in external modules but rejects them in script
     url: new URL("https://assets.test/path/dependency.js"), transform: true,
   });
   expect(() => resolveModuleURL("./dependency.js", importer, [], options, "script"))
-    .toThrow("Unsupported local import");
+    .toThrow("Unsupported local import: ./dependency.js; import helpers as ./*.ts files");
   expect(() => resolveModuleURL("./child.glts?v=2", importer, [], options, "script"))
     .toThrow("use gltsLoader.loadAsync()");
 });
@@ -27,4 +27,11 @@ it("passes external non-JavaScript URLs through while preparing absolute script 
   const url = "https://assets.test/library.wasm";
   expect(resolveModuleURL(url, importer, [], options, "module").transform).toBe(false);
   expect(resolveModuleURL(url, importer, [], options, "script").transform).toBe(true);
+});
+
+it("treats relative .ts imports as helpers", () => {
+  expect(helperURL("../shared/geometry.ts?v=2", importer)?.href).toBe("https://assets.test/shared/geometry.ts?v=2");
+  expect(helperURL("./data.json", importer)).toBeUndefined();
+  expect(helperURL("/root.ts", importer)).toBeUndefined();
+  expect(helperURL("https://assets.test/remote.ts", importer)).toBeUndefined();
 });

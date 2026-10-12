@@ -10,17 +10,29 @@ interface CompilationContext {
   readonly url: string;
 }
 
+/** Strips types, keeping every import as written, as TypeScript's verbatimModuleSyntax does. */
+function stripTypes(source: string): string {
+  return transform(source, { disableESTransforms: true, keepUnusedImports: true, transforms: ["typescript"] }).code;
+}
+
 export function compileScript(source: string, context: CompilationContext): string {
   try {
     const program = parseScript(source, context.url);
     isolateScriptBody(program, context);
-    return transform(generate(program, { retainLines: true }, source).code, {
-      disableESTransforms: true,
-      keepUnusedImports: true,
-      transforms: ["typescript"]
-    }).code;
+    return stripTypes(generate(program, { retainLines: true }, source).code);
   } catch (error) {
     throw toGLTSError(error, "Unable to compile GLTS script", {
+      ...context,
+      phase: "transform"
+    });
+  }
+}
+
+export function compileHelper(source: string, context: CompilationContext): string {
+  try {
+    return stripTypes(source);
+  } catch (error) {
+    throw toGLTSError(error, "Unable to compile helper", {
       ...context,
       phase: "transform"
     });

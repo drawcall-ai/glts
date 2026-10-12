@@ -26,6 +26,13 @@ export function packageURL(path: string, cdnURL: URL, external: readonly string[
   return url;
 }
 
+/** The URL of a helper, a `./` or `../` import of a `.ts` file, or undefined for any other import. */
+export function helperURL(specifier: string, importerURL: string): URL | undefined {
+  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return;
+  const url = new URL(specifier, importerURL);
+  return url.pathname.endsWith(".ts") ? url : undefined;
+}
+
 function packagePath(specifier: string, threeRevision: string): string {
   if (specifier.startsWith("three/addons/")) {
     return `three@0.${threeRevision}.0/examples/jsm/${specifier.slice("three/addons/".length)}`;
@@ -73,5 +80,8 @@ export function resolveModuleURL(
   ) {
     return { url, transform: true };
   }
-  throw new GLTSError(`Unsupported local import: ${specifier}`, context);
+  throw new GLTSError(
+    `Unsupported local import: ${specifier}; import helpers as ./*.ts files and load other files with import.meta.url`,
+    context,
+  );
 }

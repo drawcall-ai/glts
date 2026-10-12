@@ -37,6 +37,17 @@ beforeAll(async () => {
       `import { scene } from "@drawcall/glts";`,
       `scene.add(42);`,
     ].join("\n"),
+    "app/public/helped.glts": [
+      `import { scene } from "@drawcall/glts";`,
+      `import { name } from "./parts/name.ts";`,
+      `import { missing } from "./parts/missing.ts";`,
+      `scene.name = name;`,
+    ].join("\n"),
+    "app/public/parts/name.ts": `export const name: string = 42;\nexport interface Part { name: string }`,
+    "app/public/typed.glts": [
+      `import { Part } from "./parts/name.ts";`,
+      `const part: Part = { name: "wheel" };`,
+    ].join("\n"),
     "app/main.js": `export { default } from "virtual:glts-modules";`,
   });
   await linkThree(`${temp}/app`);
@@ -47,6 +58,17 @@ afterAll(() => rm(temp, { recursive: true }));
 it("passes scripts using the context, the DOM, installed packages, CDN packages, and URL imports", async () => {
   await expect(check([`${temp}/app/public/valid.glts`]))
     .resolves.toBeUndefined();
+});
+
+it("checks the helpers scripts import and reports missing ones", async () => {
+  const errors = await check([`${temp}/app/public/helped.glts`]);
+  expect(errors).toMatch(/parts\/name\.ts:1:14 - error TS2322: Type 'number' is not assignable to type 'string'/);
+  expect(errors).toMatch(/helped\.glts:3:25 - error TS2307: Cannot find module '\.\/parts\/missing\.ts'/);
+});
+
+it("rejects types imported as values, which the loader would import at runtime", async () => {
+  await expect(check([`${temp}/app/public/typed.glts`]))
+    .resolves.toMatch(/typed\.glts:1:10 - error TS1484: 'Part' is a type and must be imported using a type-only import/);
 });
 
 it("fails the build with the type errors of public scripts", async () => {

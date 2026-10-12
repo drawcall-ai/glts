@@ -1,5 +1,6 @@
 import * as THREE from "three"
 import { onDispose, scene } from "@drawcall/glts"
+import { merge } from "./geometry.ts"
 
 // The hand-formed aluminium shell: a torpedo body lofted from keyframed cross
 // sections, with the cockpit cut straight into the loft so the opening has a
@@ -18,17 +19,6 @@ const WAIST = 0.45
 function required<T>(values: readonly T[], index: number, name: string): T {
   const value = values[index]
   if (value === undefined) throw new RangeError(`Missing ${name} at index ${index}`)
-  return value
-}
-
-function attribute(
-  geometry: THREE.BufferGeometry,
-  name: string
-): THREE.BufferAttribute {
-  const value = geometry.getAttribute(name)
-  if (!(value instanceof THREE.BufferAttribute)) {
-    throw new TypeError(`Expected buffer attribute: ${name}`)
-  }
   return value
 }
 
@@ -248,36 +238,6 @@ function mirrored(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
   }
   copy.computeVertexNormals()
   return copy
-}
-
-function merge(parts: readonly THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const flat = parts.map((part) => (part.index ? part.toNonIndexed() : part))
-  const total = flat.reduce((sum, part) => sum + attribute(part, "position").count, 0)
-  const positions = new Float32Array(total * 3)
-  const normals = new Float32Array(total * 3)
-  const uvs = new Float32Array(total * 2)
-  let offset = 0
-  for (const part of flat) {
-    const position = attribute(part, "position")
-    positions.set(position.array, offset * 3)
-    normals.set(attribute(part, "normal").array, offset * 3)
-    if (part.hasAttribute("uv")) {
-      uvs.set(attribute(part, "uv").array, offset * 2)
-    }
-    offset += position.count
-  }
-
-  for (const [index, part] of flat.entries()) {
-    part.dispose()
-    const source = required(parts, index, "source geometry")
-    if (part !== source) source.dispose()
-  }
-
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
-  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3))
-  geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2))
-  return geometry
 }
 
 // ---------------------------------------------------------------------------

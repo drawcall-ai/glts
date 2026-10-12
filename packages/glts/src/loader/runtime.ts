@@ -95,8 +95,21 @@ export class LoaderRuntime {
     }));
   }
 
-  reload(url: string): Promise<void> {
+  /** Reloads the script at `url`, or every script importing the helper at `url`. */
+  async reload(url: string): Promise<void> {
     this.#operations.assertActive(url);
+    const dependents = this.#modules.dependents(url);
+    if (dependents.length === 0) return this.#reloadScript(url);
+
+    const results = await Promise.allSettled(dependents.map((script) => this.#reloadScript(script)));
+    const errors: unknown[] = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) {
+      throw new GLTSError("Reloading the helper's scripts failed", { phase: "reload", url }, new AggregateError(errors));
+    }
+  }
+
+  #reloadScript(url: string): Promise<void> {
     return this.#operations.runReload(url, async () => {
       // The write lock lets pending loads finish before their source is invalidated.
       this.#modules.invalidateScript(url);

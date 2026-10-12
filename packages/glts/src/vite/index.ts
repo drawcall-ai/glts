@@ -87,9 +87,9 @@ export interface GLTSPluginOptions {
 }
 
 /**
- * Bundles the packages `.glts` files import, sharing the app's dependencies
- * and fetching the rest from the CDN, type checks the scripts, and hot reloads
- * edited ones.
+ * Bundles the packages `.glts` files and their helpers import, sharing the
+ * app's dependencies and fetching the rest from the CDN, type checks the
+ * scripts, and hot reloads edited scripts and helpers.
  */
 export function glts(options: GLTSPluginOptions = {}): Plugin {
   const cdnBase = new URL(options.cdnURL ?? defaultCDNURL);
@@ -170,8 +170,8 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
     },
     async hotUpdate({ type, file }) {
       const project = configured();
-      // Apps load scripts by URL, so only public ones are scanned and reloaded.
-      if (!project.publicDir || extname(file) !== ".glts") return;
+      // Apps load scripts by URL, so only public scripts and helpers are scanned and reloaded.
+      if (!project.publicDir || ![".glts", ".ts"].includes(extname(file))) return;
       const path = relative(project.publicDir, file);
       if (path.startsWith("..")) return;
       const previous = project.scan;
@@ -188,7 +188,8 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
         this.environment.hot.send({ type: "full-reload" });
         return;
       }
-      if (type !== "update") return;
+      // A created helper may be one a failed reload is missing.
+      if (type === "delete") return;
 
       this.environment.hot.send("glts:update", { url: this.environment.config.base + normalizePath(path) });
     }

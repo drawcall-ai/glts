@@ -56,7 +56,7 @@ test("renders the bundled racecar", async ({ page }, testInfo) => {
   expect(errors).toEqual([]);
 });
 
-test("composes the racecar from its own nested GLTS files", async ({ page }) => {
+test("composes the racecar from its own nested GLTS files and helper", async ({ page }) => {
   const loaded = new Set<string>();
   page.on("request", (request) => {
     const path = new URL(request.url()).pathname;
@@ -73,6 +73,7 @@ test("composes the racecar from its own nested GLTS files", async ({ page }) => 
     "body.glts",
     "chassis.glts",
     "cockpit.glts",
+    "geometry.ts",
     "index.glts",
     "paddock.glts",
     "wheel.glts"

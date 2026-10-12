@@ -1,6 +1,6 @@
 ---
 name: glts
-description: Write and host GLTS procedural Three.js assets. Covers authoring `.glts` scripts (scene, resources, cleanup, composition, instancing, preview staging, rendering profile, reload safety) and using `@drawcall/glts` in an app (GLTSLoader and its options, instances, reload, errors, GLTSRenderer, sharing packages with `modules`, and the `@drawcall/glts/vite` plugin). Use when creating, editing, reviewing, loading, rendering, or hot reloading `.glts` files, or when configuring `@drawcall/glts` in a Three.js or Vite app.
+description: Write and host GLTS procedural Three.js assets. Covers authoring `.glts` scripts (scene, resources, cleanup, helpers, composition, instancing, preview staging, rendering profile, reload safety) and using `@drawcall/glts` in an app (GLTSLoader and its options, instances, reload, errors, GLTSRenderer, sharing packages with `modules`, and the `@drawcall/glts/vite` plugin). Use when creating, editing, reviewing, loading, rendering, or hot reloading `.glts` files, or when configuring `@drawcall/glts` in a Three.js or Vite app.
 ---
 
 # GLTS
@@ -44,8 +44,9 @@ Rules:
 
 - Export nothing, including types and interfaces.
 - Do not import `GLTSLoader`, `GLTSRenderer`, or any other runtime value from `@drawcall/glts`; type-only imports are fine.
-- Import `three`, `three/addons/*`, browser-compatible npm packages, or full `https://` module URLs.
-- Never import `.glts` files statically, use dynamic `import()`, import attributes, or local modules such as `./shared.ts`. Keep the file self-contained.
+- Imports run as written: import types with `import type` or an inline `type`, or the browser fails to find them.
+- Import `three`, `three/addons/*`, browser-compatible npm packages, full `https://` module URLs, or helpers (see Helpers).
+- Never import `.glts` files statically, or other local files such as `./data.json`; never use dynamic `import()` or import attributes.
 - Top-level `await` works.
 - `import.meta.url` is the script's own URL, so `new URL("./bark.png", import.meta.url)` resolves next to the `.glts` file.
 
@@ -108,6 +109,43 @@ When the asset is nested, its background, environment, fog, override material, d
 - Register LoadingManager handlers (`addHandler`) on the contextual `loadingManager`, with handler loaders constructed with it. A handler registered only on the host's manager makes the load fail.
 - Dispose only what the script created. GLTS does not infer ownership of geometry, materials, or textures.
 - Close `onDispose` callbacks over the resources themselves. Never find them by traversing `scene`: a reload detaches the old children before their callbacks run.
+
+## Helpers
+
+Share code between scripts with helpers: `.ts` modules imported by a `./` or `../` path, extension included.
+
+```ts
+// parts/geometry.ts
+import * as THREE from "three"
+
+export function tube(radius: number, length: number): THREE.BufferGeometry {
+  return new THREE.CylinderGeometry(radius, radius, length, 24)
+}
+```
+
+```ts
+// parts/axle.glts
+import * as THREE from "three"
+import { onDispose, scene } from "@drawcall/glts"
+import { tube } from "./geometry.ts"
+
+const geometry = tube(0.03, 1.4)
+const material = new THREE.MeshStandardMaterial()
+scene.add(new THREE.Mesh(geometry, material))
+
+onDispose(() => {
+  geometry.dispose()
+  material.dispose()
+})
+```
+
+- A helper may export anything and import what a script can, including other helpers.
+- Helpers cannot import `@drawcall/glts` at runtime: use `import type` for its types (an inline `type` still imports it), and pass what a helper needs, such as `loadingManager`, from the script.
+- A helper has no `onDispose`. Return what it creates and dispose it in the script.
+- Each script gets its own instance of each helper, shared by all of its imports of that helper, direct or through other helpers, and by every node loaded from the script. Keep no module-level state: other scripts do not see it, and the browser keeps it after disposal.
+- `import.meta.url` in a helper is the helper's own URL.
+- Cyclic helper imports fail.
+- An asset is its `.glts` file plus the helpers and files it references. Copy them together.
 
 ## Composition
 
@@ -228,7 +266,7 @@ The result is a `GLTSInstances` with a fixed `count`, `getMatrixAt(index, target
 
 ## Reload and errors
 
-- `node.reload()` re-executes one node. `loader.reload(url)` invalidates the cached source and reloads every undisposed node loaded from that URL; with none, it fetches nothing and the next load gets fresh source. Pending loads of that URL finish first.
+- `node.reload()` re-executes one node with fresh source, its helpers included. `loader.reload(url)` invalidates the cached source and reloads every undisposed node loaded from that URL; with none, it fetches nothing and the next load gets fresh source. Pending loads of that URL finish first. For a helper's URL, it does the same for every script that imports the helper, directly or through other helpers.
 - A reload builds the replacement before touching the live node. Any failure leaves the current content in place.
 - Source requests use HTTP `no-cache`. Later loads of the same URL reuse the cached source until it is invalidated.
 - Load and reload failures reject with `GLTSError`: `url`, `phase` (`resolve`, `fetch`, `transform`, `evaluate`, `construct`, `resource`, `reload`, `dispose`), `importChain`, and `cause`.
@@ -292,17 +330,18 @@ export default defineConfig({ plugins: [glts()] })
 
 Needs `vite` 6 or later and Node.js 22.17 or later. It works on the `.glts` files in Vite's public directory, which the app loads by their served URL (for example `public/tree.glts` as `/tree.glts`).
 
-- Every `GLTSLoader` in the app receives, as `modules`, the packages those scripts import; the app's own `modules` entries take precedence.
+- Every `GLTSLoader` in the app receives, as `modules`, the packages those scripts and their helpers import; the app's own `modules` entries take precedence.
 - `three` and packages in the `dependencies` or `devDependencies` of the app's nearest `package.json` are the app's own instances.
 - Other packages, and versioned imports such as `pkg@2`, are fetched from the CDN during development and builds and bundled with the app. Each package that scripts import or the app declares exists once.
 - Every loader gets the plugin's `cdnURL` option (default `https://esm.sh/`) as its default `cdnURL`. Scripts outside the public directory and `https://` imports still load packages at runtime.
-- Editing a public script hot reloads it: every node loaded from it reloads without a page reload. Adding or deleting a script does not, unless it changes which packages the scripts import, which reloads the page.
+- Editing a public script hot reloads it: every node loaded from it reloads without a page reload. Editing or creating a public helper hot reloads every script that imports it. Adding or deleting a script does not, unless it changes which packages the scripts or their helpers import, which reloads the page.
 
-Type checking: the plugin type checks the public `.glts` files strictly, independently of the app's `tsconfig.json`, using the app's `typescript` 5 or 6; install it as a dev dependency, or `vite build` fails.
+Type checking: the plugin type checks the public `.glts` files and their helpers strictly, independently of the app's `tsconfig.json`, using the app's `typescript` 5 or 6; install it as a dev dependency, or `vite build` fails.
 
 - Type errors fail `vite build`. During development they print in the terminal and hot reload continues.
 - Imports from packages that are not installed (CDN packages and `https://` imports) are untyped and cannot be used as types. Install a package to type it.
 - `import type` is never fetched, so it needs the package installed.
+- A type imported as a value is an error, since the loader would import it at runtime.
 
 ## Verify
 

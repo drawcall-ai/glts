@@ -114,7 +114,10 @@ export class GLTSLoader extends Loader {
     return this.#runtime.loadInstances(this.#resolveURL(url), count, this.#isPreview);
   }
 
-  /** Invalidates source and reloads undisposed nodes. Unloaded source is fetched on the next load. */
+  /**
+   * Invalidates the source of the script at `url`, or of every script importing the helper at `url`,
+   * and reloads their undisposed nodes. Unloaded source is fetched on the next load.
+   */
   reload(url: GLTSURL): Promise<void> {
     return this.#runtime.reload(this.#resolveURL(url));
   }

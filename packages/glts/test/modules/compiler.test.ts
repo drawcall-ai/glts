@@ -121,3 +121,13 @@ describe("compileScript", () => {
     await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(compiled)}`);
   });
 });
+
+it("keeps imports as written, even ones used only as types", () => {
+  const compiled = compileScript(`
+    import { Options, merge } from "./geometry.ts"
+    import { type Other } from "./other.ts"
+    const options: Options = merge()
+  `, context);
+  expect(compiled).toContain('import { Options, merge } from "./geometry.ts"');
+  expect(compiled).toContain('from "./other.ts"');
+});

@@ -18,9 +18,7 @@ it("collects the runtime package imports scripts do not get from the loader", as
       import type { Options } from "typed";
       import { type Other } from "kept-for-side-effects";
       import noise from "simplex-noise@4";
-      import "./local.js";
       import remote from "https://cdn.test/remote.js";
-      const lazy = await import("dynamic");
     `,
   });
   const { specifiers } = await scan(`${temp}/imports`);
@@ -33,6 +31,23 @@ it("scans nested scripts once per import", async () => {
     scripts: [`${temp}/public/a.glts`, `${temp}/public/nested/b.glts`],
     specifiers: ["a", "b"],
   });
+});
+
+it("follows helpers to the packages they import", async () => {
+  await writeFiles(temp, {
+    "helpers/scene.glts": `import "./parts/a.ts"; import "b"`,
+    "helpers/parts/a.ts": `export * from "../shared.ts"; import "a"; import type { T } from "typed"`,
+    "helpers/shared.ts": `import "./parts/a.ts"; import "./missing.ts"; export { s } from "shared"`,
+  });
+  expect(await scan(`${temp}/helpers`)).toEqual({
+    scripts: [`${temp}/helpers/scene.glts`],
+    specifiers: ["a", "b", "shared"],
+  });
+});
+
+it("rejects local imports the loader would reject, which the type check resolves", async () => {
+  await writeFiles(temp, { "extension/scene.glts": `import { tube } from "./geometry.js"`, "extension/geometry.ts": `` });
+  await expect(scan(`${temp}/extension`)).rejects.toThrow("Unsupported local import in");
 });
 
 it("rejects a script that does not parse, naming it", async () => {
