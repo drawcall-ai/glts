@@ -97,21 +97,21 @@ export class GLTSLoader extends Loader {
     });
   }
 
-  override loadAsync(
+  override async loadAsync(
     url: GLTSURL,
     onProgress?: GLTSProgressCallback
   ): Promise<GLTSScene> {
     const resolvedURL = this.#resolveURL(url);
     if (onProgress) {
-      return Promise.reject(new GLTSError(
+      throw new GLTSError(
         "GLTSLoader does not support per-load progress callbacks; use LoadingManager.onProgress",
         { phase: "resolve", url: resolvedURL }
-      ));
+      );
     }
     return this.#loadScene(resolvedURL, this.#isPreview);
   }
 
-  loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances> {
+  async loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances> {
     return this.#loadInstances(this.#resolveURL(url), count, this.#isPreview);
   }
 
@@ -152,9 +152,9 @@ export class GLTSLoader extends Loader {
       (execution, matrices) => this.#nodes.createScene(execution, url, isPreview, matrices));
   }
 
-  #loadInstances(url: string, count: number, isPreview: boolean, parent?: Execution): Promise<GLTSInstances> {
+  async #loadInstances(url: string, count: number, isPreview: boolean, parent?: Execution): Promise<GLTSInstances> {
     if (!Number.isSafeInteger(count) || count < 1) {
-      return Promise.reject(new RangeError("GLTS instance count must be a positive integer"));
+      throw new RangeError("GLTS instance count must be a positive integer");
     }
     return this.#load({ url, count, isPreview, parent, instances: true },
       (execution, matrices) => this.#nodes.createInstances(execution, url, isPreview, matrices));
