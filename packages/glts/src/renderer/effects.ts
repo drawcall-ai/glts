@@ -38,8 +38,7 @@ export class Effects {
   readonly #effects = new Map<GLTSScene, EffectSet>();
   readonly #renderer: THREE.WebGLRenderer;
   readonly #size = new THREE.Vector2();
-  #effectError: unknown;
-  #effectFailed = false;
+  #failure: { readonly error: unknown } | undefined;
   #effectsSupported = false;
   #delta = 0;
 
@@ -54,33 +53,34 @@ export class Effects {
     beforeRender: () => void
   ): void {
     this.#delta = delta;
-    this.#effectError = undefined;
-    this.#effectFailed = false;
-    const effects = this.#refreshPasses(scene, camera);
-    let installed = false;
+    const passes = this.#refreshPasses(scene, camera);
+    // Factories observe host state before the root profile is applied.
+    beforeRender();
+    if (passes.length === 0) {
+      this.#renderer.render(scene, camera);
+      return;
+    }
+    let failure;
     try {
-      // Factories observe host state before the root profile is applied.
-      beforeRender();
-      if (effects.length > 0) {
-        installed = true;
-        this.#renderer.setEffects(effects);
-        if (!this.#effectsSupported) {
-          installed = false;
-          this.#effects.delete(scene);
-          disposeAfterFailure(
-            effects,
-            new Error(
-              "GLTS effects require a WebGLRenderer constructed with GLTSRenderer.parameters"
-            )
-          );
-        }
+      this.#renderer.setEffects(passes);
+      if (!this.#effectsSupported) {
+        this.#effects.delete(scene);
+        disposeAfterFailure(
+          passes,
+          new Error(
+            "GLTS effects require a WebGLRenderer constructed with GLTSRenderer.parameters"
+          )
+        );
       }
       this.#renderer.render(scene, camera);
-      if (this.#effectFailed) {
-        throw this.#effectError;
-      }
     } finally {
-      if (installed) this.#renderer.setEffects(null);
+      // An unsupported renderer installs nothing, so there is nothing to undo.
+      if (this.#effectsSupported) this.#renderer.setEffects(null);
+      failure = this.#failure;
+      this.#failure = undefined;
+    }
+    if (failure) {
+      throw failure.error;
     }
   }
 
@@ -177,14 +177,13 @@ export class Effects {
     // Defer errors until Three's compositor has restored its internal state.
     const render = pass.render.bind(pass);
     pass.render = (renderer, writeBuffer, readBuffer, _delta, maskActive) => {
-      if (this.#effectFailed) {
+      if (this.#failure) {
         return;
       }
       try {
         render(renderer, writeBuffer, readBuffer, this.#delta, maskActive);
       } catch (error) {
-        this.#effectError = error;
-        this.#effectFailed = true;
+        this.#failure = { error };
       }
     };
   }
