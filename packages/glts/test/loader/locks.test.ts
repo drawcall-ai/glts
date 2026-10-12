@@ -46,30 +46,6 @@ it("serializes writes across URLs", async () => {
   releaseSecond();
 });
 
-it("keeps a host read behind an already queued write", async () => {
-  const locks = new URLLocks();
-  const releaseFirst = await locks.acquireWrite("a.glts");
-  let releaseSecond: (() => void) | undefined;
-  const second = locks.acquireWrite("b.glts").then((release) => {
-    releaseSecond = release;
-  });
-  let readStarted = false;
-  const read = locks.acquireRead("b.glts").then((release) => {
-    readStarted = true;
-    return release;
-  });
-
-  await Promise.resolve();
-  expect(readStarted).toBe(false);
-  releaseFirst();
-  await second;
-  expect(readStarted).toBe(false);
-  releaseSecond?.();
-  const releaseRead = await read;
-  expect(readStarted).toBe(true);
-  releaseRead();
-});
-
 it("lets a nested read complete before a queued write", async () => {
   const locks = new URLLocks();
   const releaseFirst = await locks.acquireWrite("a.glts");
@@ -113,4 +89,23 @@ it("keeps queued write state after an earlier nested read ends", async () => {
   const releaseHostRead = await hostRead;
   expect(hostReadStarted).toBe(true);
   releaseHostRead();
+});
+
+it("holds a read requested in the same tick as a write before granting the write", async () => {
+  const locks = new URLLocks();
+  const held: string[] = [];
+  const reading = locks.acquireRead("a.glts").then((release) => {
+    held.push("read");
+    return release;
+  });
+  const writing = locks.acquireWrite("a.glts").then((release) => {
+    held.push("write");
+    return release;
+  });
+  const releaseRead = await reading;
+  await Promise.resolve();
+  expect(held).toEqual(["read"]);
+  releaseRead();
+  (await writing)();
+  expect(held).toEqual(["read", "write"]);
 });

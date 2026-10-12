@@ -1,22 +1,27 @@
 import { parse } from "es-module-lexer/js";
 import MagicString from "magic-string";
 
-import { GLTSError } from "../errors.js";
+import { GLTSError, type GLTSPhase } from "../errors.js";
 
 const staticImport = 1;
 const importMeta = 3;
 
-export type StaticImportResolver = (
-  specifier: string,
-  importerURL: string,
-  importChain: readonly string[]
-) => Promise<string>;
-
-export interface RewriteModuleOptions {
+/** A module's source, with the URL and import chain its errors report. */
+export interface ModuleSource {
   readonly source: string;
-  readonly sourceURL: string;
+  readonly url: string;
   readonly importChain: readonly string[];
-  readonly resolveImport: StaticImportResolver;
+}
+
+interface StaticImport {
+  readonly specifier: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+interface ParsedModule {
+  readonly imports: readonly StaticImport[];
+  readonly usesImportMeta: boolean;
 }
 
 function locationAt(source: string, offset: number): string {
@@ -27,79 +32,66 @@ function locationAt(source: string, offset: number): string {
   return `${line}:${column}`;
 }
 
-export async function rewriteModule(options: RewriteModuleOptions): Promise<string> {
-  let imports: ReturnType<typeof parse>[0];
+function parseModule({ source, url, importChain }: ModuleSource): ParsedModule {
+  const failure = (message: string, phase: GLTSPhase, cause?: unknown): GLTSError =>
+    new GLTSError(message, { importChain, phase, url }, cause);
+  let entries: ReturnType<typeof parse>[0];
   try {
-    [imports] = parse(options.source, options.sourceURL);
+    [entries] = parse(source, url);
   } catch (error) {
-    throw new GLTSError("Unable to parse module imports", {
-      url: options.sourceURL,
-      phase: "transform",
-      importChain: options.importChain
-    }, error);
+    throw failure("Unable to parse module imports", "transform", error);
   }
 
-  const rewritten = new MagicString(options.source, { filename: options.sourceURL });
-  const staticImports = imports.filter((entry) => entry.t === staticImport);
-
-  for (const entry of imports) {
+  const imports: StaticImport[] = [];
+  for (const entry of entries) {
     if (entry.t === importMeta) {
       continue;
     }
 
     if (entry.t !== staticImport) {
-      throw new GLTSError(
-        `Dynamic and source-phase imports are not supported (${locationAt(options.source, entry.ss)})`,
-        {
-          url: options.sourceURL,
-          phase: "transform",
-          importChain: options.importChain
-        }
-      );
+      throw failure(`Dynamic and source-phase imports are not supported (${locationAt(source, entry.ss)})`, "transform");
     }
 
     if (entry.at) {
-      throw new GLTSError(
-        `Import attributes are not supported (${locationAt(options.source, entry.ss)})`,
-        {
-          url: options.sourceURL,
-          phase: "transform",
-          importChain: options.importChain
-        }
-      );
+      throw failure(`Import attributes are not supported (${locationAt(source, entry.ss)})`, "transform");
     }
+
+    if (!entry.n) {
+      throw failure(`Static import has no resolvable specifier (${locationAt(source, entry.ss)})`, "resolve");
+    }
+
+    imports.push({ specifier: entry.n, start: entry.s, end: entry.e });
   }
+
+  return { imports, usesImportMeta: entries.some((entry) => entry.t === importMeta) };
+}
+
+/** The specifiers of a module's static imports, in source order. */
+export function importSpecifiers(module: ModuleSource): string[] {
+  return parseModule(module).imports.map(({ specifier }) => specifier);
+}
+
+export async function rewriteModule(
+  module: ModuleSource,
+  resolveImport: (specifier: string) => Promise<string>,
+): Promise<string> {
+  const { imports, usesImportMeta } = parseModule(module);
+  const rewritten = new MagicString(module.source, { filename: module.url });
 
   // Resolve depth-first so a failed graph leaves no sibling work allocating
   // resources after execution cleanup.
-  for (const entry of staticImports) {
-    if (!entry.n) {
-      throw new GLTSError(
-        `Static import has no resolvable specifier (${locationAt(options.source, entry.ss)})`,
-        {
-          url: options.sourceURL,
-          phase: "resolve",
-          importChain: options.importChain
-        }
-      );
-    }
-
-    const resolved = await options.resolveImport(
-      entry.n,
-      options.sourceURL,
-      options.importChain
-    );
-    rewritten.overwrite(entry.s, entry.e, resolved);
+  for (const { specifier, start, end } of imports) {
+    rewritten.overwrite(start, end, await resolveImport(specifier));
   }
 
-  if (imports.some((entry) => entry.t === importMeta)) {
-    const start = options.source.match(
+  if (usesImportMeta) {
+    const start = module.source.match(
       /^#![^\r\n\u2028\u2029]*(?:\r\n|[\r\n\u2028\u2029])/
     )?.[0].length ?? 0;
-    rewritten.appendLeft(start, `import.meta.url = ${JSON.stringify(options.sourceURL)};\n`);
+    rewritten.appendLeft(start, `import.meta.url = ${JSON.stringify(module.url)};\n`);
   }
 
-  const safeSourceURL = options.sourceURL.replace(/[\n\r\u2028\u2029]/g, "");
-  rewritten.append(`\n//# sourceURL=${safeSourceURL}\n`);
+  const safeURL = module.url.replace(/[\n\r\u2028\u2029]/g, "");
+  rewritten.append(`\n//# sourceURL=${safeURL}\n`);
   return rewritten.toString();
 }

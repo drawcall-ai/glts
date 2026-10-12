@@ -45,3 +45,32 @@ export function toGLTSError(
 
   return new GLTSError(message, context, error);
 }
+
+/** Runs every step, then throws an AggregateError of the steps that failed. */
+export function runAll(message: string, steps: readonly (() => void)[]): void {
+  const errors: unknown[] = [];
+  for (const step of steps) {
+    try {
+      step();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 0) {
+    throw new AggregateError(errors, message);
+  }
+}
+
+/** Runs `cleanup` after `error`, then rethrows `error`, or both errors when cleanup fails too. */
+export function cleanUpAndThrow(error: unknown, url: string, cleanup: () => void): never {
+  try {
+    cleanup();
+  } catch (cleanupError) {
+    throw new GLTSError(
+      "GLTS operation and cleanup both failed",
+      { phase: "dispose", url },
+      new AggregateError([error, cleanupError])
+    );
+  }
+  throw error;
+}

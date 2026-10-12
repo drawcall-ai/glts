@@ -15,15 +15,6 @@ interface Showcase {
   readonly url: string;
 }
 
-interface LoadedScene {
-  readonly objectURL: string | undefined;
-  readonly scene: GLTSScene;
-}
-
-interface ElementConstructor<T extends Element> {
-  new (): T;
-}
-
 const showcase = {
   label: "Vintage Racecar",
   strength: "Multi-file composition",
@@ -33,7 +24,7 @@ const showcase = {
 
 function requiredElement<T extends Element>(
   selector: string,
-  ElementType: ElementConstructor<T>
+  ElementType: new () => T
 ): T {
   const element = document.querySelector(selector);
   if (!(element instanceof ElementType)) {
@@ -75,8 +66,7 @@ loadingManager.onLoad = () => {
 };
 
 const loader = new GLTSLoader(loadingManager, { isPreview: true });
-let current: LoadedScene | undefined;
-let disposed = false;
+let current: GLTSScene | undefined;
 
 function showStatus(message: string, state: "ready" | "busy" | "error"): void {
   status.textContent = message;
@@ -95,28 +85,8 @@ function selectButton(url?: string): void {
   );
 }
 
-function disposeScene(loaded: LoadedScene): void {
-  try {
-    preview.release(loaded.scene);
-  } finally {
-    try {
-      loaded.scene.dispose();
-    } finally {
-      if (loaded.objectURL) URL.revokeObjectURL(loaded.objectURL);
-    }
-  }
-}
-
-async function openScene(
-  url: string,
-  name: string,
-  showcase?: Showcase,
-  objectURL?: string
-): Promise<void> {
-  if (fileInput.disabled) {
-    if (objectURL) URL.revokeObjectURL(objectURL);
-    return;
-  }
+async function openScene(url: string, name: string, showcase?: Showcase): Promise<void> {
+  if (fileInput.disabled) return;
 
   setBusy(true);
   showStatus(`Opening ${name}…`, "busy");
@@ -124,7 +94,6 @@ async function openScene(
   try {
     scene = await loader.loadAsync(url);
   } catch (error) {
-    if (objectURL) URL.revokeObjectURL(objectURL);
     showStatus(`Couldn’t open ${name}. ${errorMessage(error)}`, "error");
     setBusy(false);
     fileInput.value = "";
@@ -132,7 +101,7 @@ async function openScene(
   }
 
   const previous = current;
-  current = { objectURL, scene };
+  current = scene;
   preview.setScene(scene, showcase?.target);
   selectButton(showcase?.url);
   viewer.dataset.state = "ready";
@@ -142,7 +111,7 @@ async function openScene(
   );
   if (previous) {
     try {
-      disposeScene(previous);
+      previous.dispose();
     } catch (error) {
       console.error(error);
       showStatus(`Opened ${name}, but cleanup failed. ${errorMessage(error)}`, "error");
@@ -158,7 +127,11 @@ async function openFile(file: File): Promise<void> {
     return;
   }
   const url = URL.createObjectURL(file);
-  await openScene(url, file.name, undefined, url);
+  try {
+    await openScene(url, file.name);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 showcaseButton.addEventListener("click", () => {
@@ -168,30 +141,10 @@ fileInput.addEventListener("change", () => {
   const file = fileInput.files?.[0];
   if (file) void openFile(file);
 });
-const unbindFileDrop = bindFileDrop(
+bindFileDrop(
   viewer,
   (file) => { void openFile(file); },
   (message) => showStatus(message, "error")
 );
 
-function disposeHost(): void {
-  if (disposed) return;
-  disposed = true;
-  unbindFileDrop();
-  const errors: unknown[] = [];
-  for (const dispose of [
-    () => { if (current) disposeScene(current); },
-    () => preview.dispose(),
-    () => loader.dispose()
-  ]) {
-    try {
-      dispose();
-    } catch (error) {
-      errors.push(error);
-    }
-  }
-  if (errors.length > 0) throw new AggregateError(errors, "Viewer disposal failed");
-}
-
-window.addEventListener("beforeunload", disposeHost);
 void openScene(showcase.url, showcase.label, showcase);

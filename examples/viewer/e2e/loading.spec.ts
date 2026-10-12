@@ -53,7 +53,7 @@ test("keeps the current revision when an unawaited reload resource fails", async
     const node = await loader.loadAsync("/assets/resource-reload.glts");
     let rejected = false;
     try {
-      await node.reload();
+      await loader.reload("/assets/resource-reload.glts");
     } catch {
       rejected = true;
     }

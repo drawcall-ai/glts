@@ -16,7 +16,7 @@ const modulesId = "\0glts:modules";
 /** Prefixes CDN URLs, so Vite serves and bundles the fetched code like any other module. */
 const cdnPrefix = "\0glts:cdn:";
 const cdnId = (url: string): string => cdnPrefix + url;
-const cdnURL = (id: string): string | undefined => id.startsWith(cdnPrefix) ? id.slice(cdnPrefix.length) : undefined;
+const cdnModuleURL = (id: string): string | undefined => id.startsWith(cdnPrefix) ? id.slice(cdnPrefix.length) : undefined;
 
 function loaderSource(cdn: string): string {
   return `
@@ -87,9 +87,9 @@ export interface GLTSPluginOptions {
 }
 
 /**
- * Bundles the packages `.glts` files import, sharing the app's dependencies
- * and fetching the rest from the CDN, type checks the scripts, and hot reloads
- * edited ones.
+ * Bundles the packages `.glts` files and their helpers import, sharing the
+ * app's dependencies and fetching the rest from the CDN, type checks the
+ * scripts, and hot reloads edited scripts and helpers.
  */
 export function glts(options: GLTSPluginOptions = {}): Plugin {
   const cdnBase = new URL(options.cdnURL ?? defaultCDNURL);
@@ -144,8 +144,8 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
       if (id === "@drawcall/glts") return importer === loaderId ? undefined : loaderId;
       if (id === "virtual:glts-modules") return modulesId;
       // Dev serves modules by id and resolves those ids again.
-      if (cdnURL(id) !== undefined) return id;
-      const importerURL = importer && cdnURL(importer);
+      if (cdnModuleURL(id) !== undefined) return id;
+      const importerURL = importer && cdnModuleURL(importer);
       if (importer !== modulesId && !importerURL) return;
       if (importerURL && !isBareSpecifier(id)) return cdnId(new URL(id, importerURL).href);
 
@@ -165,13 +165,13 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
     async load(id) {
       if (id === loaderId) return loaderSource(cdnBase.href);
       if (id === modulesId) return modulesSource((await configured().scan).specifiers);
-      const url = cdnURL(id);
+      const url = cdnModuleURL(id);
       if (url !== undefined) return fetchCode(url);
     },
     async hotUpdate({ type, file }) {
       const project = configured();
-      // Apps load scripts by URL, so only public ones are scanned and reloaded.
-      if (!project.publicDir || extname(file) !== ".glts") return;
+      // Apps load scripts by URL, so only public scripts and helpers are scanned and reloaded.
+      if (!project.publicDir || ![".glts", ".ts"].includes(extname(file))) return;
       const path = relative(project.publicDir, file);
       if (path.startsWith("..")) return;
       const previous = project.scan;
@@ -188,7 +188,8 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
         this.environment.hot.send({ type: "full-reload" });
         return;
       }
-      if (type !== "update") return;
+      // A created helper may be one a failed reload is missing.
+      if (type === "delete") return;
 
       this.environment.hot.send("glts:update", { url: this.environment.config.base + normalizePath(path) });
     }

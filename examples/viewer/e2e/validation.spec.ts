@@ -7,16 +7,16 @@ test("rejects exports and invalid imports at their owning boundaries", async ({ 
   await routeGLTS(
     page,
     "**/assets/class-import.glts",
-    'import { GLTSLoader } from "@drawcall/glts"'
+    'import { GLTSLoader } from "@drawcall/glts"; console.log(GLTSLoader)'
   );
   await routeGLTS(
     page,
     "**/assets/static-import.glts",
-    'import Child from "./child.glts"'
+    'import Child from "./child.glts"; console.log(Child)'
   );
 
-  await routeGLTS(page, "**/assets/missing-import.glts", 'import { missing } from "@drawcall/glts"');
-  await routeGLTS(page, "**/assets/default-import.glts", 'import glts from "@drawcall/glts"');
+  await routeGLTS(page, "**/assets/missing-import.glts", 'import { missing } from "@drawcall/glts"; console.log(missing)');
+  await routeGLTS(page, "**/assets/default-import.glts", 'import glts from "@drawcall/glts"; console.log(glts)');
 
   await page.goto("/test-harness.html");
   const errors = await page.evaluate(async () => {
@@ -69,32 +69,6 @@ test("accepts namespace and aliased imports from the context module", async ({ p
     return result;
   });
   expect(result).toEqual({ name: "namespace scene", elapsed: 0.25 });
-});
-
-test("rejects contextual graph reloads", async ({ page }) => {
-  await routeGLTS(page, "**/assets/contextual-reload.glts", `
-    import { gltsLoader } from "@drawcall/glts"
-    await gltsLoader.reload(new URL("./other.glts", import.meta.url))
-  `);
-
-  await page.goto("/test-harness.html");
-  const result = await page.evaluate(async () => {
-    const loader = new window.GLTSLoader(new window.LoadingManager());
-    try {
-      await loader.loadAsync("/assets/contextual-reload.glts");
-      return { message: "resolved", phase: "resolved" };
-    } catch (error) {
-      return {
-        message: error instanceof Error ? error.message : String(error),
-        phase: window.readErrorField(error, "phase")
-      };
-    } finally {
-      loader.dispose();
-    }
-  });
-
-  expect(result.phase).toBe("reload");
-  expect(result.message).toContain("cannot reload the live graph");
 });
 
 test("reports managed-node augmentation as construction", async ({ page }) => {

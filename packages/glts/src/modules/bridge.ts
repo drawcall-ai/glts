@@ -1,9 +1,8 @@
 import * as THREE from "three";
 
 import type { ScriptContext } from "../scene/execution.js";
-import { GLTSError } from "../errors.js";
 import type { GLTSModules } from "../types.js";
-import { ModuleURLStore } from "./urls.js";
+import type { ModuleURLStore } from "./urls.js";
 
 let bridgeSequence = 0;
 
@@ -12,21 +11,29 @@ function nextBridgeKey(): string {
   return `__glts_bridge_${Date.now()}_${bridgeSequence}`;
 }
 
+/** Hands host values to generated modules through a global only they know the key of. */
 export class ModuleBridge {
-  readonly #modules = new Map<string, object>();
+  /** Host namespaces by bare specifier, `three` included; generated host modules read them. */
+  readonly namespaces: GLTSModules;
+  readonly #urls: ModuleURLStore;
   readonly #hostModuleURLs = new Map<string, string>();
   readonly #contexts = new Map<number, ScriptContext>();
-  readonly #moduleURLs: ModuleURLStore;
   readonly #bridgeKey = nextBridgeKey();
+  /** Starts every generated module; a module evaluated after disposal fails. */
+  readonly #prologue = [
+    `const bridge = globalThis[${JSON.stringify(this.#bridgeKey)}];`,
+    "if (!bridge) throw new Error('GLTS bridge is unavailable');"
+  ];
+  /** Stands in for `@drawcall/glts` in a linked script until an execution creates its context module. */
+  readonly contextToken = `glts-context:${this.#bridgeKey}`;
   #contextSequence = 0;
-  #disposed = false;
 
-  constructor(moduleURLs: ModuleURLStore, modules: GLTSModules = {}) {
-    this.#moduleURLs = moduleURLs;
+  constructor(modules: GLTSModules, urls: ModuleURLStore) {
+    this.#urls = urls;
+    this.namespaces = { ...modules, three: THREE };
     Reflect.set(globalThis, this.#bridgeKey, this);
-    for (const [specifier, namespace] of Object.entries({ ...modules, three: THREE })) {
-      this.#modules.set(specifier, namespace);
-      this.#hostModuleURLs.set(specifier, moduleURLs.create(this.#bridgeSource(specifier, namespace)));
+    for (const [specifier, namespace] of Object.entries(this.namespaces)) {
+      this.#hostModuleURLs.set(specifier, urls.create(this.#hostModuleSource(specifier, namespace)));
     }
   }
 
@@ -34,15 +41,11 @@ export class ModuleBridge {
     readonly release: () => void;
     readonly url: string;
   } {
-    this.#assertActive();
     this.#contextSequence += 1;
     const id = this.#contextSequence;
-    this.#contexts.set(id, context);
-
-    const url = this.#moduleURLs.create(
+    const url = this.#urls.create(
       [
-        `const bridge = globalThis[${JSON.stringify(this.#bridgeKey)}];`,
-        "if (!bridge) throw new Error('GLTS bridge is unavailable');",
+        ...this.#prologue,
         `const context = bridge.takeContext(${id});`,
         "let scene = context.scene;",
         "context.bindScene((next) => { scene = next; });",
@@ -56,11 +59,12 @@ export class ModuleBridge {
         "};",
       ].join("\n"),
     );
+    this.#contexts.set(id, context);
 
     return {
       release: () => {
         this.#contexts.delete(id);
-        this.#moduleURLs.release(url);
+        this.#urls.release(url);
       },
       url,
     };
@@ -75,13 +79,6 @@ export class ModuleBridge {
     return this.#hostModuleURLs.get(specifier);
   }
 
-  getModuleExport(specifier: string, name: string): unknown {
-    const namespace = this.#modules.get(specifier);
-    if (!namespace)
-      throw new Error(`Shared module is unavailable: ${specifier}`);
-    return Reflect.get(namespace, name);
-  }
-
   takeContext(id: number): ScriptContext {
     const context = this.#contexts.get(id);
     if (!context) {
@@ -93,51 +90,16 @@ export class ModuleBridge {
   }
 
   dispose(): void {
-    if (this.#disposed) {
-      return;
-    }
-
-    this.#disposed = true;
-    this.#contexts.clear();
-    this.#modules.clear();
-    this.#hostModuleURLs.clear();
     Reflect.deleteProperty(globalThis, this.#bridgeKey);
-    this.#moduleURLs.dispose();
   }
 
-  #bridgeSource(specifier: string, namespace: object): string {
-    const lines = [
-      `const bridge = globalThis[${JSON.stringify(this.#bridgeKey)}];`,
-      "if (!bridge) throw new Error('GLTS bridge is unavailable');",
-    ];
-    const exports: string[] = [];
-    let index = 0;
-
-    for (const name of Object.keys(namespace)) {
-      if (!/^[$A-Z_a-z][$\w]*$/.test(name)) {
-        continue;
-      }
-
-      const localName = `moduleExport${index}`;
-      lines.push(
-        `const ${localName} = bridge.getModuleExport(${JSON.stringify(specifier)}, ${JSON.stringify(name)});`,
-      );
-      exports.push(`${localName} as ${name}`);
-      index += 1;
-    }
-
-    lines.push(`export { ${exports.join(", ")} };`);
-    return lines.join("\n");
-  }
-
-  #assertActive(): void {
-    if (!this.#disposed) {
-      return;
-    }
-
-    throw new GLTSError("Loader has been disposed", {
-      phase: "resolve",
-      url: "glts://bridge",
-    });
+  #hostModuleSource(specifier: string, namespace: object): string {
+    const names = Object.keys(namespace).filter((name) => /^[$A-Z_a-z][$\w]*$/.test(name));
+    return [
+      ...this.#prologue,
+      `const namespace = bridge.namespaces[${JSON.stringify(specifier)}];`,
+      ...names.map((name, index) => `const moduleExport${index} = namespace[${JSON.stringify(name)}];`),
+      `export { ${names.map((name, index) => `moduleExport${index} as ${name}`).join(", ")} };`,
+    ].join("\n");
   }
 }

@@ -7,7 +7,7 @@ export type GLTSScriptScene = Omit<THREE.Scene, "clone"> & {
   readonly rendering: GLTSRenderingProfile;
 };
 
-export interface GLTSEffectContext {
+interface GLTSEffectContext {
   readonly camera: THREE.Camera;
   readonly height: number;
   readonly scene: GLTSScriptScene;
@@ -38,7 +38,7 @@ export function createScriptScene(): GLTSScriptScene {
 }
 
 export function copyRootState(target: GLTSScriptScene, source: GLTSScriptScene): void {
-  // The revision owns root metadata and render state; the caller owns its transform.
+  // The execution owns root metadata and render state; the caller owns its transform.
   target.name = source.name;
   target.layers.mask = source.layers.mask;
   target.visible = source.visible;

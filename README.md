@@ -9,8 +9,9 @@ dispose.
 
 Use GLTS when an asset is easier to write as code than to model: procedural
 geometry, parametric or animated props, or assets written by AI coding agents.
-Assets can load other assets, be instanced, import npm packages, and bring their
-own preview staging and render settings.
+Assets can load other assets, share code through helper modules, be
+instanced, import npm packages, and bring their own preview staging and render
+settings.
 
 GLTS runs scripts as code, not in a sandbox. Only load scripts you trust.
 
@@ -62,8 +63,8 @@ renderer.setAnimationLoop((time) => {
 
 ## Agent skill
 
-Everything else (composition, instancing, rendering, reload, packages, and the
-Vite plugin) is documented in the
+Everything else (helpers, composition, instancing, rendering, reload, packages,
+and the Vite plugin) is documented in the
 [GLTS skill](https://github.com/drawcall-ai/glts/blob/main/packages/glts/skills/glts/SKILL.md).
 Install it for your coding agent:
 

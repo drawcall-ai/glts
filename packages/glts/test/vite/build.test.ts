@@ -55,6 +55,7 @@ beforeAll(async () => {
       `import { Buffer } from "buffer";`,
       `import { w } from "w@2";`,
       `import * as THREE from "three";`,
+      `console.log(marker, y, token, Buffer, w, THREE);`,
     ].join("\n"),
     "web/main.js": `export { default } from "virtual:glts-modules";`,
   });

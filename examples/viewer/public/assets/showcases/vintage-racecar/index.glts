@@ -126,13 +126,10 @@ car.name = "vintage racecar"
 scene.add(car)
 
 const [body, chassis, cockpit, wheels] = await Promise.all([
-  gltsLoader.loadAsync(new URL("./body.glts", import.meta.url)),
-  gltsLoader.loadAsync(new URL("./chassis.glts", import.meta.url)),
-  gltsLoader.loadAsync(new URL("./cockpit.glts", import.meta.url)),
-  gltsLoader.loadInstancesAsync(
-    new URL("./wheel.glts", import.meta.url),
-    wheelPlacements.length
-  )
+  gltsLoader.loadAsync("./body.glts"),
+  gltsLoader.loadAsync("./chassis.glts"),
+  gltsLoader.loadAsync("./cockpit.glts"),
+  gltsLoader.loadInstancesAsync("./wheel.glts", wheelPlacements.length)
 ])
 car.add(body, chassis, cockpit, wheels)
 
@@ -185,7 +182,7 @@ if (isPreview) {
   scene.backgroundBlurriness = 0.7
   scene.backgroundIntensity = 0.2
   scene.fog = new THREE.Fog("#0a0b0e", 6, 22)
-  scene.add(await gltsLoader.loadAsync(new URL("./paddock.glts", import.meta.url)))
+  scene.add(await gltsLoader.loadAsync("./paddock.glts"))
 }
 
 onDispose(() => {

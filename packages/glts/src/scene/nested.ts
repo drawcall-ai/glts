@@ -14,10 +14,6 @@ export class NestedLoads {
     this.#ancestors = new Set([...(parent ? parent.#ancestors : []), ...urls]);
   }
 
-  get closed(): boolean {
-    return !this.#accepting;
-  }
-
   close(): void {
     this.#accepting = false;
   }
@@ -39,37 +35,32 @@ export class NestedLoads {
     }
   }
 
-  own(node: GLTSScene): void {
-    if (!this.#accepting) {
-      throw new GLTSError(
-        "Nested GLTS load completed after its parent closed",
-        {
-          phase: "dispose",
-          url: node.url,
-        },
-      );
-    }
-    this.#nodes.add(node);
+  /** Tracks a nested load and owns its node. */
+  own<T extends GLTSScene>(loading: Promise<T>): Promise<T> {
+    return this.#track(loading.then((node) => {
+      this.#nodes.add(node);
+      return node;
+    }));
   }
 
   get nodes(): readonly GLTSScene[] {
     return [...this.#nodes];
   }
 
-  async finishAndValidateAttachment(scene: THREE.Object3D): Promise<void> {
+  /** Waits for every tracked load, closes, and throws their failures once. */
+  async finish(): Promise<void> {
     while (this.#pending.size > 0) {
       await Promise.allSettled([...this.#pending]);
     }
 
     this.close();
-    if (this.#failures.length > 0) {
-      throw new AggregateError(this.#failures, "Nested GLTS operation failed");
+    const failures = this.#failures.splice(0);
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Nested GLTS operation failed");
     }
-
-    this.#assertNodesAttached(scene);
   }
 
-  #assertNodesAttached(scene: THREE.Object3D): void {
+  assertAttached(scene: THREE.Object3D): void {
     const attached = new Set<THREE.Object3D>();
     scene.traverse((object) => attached.add(object));
     const orphan = [...this.#nodes].find((node) => !attached.has(node));
@@ -81,7 +72,7 @@ export class NestedLoads {
     }
   }
 
-  track<T>(promise: Promise<T>): Promise<T> {
+  #track<T>(promise: Promise<T>): Promise<T> {
     this.#pending.add(promise);
     void promise.then(
       () => this.#pending.delete(promise),
@@ -92,5 +83,4 @@ export class NestedLoads {
     );
     return promise;
   }
-
 }

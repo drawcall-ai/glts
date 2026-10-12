@@ -29,7 +29,7 @@ test("disposes a replacement when its node is disposed during reload", async ({ 
     Reflect.set(globalThis, "__reloadRaceLoader", loader);
     Reflect.set(globalThis, "__reloadRaceNode", node);
     Reflect.set(globalThis, "__reloadRaceResult", "pending");
-    void node.reload().then(
+    void loader.reload("/assets/reload-race.glts").then(
       () => { Reflect.set(globalThis, "__reloadRaceResult", "resolved"); },
       (error: unknown) => {
         Reflect.set(
@@ -62,7 +62,7 @@ test("disposes a replacement when its node is disposed during reload", async ({ 
   expect(result.result).toContain("disposed during reload");
 });
 
-test("serializes node and loader reloads for the same URL", async ({ page }) => {
+test("serializes reloads of the same URL", async ({ page }) => {
   const resourceRequested = deferred();
   const releaseResource = deferred();
   let requests = 0;
@@ -95,20 +95,20 @@ test("serializes node and loader reloads for the same URL", async ({ page }) => 
     const node = await loader.loadAsync("/assets/serialized.glts");
     Reflect.set(globalThis, "__serializedLoader", loader);
     Reflect.set(globalThis, "__serializedNode", node);
-    Reflect.set(globalThis, "__nodeReload", "pending");
-    void node.reload().then(
-      () => { Reflect.set(globalThis, "__nodeReload", "resolved"); },
-      () => { Reflect.set(globalThis, "__nodeReload", "rejected"); }
+    Reflect.set(globalThis, "__firstReload", "pending");
+    void loader.reload("/assets/serialized.glts").then(
+      () => { Reflect.set(globalThis, "__firstReload", "resolved"); },
+      () => { Reflect.set(globalThis, "__firstReload", "rejected"); }
     );
   });
 
   await resourceRequested.promise;
   await page.evaluate(() => {
     const loader = Reflect.get(globalThis, "__serializedLoader");
-    Reflect.set(globalThis, "__loaderReload", "pending");
+    Reflect.set(globalThis, "__secondReload", "pending");
     void loader.reload("/assets/serialized.glts").then(
-      () => { Reflect.set(globalThis, "__loaderReload", "resolved"); },
-      () => { Reflect.set(globalThis, "__loaderReload", "rejected"); }
+      () => { Reflect.set(globalThis, "__secondReload", "resolved"); },
+      () => { Reflect.set(globalThis, "__secondReload", "rejected"); }
     );
   });
   await page.waitForTimeout(50);
@@ -116,9 +116,9 @@ test("serializes node and loader reloads for the same URL", async ({ page }) => 
 
   releaseResource.resolve();
   await expect.poll(() => page.evaluate(() => ({
-    loader: Reflect.get(globalThis, "__loaderReload"),
-    node: Reflect.get(globalThis, "__nodeReload")
-  }))).toEqual({ loader: "resolved", node: "resolved" });
+    first: Reflect.get(globalThis, "__firstReload"),
+    second: Reflect.get(globalThis, "__secondReload")
+  }))).toEqual({ first: "resolved", second: "resolved" });
 
   const name = await page.evaluate(() => {
     const node = Reflect.get(globalThis, "__serializedNode");
@@ -152,7 +152,7 @@ test("notifies LoadingManager completion after a reload commits", async ({ page 
     manager.onLoad = () => {
       nameAtCompletion = node.name;
     };
-    await node.reload();
+    await loader.reload("/assets/manager-order.glts");
     const name = node.name;
     node.dispose();
     loader.dispose();
@@ -162,7 +162,7 @@ test("notifies LoadingManager completion after a reload commits", async ({ page 
   expect(result).toEqual({ name: "second", nameAtCompletion: "second" });
 });
 
-test("does not replace a same-source node disposed by an earlier commit", async ({ page }) => {
+test("fails a reload instead of replacing a same-source node disposed by an earlier commit", async ({ page }) => {
   const source = (revision: string) => `
     import { onDispose, scene } from "@drawcall/glts"
     globalThis.__nestedReloadExecutions =
@@ -184,11 +184,16 @@ test("does not replace a same-source node disposed by an earlier commit", async 
     const outer = await loader.loadAsync("/assets/nested-reload.glts");
     const nested = await loader.loadAsync("/assets/nested-reload.glts");
     outer.add(nested);
-    await loader.reload("/assets/nested-reload.glts");
+    let reloadError = "";
+    try {
+      await loader.reload("/assets/nested-reload.glts");
+    } catch (error) {
+      reloadError = error instanceof Error ? error.message : String(error);
+    }
 
     let nestedDisposed = false;
     try {
-      await nested.reload();
+      nested.update(0);
     } catch {
       nestedDisposed = true;
     }
@@ -197,7 +202,8 @@ test("does not replace a same-source node disposed by an earlier commit", async 
       disposalsBeforeDispose: Reflect.get(globalThis, "__nestedReloadDisposals"),
       executions: Reflect.get(globalThis, "__nestedReloadExecutions"),
       name: outer.name,
-      nestedDisposed
+      nestedDisposed,
+      reloadError
     };
     outer.dispose();
     loader.dispose();
@@ -212,7 +218,8 @@ test("does not replace a same-source node disposed by an earlier commit", async 
     disposalsBeforeDispose: 3,
     executions: 4,
     name: "second",
-    nestedDisposed: true
+    nestedDisposed: true,
+    reloadError: expect.stringContaining("Reload committed, but replacing its nodes failed")
   });
 });
 
@@ -241,22 +248,14 @@ test("cleans up when a script prevents managed node augmentation", async ({ page
 });
 
 test("reloads a requested URL that redirects to the source", async ({ page }) => {
+  await page.route("**/assets/redirect.glts", (route) => route.fulfill({
+    status: 302,
+    headers: { location: new URL("/e2e/redirected.glts", route.request().url()).href }
+  }));
+
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
-    let revision = 0;
-    const loader = new window.GLTSLoader(new window.LoadingManager(), {
-      fetch: async () => {
-        revision += 1;
-        const response = new Response(`
-          import { scene } from "@drawcall/glts"
-          scene.name = "revision ${revision}"
-        `);
-        Object.defineProperty(response, "url", {
-          value: new URL("/assets/redirected.glts", location.href).href
-        });
-        return response;
-      }
-    });
+    const loader = new window.GLTSLoader(new window.LoadingManager());
     const node = await loader.loadAsync("/assets/redirect.glts");
     const url = node.url;
     await loader.reload("/assets/redirect.glts");
@@ -267,7 +266,7 @@ test("reloads a requested URL that redirects to the source", async ({ page }) =>
   });
 
   expect(result).toEqual({
-    name: "revision 2",
+    name: "execution 2",
     url: new URL("/assets/redirect.glts", page.url()).href
   });
 });

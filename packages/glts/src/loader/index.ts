@@ -1,51 +1,64 @@
-import {
-  Loader,
-  type LoadingManager
-} from "three";
-import * as THREE from "three";
+import { Loader, Matrix4, type LoadingManager } from "three";
 
-import { GLTSError } from "../errors.js";
-import { createContextLoader } from "./context.js";
-import { LoaderRuntime } from "./runtime.js";
-import { ScriptModules } from "../modules/scripts.js";
+import { cleanUpAndThrow, GLTSError, runAll, toGLTSError } from "../errors.js";
 import { canonicalize } from "../modules/fetch.js";
-import { ModuleBridge } from "../modules/bridge.js";
-import { ModuleURLStore } from "../modules/urls.js";
 import { defaultCDNURL } from "../modules/resolution.js";
+import { ScriptModules, type LinkedScript } from "../modules/scripts.js";
+import { Execution } from "../scene/execution.js";
+import { ManagedNodes, type LoadRequest } from "../scene/nodes.js";
 import type {
   GLTSErrorCallback,
-  GLTSFetch,
   GLTSInstances,
   GLTSLoadCallback,
   GLTSLoaderOptions,
   GLTSProgressCallback,
   GLTSScene,
+  GLTSScriptLoader,
   GLTSURL
 } from "../types.js";
+import { LoadingScope, trackItem } from "./loading.js";
+import { URLLocks } from "./locks.js";
+import { reloadRecords } from "./reload.js";
 
-function environmentBaseURL(): URL {
-  if (typeof document !== "undefined") {
-    return new URL(document.baseURI);
+function nestedFailure(url: string, error: unknown, nested: unknown): GLTSError {
+  const primary = toGLTSError(error, "Unable to execute GLTS script", {
+    phase: "evaluate",
+    url
+  });
+  if (
+    nested instanceof AggregateError &&
+    nested.errors.length === 1 &&
+    nested.errors[0] === error
+  ) {
+    return primary;
   }
 
-  if (typeof location !== "undefined") {
-    return new URL(location.href);
-  }
-
-  return new URL("http://localhost/");
+  return new GLTSError(
+    "GLTS execution and nested operation both failed",
+    primary,
+    new AggregateError([primary, nested])
+  );
 }
 
-function resolvedOptionURL(value: GLTSURL | undefined, fallback: string, base: URL): URL {
-  return new URL(value ?? fallback, base);
+/** Resolves `url` against the page's base URL; without a page, only an absolute `url` resolves. */
+function pageURL(url: GLTSURL): URL {
+  const base = typeof document !== "undefined" ? document.baseURI
+    : typeof location !== "undefined" ? location.href
+    : undefined;
+  if (base !== undefined) return new URL(url, base);
+  if (URL.canParse(url)) return new URL(url);
+  throw new GLTSError("A relative URL needs document.baseURI or location.href to resolve against", {
+    phase: "resolve",
+    url: String(url)
+  });
 }
 
 export class GLTSLoader extends Loader {
   readonly #isPreview: boolean;
-  readonly #baseURL: URL;
-  readonly #baseFetch: GLTSFetch;
-  readonly #runtime: LoaderRuntime;
-  readonly #bridge: ModuleBridge;
-  #disposed = false;
+  readonly #modules: ScriptModules;
+  readonly #lifetime = new AbortController();
+  readonly #locks = new URLLocks();
+  readonly #nodes = new ManagedNodes();
 
   constructor(
     manager: LoadingManager,
@@ -57,26 +70,10 @@ export class GLTSLoader extends Loader {
     }
 
     this.#isPreview = options.isPreview ?? false;
-    const environmentBase = environmentBaseURL();
-    const baseURL = resolvedOptionURL(options.baseURL, environmentBase.href, environmentBase);
-    const moduleURLs = new ModuleURLStore();
-    const moduleBridge = new ModuleBridge(moduleURLs, options.modules);
-    const baseFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
-    this.#baseURL = baseURL;
-    this.#baseFetch = baseFetch;
-    this.#bridge = moduleBridge;
-
-    const modules = new ScriptModules({
-      cdnURL: resolvedOptionURL(options.cdnURL, defaultCDNURL, baseURL),
+    this.#modules = new ScriptModules({
+      cdnURL: pageURL(options.cdnURL ?? defaultCDNURL),
       fetch: (input, init) => this.#fetch(input, init),
-      moduleURLs,
-      bridge: moduleBridge,
-      threeRevision: THREE.REVISION
-    });
-    this.#runtime = new LoaderRuntime({
-      contextLoader: (owner) => createContextLoader(owner, this.#runtime, (url) => this.#resolveURL(url, "")),
-      manager,
-      modules
+      modules: options.modules
     });
   }
 
@@ -96,57 +93,169 @@ export class GLTSLoader extends Loader {
     });
   }
 
-  override loadAsync(
+  override async loadAsync(
     url: GLTSURL,
     onProgress?: GLTSProgressCallback
   ): Promise<GLTSScene> {
     const resolvedURL = this.#resolveURL(url);
     if (onProgress) {
-      return Promise.reject(new GLTSError(
+      throw new GLTSError(
         "GLTSLoader does not support per-load progress callbacks; use LoadingManager.onProgress",
         { phase: "resolve", url: resolvedURL }
-      ));
+      );
     }
-    return this.#runtime.load(resolvedURL, this.#isPreview);
+    return this.#loadScene(resolvedURL, this.#isPreview);
   }
 
-  loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances> {
-    return this.#runtime.loadInstances(this.#resolveURL(url), count, this.#isPreview);
+  async loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances> {
+    return this.#loadInstances(this.#resolveURL(url), count);
   }
 
-  /** Invalidates source and reloads undisposed nodes. Unloaded source is fetched on the next load. */
-  reload(url: GLTSURL): Promise<void> {
-    return this.#runtime.reload(this.#resolveURL(url));
-  }
+  /**
+   * Invalidates the source of the script at `url`, or of every script importing the helper at `url`,
+   * and reloads their undisposed nodes. Unloaded source is fetched on the next load.
+   */
+  async reload(url: GLTSURL): Promise<void> {
+    const resolvedURL = this.#resolveURL(url);
+    this.#lifetime.signal.throwIfAborted();
+    const dependents = this.#modules.dependents(resolvedURL);
+    if (dependents.length === 0) return this.#reloadScript(resolvedURL);
 
-  dispose(): void {
-    if (this.#disposed) return;
-    this.#disposed = true;
-    const errors: unknown[] = [];
-    try {
-      this.#runtime.dispose();
-    } catch (error) {
-      errors.push(error);
-    }
-    try {
-      this.#bridge.dispose();
-    } catch (error) {
-      errors.push(error);
-    }
-
-    if (errors.length > 0) {
+    const results = await Promise.allSettled(dependents.map((script) => this.#reloadScript(script)));
+    const errors: unknown[] = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) {
       throw new GLTSError(
-        "Loader disposal failed",
-        { phase: "dispose", url: "glts://loader" },
+        "Reloading the helper's scripts failed",
+        { phase: "reload", url: resolvedURL },
         new AggregateError(errors)
       );
     }
   }
 
-  #resolveURL(url: GLTSURL, path = this.path): string {
-    const input = url instanceof URL ? url.href : `${path}${url}`;
-    const managedURL = this.manager.resolveURL(input);
-    return canonicalize(new URL(managedURL, this.#baseURL));
+  dispose(): void {
+    if (this.#lifetime.signal.aborted) return;
+    this.#lifetime.abort(new GLTSError("Loader has been disposed", { phase: "dispose", url: "glts://loader" }));
+    runAll("Loader disposal failed", [() => this.#nodes.disposeAll(), () => this.#modules.dispose()]);
+  }
+
+  #loadScene(url: string, isPreview: boolean, parent?: Execution): Promise<GLTSScene> {
+    const request = { url, matrices: [new Matrix4()], isPreview, instances: false };
+    return this.#load(request, parent, (execution) => this.#nodes.createScene(execution, request));
+  }
+
+  async #loadInstances(url: string, count: number, parent?: Execution): Promise<GLTSInstances> {
+    if (!Number.isSafeInteger(count) || count < 1) {
+      throw new RangeError("GLTS instance count must be a positive integer");
+    }
+    const matrices = Array.from({ length: count }, () => new Matrix4());
+    // Instances are never the standalone asset a preview shows.
+    const request = { url, matrices, isPreview: false, instances: true };
+    return this.#load(request, parent, (execution) => this.#nodes.createInstances(execution, request));
+  }
+
+  #load<T extends GLTSScene>(
+    request: LoadRequest,
+    parent: Execution | undefined,
+    create: (execution: Execution) => T
+  ): Promise<T> {
+    const { url } = request;
+    // A nested load may pass a queued write so its parent, which holds a read, can finish.
+    const lock = parent ? this.#locks.acquireReadBeforeQueuedWrite(url) : this.#locks.acquireRead(url);
+    return this.#locked(lock, () => trackItem(this.manager, url, this.#lifetime.signal, async () => {
+      const execution = await this.#construct(await this.#modules.getScript(url), request, parent);
+      try {
+        this.#lifetime.signal.throwIfAborted();
+        return create(execution);
+      } catch (error) {
+        cleanUpAndThrow(
+          toGLTSError(error, `Unable to construct GLTS ${request.instances ? "instances" : "scene"}`, {
+            phase: "construct", url
+          }),
+          url,
+          () => execution.dispose()
+        );
+      }
+    }, (node) => node.dispose()));
+  }
+
+  /** Runs `script` for `request` and waits for its nested loads and resources. */
+  async #construct(script: LinkedScript, request: LoadRequest, parent?: Execution): Promise<Execution> {
+    const signal = this.#lifetime.signal;
+    signal.throwIfAborted();
+    const execution = new Execution(
+      request.matrices,
+      [request.url, script.url],
+      (root, owned) => this.#nodes.disposeNested(root, owned),
+      parent
+    );
+    const scope = new LoadingScope(this.manager, script.url);
+    const cancel = (): void => scope.cancel(signal.reason);
+    signal.addEventListener("abort", cancel);
+    try {
+      await this.#modules.evaluate(script, execution.context({
+        gltsLoader: this.#contextLoader(execution, script.url),
+        isPreview: request.isPreview,
+        loadingManager: scope.manager
+      }));
+      await execution.nested.finish();
+      execution.nested.assertAttached(execution.scene);
+      await scope.waitAndClose();
+      if (request.instances) {
+        execution.autoInstance(script.url);
+      }
+      return execution;
+    } catch (error) {
+      let failure = error;
+      scope.cancel(failure);
+      try {
+        await execution.nested.finish();
+      } catch (nested) {
+        failure = nestedFailure(script.url, failure, nested);
+      }
+      cleanUpAndThrow(failure, script.url, () => execution.dispose());
+    } finally {
+      signal.removeEventListener("abort", cancel);
+    }
+  }
+
+  #reloadScript(url: string): Promise<void> {
+    return this.#locked(this.#locks.acquireWrite(url), async () => {
+      // The write lock lets pending loads finish before their source is invalidated.
+      this.#modules.invalidateScript(url);
+      const records = this.#nodes.recordsForURL(url);
+      if (records.length === 0) return;
+      await trackItem(this.manager, url, this.#lifetime.signal, () =>
+        reloadRecords(url, records, this.#modules, (script, request) => this.#construct(script, request)));
+    });
+  }
+
+  async #locked<T>(lock: Promise<() => void>, operation: () => Promise<T>): Promise<T> {
+    const release = await lock;
+    try {
+      this.#lifetime.signal.throwIfAborted();
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
+  /** The `gltsLoader` of a script at `scriptURL`, resolving relative URLs against it. */
+  #contextLoader(owner: Execution, scriptURL: string): GLTSScriptLoader {
+    const resolve = (url: GLTSURL): string => {
+      const resolved = canonicalize(new URL(this.manager.resolveURL(String(url)), scriptURL));
+      owner.nested.assertCanLoad(resolved);
+      return resolved;
+    };
+    return {
+      loadAsync: (url) => owner.nested.own(this.#loadScene(resolve(url), false, owner)),
+      loadInstancesAsync: (url, count) => owner.nested.own(this.#loadInstances(resolve(url), count, owner))
+    };
+  }
+
+  #resolveURL(url: GLTSURL): string {
+    const input = url instanceof URL ? url.href : `${this.path}${url}`;
+    return canonicalize(pageURL(this.manager.resolveURL(input)));
   }
 
   #fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -160,7 +269,6 @@ export class GLTSLoader extends Loader {
       requestInit.credentials = "include";
     }
 
-    return this.#baseFetch(input, requestInit);
+    return globalThis.fetch(input, requestInit);
   }
-
 }

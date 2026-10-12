@@ -1,20 +1,13 @@
 import type * as THREE from "three";
-import type { GLTSScriptScene } from "./scene/state.js";
+import type { GLTSScriptScene } from "./scene/root.js";
 
 export type GLTSURL = string | URL;
-
-export type GLTSFetch = (
-  input: RequestInfo | URL,
-  init?: RequestInit
-) => Promise<Response>;
 
 /** Host namespaces by exact bare specifier, imported by scripts instead of the CDN. */
 export type GLTSModules = Readonly<Record<string, object>>;
 
 export interface GLTSLoaderOptions {
-  baseURL?: GLTSURL;
   cdnURL?: GLTSURL;
-  fetch?: GLTSFetch;
   isPreview?: boolean;
   modules?: GLTSModules;
 }
@@ -28,7 +21,6 @@ interface GLTSSceneMethods {
   clone(recursive?: boolean): THREE.Scene;
   copy(source: THREE.Scene, recursive?: boolean): this;
   dispose(): void;
-  reload(): Promise<void>;
   remove(...objects: THREE.Object3D[]): this;
   removeFromParent(): this;
   rotateOnAxis(axis: THREE.Vector3, angle: number): this;

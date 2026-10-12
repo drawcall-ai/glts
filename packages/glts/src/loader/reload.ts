@@ -1,148 +1,72 @@
-import * as THREE from "three";
-import { GLTSError } from "../errors.js";
-import { copyRootState } from "../scene/state.js";
-import type { NodeRecord } from "../scene/registry.js";
-import type { Revision } from "../scene/revision.js";
-import type { ScriptModules } from "../modules/scripts.js";
-import type { Construction } from "./construction.js";
-import type { Operations } from "./operations.js";
+import { cleanUpAndThrow, GLTSError, runAll } from "../errors.js";
+import type { LinkedScript, ScriptModules } from "../modules/scripts.js";
+import type { Execution } from "../scene/execution.js";
+import type { LoadRequest, NodeRecord } from "../scene/nodes.js";
+import { copyRootState } from "../scene/root.js";
 
-interface ReloadContext {
-  readonly modules: ScriptModules;
-  readonly construction: Construction;
-  readonly operations: Operations;
-}
+type Construct = (script: LinkedScript, request: LoadRequest) => Promise<Execution>;
 
 interface Replacement {
-  readonly prepared: Revision;
   readonly record: NodeRecord;
+  readonly execution: Execution;
 }
 
+/**
+ * Constructs a replacement execution for every record from a fresh fetch of `url`, then commits the
+ * source and swaps the replacements in; a record disposed meanwhile fails the reload.
+ */
 export async function reloadRecords(
   url: string,
   records: readonly NodeRecord[],
-  { modules, construction, operations }: ReloadContext
+  modules: ScriptModules,
+  construct: Construct
 ): Promise<void> {
-  const script = await modules.prepareScript(url, { reload: true });
+  const script = await modules.fetchScript(url);
   const replacements: Replacement[] = [];
-
   try {
     for (const record of records) {
-      const prepared = await construction.execute(script, {
-        matrices: record.matrices,
-        isPreview: record.isPreview,
-        instances: record.type === "instances",
-        requestedURL: url
-      });
-      replacements.push({ prepared, record });
+      replacements.push({ record, execution: await construct(script, record) });
+    }
+    const disposed = records.find((record) => record.disposed);
+    if (disposed) {
+      throw new GLTSError("GLTS node was disposed during reload", { phase: "reload", url: disposed.url });
     }
   } catch (error) {
-    discardRevisionsAndRethrow(url, replacements, error);
+    cleanUpAndThrow(error, url, () => runAll(
+      "GLTS reload discard failed",
+      replacements.map(({ execution }) => () => execution.dispose())
+    ));
   }
 
-  operations.assertActive(url);
-  const disposed = replacements.find(({ record }) => record.disposed);
-  if (disposed) {
-    discardRevisionsAndRethrow(
-      url,
-      replacements,
-      new GLTSError("GLTS node was disposed during reload", {
-        phase: "reload",
-        url: disposed.record.url
-      })
-    );
-  }
-
-  const disposalErrors: unknown[] = [];
-  for (const { prepared, record } of replacements) {
-    if (record.disposed) {
-      try {
-        prepared.dispose();
-      } catch (error) {
-        disposalErrors.push(error);
-      }
-      continue;
-    }
-
-    try {
-      replaceRevision(record, prepared);
-    } catch (error) {
-      disposalErrors.push(error);
-    }
-  }
   modules.commitScript(url, script);
-
-  if (disposalErrors.length > 0) {
-    throw new GLTSError(
-      "Reload committed, but cleanup failed",
-      { phase: "dispose", url },
-      new AggregateError(disposalErrors)
-    );
-  }
-}
-
-function discardRevisionsAndRethrow(
-  url: string,
-  replacements: readonly Replacement[],
-  error: unknown
-): never {
-  const cleanupErrors: unknown[] = [];
-  for (const { prepared } of replacements) {
-    try {
-      prepared.dispose();
-    } catch (cleanup) {
-      cleanupErrors.push(cleanup);
-    }
-  }
-
-  if (cleanupErrors.length > 0) {
-    throw new GLTSError("GLTS operation and cleanup both failed",
-      { phase: "dispose", url }, new AggregateError([error, ...cleanupErrors]));
-  }
-  throw error;
-}
-
-function replaceRevision(record: NodeRecord, prepared: Revision): void {
-  const oldChildren = new THREE.Group();
-  while (record.node.children.length > 0) {
-    const child = record.node.children[0];
-    if (!child) {
-      break;
-    }
-    oldChildren.add(child);
-  }
-
-  const disposalErrors: unknown[] = [];
   try {
-    record.revision.dispose(oldChildren);
+    runAll("GLTS reload commit failed", replacements.map(({ record, execution }) => () =>
+      replaceExecution(record, execution)));
   } catch (error) {
-    disposalErrors.push(error);
+    throw new GLTSError("Reload committed, but replacing its nodes failed", { phase: "reload", url }, error);
   }
+}
 
-  if (record.disposed) {
-    disposalErrors.push(new GLTSError("GLTS node was disposed during reload", {
-      phase: "reload", url: record.url
-    }));
-    try {
-      prepared.dispose();
-    } catch (error) {
-      disposalErrors.push(error);
+function replaceExecution(record: NodeRecord, replacement: Execution): void {
+  runAll("GLTS execution replacement failed", [
+    // Disposed with its children, so disposal callbacks see the scene as they do on dispose().
+    () => record.execution.dispose(record.node),
+    () => {
+      // The node's disposal callbacks, or an earlier record's commit, may have disposed it.
+      if (record.disposed) {
+        cleanUpAndThrow(
+          new GLTSError("GLTS node was disposed during reload", { phase: "reload", url: record.url }),
+          record.url,
+          () => replacement.dispose()
+        );
+      }
+
+      record.execution = replacement;
+      copyRootState(record.node, replacement.scene);
+      for (const child of [...replacement.scene.children]) {
+        record.node.add(child);
+      }
+      replacement.bindScene(record.node);
     }
-    throw new AggregateError(disposalErrors, "GLTS replacement was disposed during reload");
-  }
-
-  record.revision = prepared;
-  copyRootState(record.node, prepared.execution.scene);
-  while (prepared.execution.scene.children.length > 0) {
-    const child = prepared.execution.scene.children[0];
-    if (!child) {
-      break;
-    }
-    record.node.add(child);
-  }
-  prepared.execution.bindScene(record.node);
-
-  if (disposalErrors.length > 0) {
-    throw new AggregateError(disposalErrors, "GLTS revision disposal failed");
-  }
+  ]);
 }

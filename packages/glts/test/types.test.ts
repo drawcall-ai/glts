@@ -4,12 +4,9 @@ import * as THREE from "three";
 import {
   GLTSLoader,
   GLTSRenderer,
-  gltsLoader,
   instanceCount,
   loadingManager,
-  onDispose,
   onFrame,
-  onMatrixUpdateAt,
   isPreview,
   scene,
   type GLTSInstances,
@@ -52,12 +49,6 @@ it("exports the host and contextual script APIs", () => {
   expectTypeOf(scene).toExtend<THREE.Scene>();
   expectTypeOf(instanceCount).toEqualTypeOf<number>();
   expectTypeOf(isPreview).toEqualTypeOf<boolean>();
-  expect(GLTSLoader).toBeTypeOf("function");
-  expect(GLTSRenderer).toBeTypeOf("function");
-  expect(gltsLoader.loadAsync).toBeTypeOf("function");
-  expect(onDispose).toBeTypeOf("function");
-  expect(onFrame).toBeTypeOf("function");
-  expect(onMatrixUpdateAt).toBeTypeOf("function");
 });
 
 it("fails contextual object and function use outside a GLTS script", () => {

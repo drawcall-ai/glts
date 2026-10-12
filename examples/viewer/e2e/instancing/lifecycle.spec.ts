@@ -43,7 +43,7 @@ test("executes native instancing once and preserves matrices across reload", asy
     const matrix = new DOMMatrix().translate(4, 5, 6);
     const threeMatrix = new (Reflect.get(window, "Matrix4"))().fromArray(matrix.toFloat64Array());
     const setResult = instances.setMatrixAt(1, threeMatrix);
-    await instances.reload();
+    await loader.reload("/assets/native.glts");
     instances.update(0.1);
     const resultMatrix = new (Reflect.get(window, "Matrix4"))();
     const getResult = instances.getMatrixAt(1, resultMatrix);

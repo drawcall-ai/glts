@@ -14,7 +14,6 @@ export function createPreview(
   });
   const gltsRenderer = new GLTSRenderer(renderer);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.setClearColor(0x080a10);
   renderer.info.autoReset = false;
 
@@ -37,7 +36,6 @@ export function createPreview(
   timer.connect(document);
   let current: GLTSScene | undefined;
   let renderFailure: GLTSScene | undefined;
-  let disposed = false;
 
   function setCamera(
     scene?: GLTSScene,
@@ -106,29 +104,6 @@ export function createPreview(
       current = scene;
       renderFailure = undefined;
       setCamera(scene, target);
-    },
-    release(scene: GLTSScene): void {
-      gltsRenderer.release(scene);
-    },
-    dispose(): void {
-      if (disposed) return;
-      disposed = true;
-      renderer.setAnimationLoop(null);
-      window.removeEventListener("resize", resize);
-      const errors: unknown[] = [];
-      for (const dispose of [
-        () => controls.dispose(),
-        () => timer.dispose(),
-        () => gltsRenderer.dispose(),
-        () => renderer.dispose()
-      ]) {
-        try {
-          dispose();
-        } catch (error) {
-          errors.push(error);
-        }
-      }
-      if (errors.length > 0) throw new AggregateError(errors, "Preview disposal failed");
     }
   };
 }

@@ -58,7 +58,7 @@ export class GLTSRenderer {
     }
     const renderer = this.#renderer;
     const rendering = scene.rendering;
-    const renderTarget = this.#prepareFramebuffer(scene);
+    const renderTarget = this.#checkFramebuffer(scene);
 
     const localClippingEnabled = renderer.localClippingEnabled;
     const activeCubeFace = renderer.getActiveCubeFace();
@@ -87,7 +87,7 @@ export class GLTSRenderer {
     }
   }
 
-  #prepareFramebuffer(scene: GLTSScene) {
+  #checkFramebuffer(scene: GLTSScene) {
     const renderer = this.#renderer;
     const rendering = scene.rendering;
     const renderTarget = renderer.getRenderTarget();
@@ -118,10 +118,6 @@ export class GLTSRenderer {
     }
 
     return renderTarget;
-  }
-
-  release(scene: GLTSScene): void {
-    this.#effects.release(scene);
   }
 
   dispose(): void {

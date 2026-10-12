@@ -1,0 +1,68 @@
+import { expect, test } from "@playwright/test";
+
+import { fulfillGLTS } from "./routes.js";
+
+test("runs helpers, shares them within a script, and reloads their scripts when they change", async ({ page }) => {
+  const sources: Record<string, string> = {
+    "/assets/scene.glts": `
+      import * as THREE from "three"
+      import { onDispose, scene } from "@drawcall/glts"
+      import { box, registry, Size } from "./parts/box.ts"
+      import { registry as same } from "./registry.ts"
+      const size: Size = 2
+      const mesh = box(size)
+      scene.add(mesh)
+      scene.userData.shared = registry === same
+      scene.userData.three = mesh instanceof THREE.Mesh
+      onDispose(() => mesh.geometry.dispose())
+    `,
+    "/assets/other.glts": `
+      import { scene } from "@drawcall/glts"
+      import { label } from "./parts/box.ts"
+      scene.name = label
+    `,
+    "/assets/parts/box.ts": `
+      import * as THREE from "three"
+      export { registry } from "../registry.ts"
+      export type Size = number
+      export const label: string = "box v" + globalThis.__boxVersion
+      export function box(size: number): THREE.Mesh {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size))
+        mesh.name = label
+        return mesh
+      }
+    `,
+    "/assets/registry.ts": `export const registry = new Map<string, number>()`,
+  };
+  await page.route(/\/assets\/.*\.(glts|ts)$/, (route) => {
+    const source = sources[new URL(route.request().url()).pathname];
+    return source === undefined ? route.fulfill({ status: 404 }) : fulfillGLTS(route, source);
+  });
+
+  await page.goto("/test-harness.html");
+  const result = await page.evaluate(async () => {
+    Reflect.set(globalThis, "__boxVersion", 1);
+    const loader = new window.GLTSLoader(new window.LoadingManager());
+    try {
+      const scene = await loader.loadAsync("/assets/scene.glts");
+      const other = await loader.loadAsync("/assets/other.glts");
+      const before = [scene.children[0]?.name, other.name];
+      Reflect.set(globalThis, "__boxVersion", 2);
+      await loader.reload("/assets/parts/box.ts");
+      return {
+        before,
+        after: [scene.children[0]?.name, other.name],
+        shared: scene.userData.shared,
+        three: scene.userData.three,
+      };
+    } finally {
+      loader.dispose();
+    }
+  });
+  expect(result).toEqual({
+    before: ["box v1", "box v1"],
+    after: ["box v2", "box v2"],
+    shared: true,
+    three: true,
+  });
+});
