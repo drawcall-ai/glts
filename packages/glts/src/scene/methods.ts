@@ -29,6 +29,7 @@ function defineSceneMethods(
   });
 }
 
+// defineProperties cannot change a static type, so these guards narrow the augmented scene.
 function isManagedScene(value: unknown): value is GLTSScene {
   return (
     value instanceof THREE.Scene &&

@@ -57,14 +57,14 @@ export async function trackItem<T>(
 
   // A manager callback may itself dispose the loader.
   notify(errors, () => manager.itemEnd(url));
-  if (signal.aborted) {
-    cleanUpAndThrow(loadFailure(url, signal.reason, errors), url, () => cleanup(value));
+  if (!signal.aborted && errors.length === 0) {
+    return value;
   }
-  if (errors.length > 0) {
-    const error = new GLTSError("LoadingManager callback failed", { phase: "resource", url }, new AggregateError(errors));
-    cleanUpAndThrow(error, url, () => cleanup(value));
-  }
-  return value;
+
+  const error = signal.aborted
+    ? loadFailure(url, signal.reason, errors)
+    : new GLTSError("LoadingManager callback failed", { phase: "resource", url }, new AggregateError(errors));
+  return cleanUpAndThrow(error, url, () => cleanup(value));
 }
 
 interface Completion {

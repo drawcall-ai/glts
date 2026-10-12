@@ -107,15 +107,15 @@ export class ManagedNodes {
       ...owned,
       ...this.#descendants(root).map(({ node }) => node)
     ]);
-    this.#disposeAll([...nodes].reverse());
+    this.#disposeNodes([...nodes].reverse());
   }
 
   disposeAll(): void {
-    this.#disposeAll([...this.#records.keys()]);
+    this.#disposeNodes([...this.#records.keys()]);
   }
 
   /** Disposes in order; a node an earlier disposal already disposed is skipped. */
-  #disposeAll(nodes: readonly THREE.Object3D[]): void {
+  #disposeNodes(nodes: readonly THREE.Object3D[]): void {
     runAll("GLTS node disposal failed", nodes.map((node) => () => this.dispose(node)));
   }
 

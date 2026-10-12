@@ -1,7 +1,6 @@
 import type * as THREE from "three";
 
 import { GLTSError, runAll } from "../errors.js";
-
 import type {
   GLTSDisposeCallback,
   GLTSFrameCallback,

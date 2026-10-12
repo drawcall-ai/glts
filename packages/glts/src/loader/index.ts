@@ -54,7 +54,6 @@ export class GLTSLoader extends Loader {
   readonly #baseFetch: GLTSFetch;
   readonly #modules: ScriptModules;
   readonly #construction: Construction;
-  /** Aborted by dispose(). */
   readonly #lifetime = new AbortController();
   readonly #locks = new URLLocks();
   readonly #nodes = new ManagedNodes((record) =>
