@@ -25,7 +25,6 @@ export async function reloadRecords(
 ): Promise<void> {
   const script = await modules.fetchScript(url);
   const replacements: Replacement[] = [];
-
   try {
     for (const record of records) {
       const prepared = await construction.execute(script, {
@@ -36,21 +35,16 @@ export async function reloadRecords(
       });
       replacements.push({ prepared, record });
     }
+    operations.assertActive(url);
+    const disposed = records.find((record) => record.disposed);
+    if (disposed) {
+      throw new GLTSError("GLTS node was disposed during reload", { phase: "reload", url: disposed.url });
+    }
   } catch (error) {
-    discardRevisionsAndRethrow(url, replacements, error);
-  }
-
-  operations.assertActive(url);
-  const disposed = replacements.find(({ record }) => record.disposed);
-  if (disposed) {
-    discardRevisionsAndRethrow(
-      url,
-      replacements,
-      new GLTSError("GLTS node was disposed during reload", {
-        phase: "reload",
-        url: disposed.record.url
-      })
-    );
+    cleanUpAndThrow(error, url, () => runAll(
+      "GLTS revision disposal failed",
+      replacements.map(({ prepared }) => () => prepared.dispose())
+    ));
   }
 
   modules.commitScript(url, script);
@@ -68,58 +62,30 @@ export async function reloadRecords(
   }
 }
 
-function discardRevisionsAndRethrow(
-  url: string,
-  replacements: readonly Replacement[],
-  error: unknown
-): never {
-  cleanUpAndThrow(error, url, () => runAll(
-    "GLTS revision disposal failed",
-    replacements.map(({ prepared }) => () => prepared.dispose())
-  ));
-}
-
 function replaceRevision(record: NodeRecord, prepared: Revision): void {
-  const oldChildren = new THREE.Group();
-  while (record.node.children.length > 0) {
-    const child = record.node.children[0];
-    if (!child) {
-      break;
+  const previous = new THREE.Group();
+  for (const child of [...record.node.children]) {
+    previous.add(child);
+  }
+
+  runAll("GLTS revision replacement failed", [
+    () => record.revision.dispose(previous),
+    () => {
+      // The previous revision's disposal callbacks may have disposed the node.
+      if (record.disposed) {
+        cleanUpAndThrow(
+          new GLTSError("GLTS node was disposed during reload", { phase: "reload", url: record.url }),
+          record.url,
+          () => prepared.dispose()
+        );
+      }
+
+      record.revision = prepared;
+      copyRootState(record.node, prepared.execution.scene);
+      for (const child of [...prepared.execution.scene.children]) {
+        record.node.add(child);
+      }
+      prepared.execution.bindScene(record.node);
     }
-    oldChildren.add(child);
-  }
-
-  const disposalErrors: unknown[] = [];
-  try {
-    record.revision.dispose(oldChildren);
-  } catch (error) {
-    disposalErrors.push(error);
-  }
-
-  if (record.disposed) {
-    disposalErrors.push(new GLTSError("GLTS node was disposed during reload", {
-      phase: "reload", url: record.url
-    }));
-    try {
-      prepared.dispose();
-    } catch (error) {
-      disposalErrors.push(error);
-    }
-    throw new AggregateError(disposalErrors, "GLTS replacement was disposed during reload");
-  }
-
-  record.revision = prepared;
-  copyRootState(record.node, prepared.execution.scene);
-  while (prepared.execution.scene.children.length > 0) {
-    const child = prepared.execution.scene.children[0];
-    if (!child) {
-      break;
-    }
-    record.node.add(child);
-  }
-  prepared.execution.bindScene(record.node);
-
-  if (disposalErrors.length > 0) {
-    throw new AggregateError(disposalErrors, "GLTS revision disposal failed");
-  }
+  ]);
 }
