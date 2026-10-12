@@ -37,7 +37,7 @@ async function render(): Promise<void> {
   document.body.append(renderer.domElement);
 
   const loader = new GLTSLoader(new THREE.LoadingManager(), { isPreview: true });
-  const scene = await loader.loadAsync(new URL(url, location.href));
+  const scene = await loader.loadAsync(url);
   scene.updateWorldMatrix(true, true);
   scene.update(delta);
 

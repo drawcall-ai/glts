@@ -14,7 +14,6 @@ export function createPreview(
   });
   const gltsRenderer = new GLTSRenderer(renderer);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.setClearColor(0x080a10);
   renderer.info.autoReset = false;
 
