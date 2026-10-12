@@ -29,11 +29,7 @@ function nestedFailure(url: string, error: unknown, nested: unknown): GLTSError 
 
   return new GLTSError(
     "GLTS execution and nested operation both failed",
-    {
-      importChain: primary.importChain,
-      phase: primary.phase,
-      url: primary.url
-    },
+    primary,
     new AggregateError([primary, nested])
   );
 }

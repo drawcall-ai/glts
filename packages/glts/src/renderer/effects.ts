@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { Pass } from "three/addons/postprocessing/Pass.js";
 
+import { cleanUpAndThrow, runAll } from "../errors.js";
 import type { GLTSScene } from "../types.js";
 import type { GLTSEffect } from "../scene/state.js";
 
@@ -12,26 +13,7 @@ interface EffectSet {
 }
 
 function disposePasses(passes: readonly Pass[]): void {
-  const errors: unknown[] = [];
-  for (const pass of passes) {
-    try {
-      pass.dispose();
-    } catch (error) {
-      errors.push(error);
-    }
-  }
-  if (errors.length > 0) {
-    throw new AggregateError(errors, "GLTS effects disposal failed");
-  }
-}
-
-function disposeAfterFailure(passes: readonly Pass[], error: unknown): never {
-  try {
-    disposePasses(passes);
-  } catch (cleanup) {
-    throw new AggregateError([error, cleanup], "GLTS effects creation and cleanup failed");
-  }
-  throw error;
+  runAll("GLTS effects disposal failed", passes.map((pass) => () => pass.dispose()));
 }
 
 export class Effects {
@@ -65,11 +47,10 @@ export class Effects {
       this.#renderer.setEffects(passes);
       if (!this.#effectsSupported) {
         this.#effects.delete(scene);
-        disposeAfterFailure(
-          passes,
-          new Error(
-            "GLTS effects require a WebGLRenderer constructed with GLTSRenderer.parameters"
-          )
+        cleanUpAndThrow(
+          new Error("GLTS effects require a WebGLRenderer constructed with GLTSRenderer.parameters"),
+          scene.url,
+          () => disposePasses(passes)
         );
       }
       this.#renderer.render(scene, camera);
@@ -144,7 +125,7 @@ export class Effects {
         this.#adaptPassForRenderer(pass);
       }
     } catch (error) {
-      disposeAfterFailure(passes, error);
+      cleanUpAndThrow(error, scene.url, () => disposePasses(passes));
     }
 
     this.#effects.set(scene, {

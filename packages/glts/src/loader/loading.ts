@@ -19,7 +19,7 @@ function loadFailure(url: string, error: unknown, notificationErrors: readonly u
 
   return new GLTSError(
     "GLTS operation and LoadingManager callback both failed",
-    { importChain: primary.importChain, phase: primary.phase, url: primary.url },
+    primary,
     new AggregateError([primary, ...notificationErrors])
   );
 }
