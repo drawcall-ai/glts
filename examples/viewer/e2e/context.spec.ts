@@ -128,7 +128,7 @@ test("enables preview only for the root across recursion and reload", async ({ p
 });
 
 
-test("scopes nested URLs while reading current host request configuration", async ({ page }) => {
+test("resolves nested URLs against their script while reading current host request configuration", async ({ page }) => {
   const requests: { path: string; header: string | undefined }[] = [];
   await page.route(/\.glts\?mapped$/, (route) => {
     const url = new URL(route.request().url());
@@ -167,7 +167,7 @@ test("scopes nested URLs while reading current host request configuration", asyn
   });
   expect(requests).toEqual([
     { path: "/host/parent.glts?mapped", header: "parent" },
-    { path: "/child.glts?mapped", header: "child" }
+    { path: "/host/child.glts?mapped", header: "child" }
   ]);
 });
 

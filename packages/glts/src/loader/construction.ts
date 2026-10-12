@@ -35,14 +35,14 @@ function nestedFailure(url: string, error: unknown, nested: unknown): GLTSError 
 }
 
 export class Construction {
-  readonly #contextLoader: (owner: Execution) => GLTSScriptLoader;
+  readonly #contextLoader: (owner: Execution, scriptURL: string) => GLTSScriptLoader;
   readonly #disposeNodes: DisposeNodes;
   readonly #manager: THREE.LoadingManager;
   readonly #modules: ScriptModules;
   readonly #signal: AbortSignal;
 
   constructor(options: {
-    contextLoader: (owner: Execution) => GLTSScriptLoader;
+    contextLoader: (owner: Execution, scriptURL: string) => GLTSScriptLoader;
     disposeNodes: DisposeNodes;
     manager: THREE.LoadingManager;
     modules: ScriptModules;
@@ -66,7 +66,7 @@ export class Construction {
     this.#signal.addEventListener("abort", cancel);
     try {
       await this.#modules.evaluate(script, execution.context({
-        gltsLoader: this.#contextLoader(execution),
+        gltsLoader: this.#contextLoader(execution, script.url),
         isPreview,
         loadingManager: scope.manager
       }));

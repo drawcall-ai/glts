@@ -66,7 +66,7 @@ export class GLTSLoader extends Loader {
       modules: options.modules
     });
     this.#construction = new Construction({
-      contextLoader: (owner) => this.#contextLoader(owner),
+      contextLoader: (owner, scriptURL) => this.#contextLoader(owner, scriptURL),
       disposeNodes: (root, owned) => this.#nodes.disposeNested(root, owned),
       manager,
       modules: this.#modules,
@@ -197,9 +197,10 @@ export class GLTSLoader extends Loader {
     }
   }
 
-  #contextLoader(owner: Execution): GLTSScriptLoader {
+  /** The `gltsLoader` of a script at `scriptURL`, resolving relative URLs against it. */
+  #contextLoader(owner: Execution, scriptURL: string): GLTSScriptLoader {
     const resolve = (url: GLTSURL): string => {
-      const resolved = this.#resolveURL(url, "");
+      const resolved = canonicalize(new URL(this.manager.resolveURL(String(url)), scriptURL));
       owner.nested.assertCanLoad(resolved);
       return resolved;
     };
@@ -210,10 +211,9 @@ export class GLTSLoader extends Loader {
     };
   }
 
-  #resolveURL(url: GLTSURL, path = this.path): string {
-    const input = url instanceof URL ? url.href : `${path}${url}`;
-    const managedURL = this.manager.resolveURL(input);
-    return canonicalize(pageURL(managedURL));
+  #resolveURL(url: GLTSURL): string {
+    const input = url instanceof URL ? url.href : `${this.path}${url}`;
+    return canonicalize(pageURL(this.manager.resolveURL(input)));
   }
 
   #fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
