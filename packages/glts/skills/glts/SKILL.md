@@ -280,13 +280,13 @@ const loader = new GLTSLoader(manager, { isPreview: true })
 const root = await loader.loadAsync("/asset.glts")
 
 root.update(delta)
-gltsRenderer.render(root, root.defaultCamera ?? camera, delta)
+gltsRenderer.render(root, undefined, delta) // undefined: use root.defaultCamera
 
 root.dispose()
 gltsRenderer.dispose()
 ```
 
-- `render(root, camera, delta = 0)` renders with the root's profile; `delta` reaches the effect passes.
+- `render(root, camera?, delta = 0)` renders with the root's profile and `camera`, else `root.defaultCamera`, and throws if neither exists; `delta` reaches the effect passes.
 - Create one `GLTSRenderer` per `WebGLRenderer` (a second throws) and never call `setEffects()` elsewhere.
 - Construct the `WebGLRenderer` with `GLTSRenderer.parameters` when roots use effects.
 - Effects and tone mapping need the default framebuffer, a full viewport, and scissor testing off.
