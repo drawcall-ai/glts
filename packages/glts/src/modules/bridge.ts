@@ -1,7 +1,6 @@
 import * as THREE from "three";
 
 import type { ScriptContext } from "../scene/execution.js";
-import { GLTSError } from "../errors.js";
 import type { GLTSModules } from "../types.js";
 import { ModuleURLStore } from "./urls.js";
 
@@ -12,21 +11,23 @@ function nextBridgeKey(): string {
   return `__glts_bridge_${Date.now()}_${bridgeSequence}`;
 }
 
+interface HostModule {
+  readonly namespace: object;
+  readonly url: string;
+}
+
 export class ModuleBridge {
-  readonly #modules = new Map<string, object>();
-  readonly #hostModuleURLs = new Map<string, string>();
+  /** Every module URL of one loader, revoked with the bridge. */
+  readonly moduleURLs = new ModuleURLStore();
+  readonly #hostModules = new Map<string, HostModule>();
   readonly #contexts = new Map<number, ScriptContext>();
-  readonly #moduleURLs: ModuleURLStore;
   readonly #bridgeKey = nextBridgeKey();
   #contextSequence = 0;
-  #disposed = false;
 
-  constructor(moduleURLs: ModuleURLStore, modules: GLTSModules = {}) {
-    this.#moduleURLs = moduleURLs;
+  constructor(modules: GLTSModules = {}) {
     Reflect.set(globalThis, this.#bridgeKey, this);
     for (const [specifier, namespace] of Object.entries({ ...modules, three: THREE })) {
-      this.#modules.set(specifier, namespace);
-      this.#hostModuleURLs.set(specifier, moduleURLs.create(this.#bridgeSource(specifier, namespace)));
+      this.#hostModules.set(specifier, { namespace, url: this.moduleURLs.create(this.#bridgeSource(specifier, namespace)) });
     }
   }
 
@@ -34,12 +35,9 @@ export class ModuleBridge {
     readonly release: () => void;
     readonly url: string;
   } {
-    this.#assertActive();
     this.#contextSequence += 1;
     const id = this.#contextSequence;
-    this.#contexts.set(id, context);
-
-    const url = this.#moduleURLs.create(
+    const url = this.moduleURLs.create(
       [
         `const bridge = globalThis[${JSON.stringify(this.#bridgeKey)}];`,
         "if (!bridge) throw new Error('GLTS bridge is unavailable');",
@@ -56,11 +54,12 @@ export class ModuleBridge {
         "};",
       ].join("\n"),
     );
+    this.#contexts.set(id, context);
 
     return {
       release: () => {
         this.#contexts.delete(id);
-        this.#moduleURLs.release(url);
+        this.moduleURLs.release(url);
       },
       url,
     };
@@ -68,18 +67,18 @@ export class ModuleBridge {
 
   /** The bare specifiers the host shares with scripts, `three` included. */
   get hostSpecifiers(): readonly string[] {
-    return [...this.#hostModuleURLs.keys()];
+    return [...this.#hostModules.keys()];
   }
 
   getHostModuleURL(specifier: string): string | undefined {
-    return this.#hostModuleURLs.get(specifier);
+    return this.#hostModules.get(specifier)?.url;
   }
 
   getModuleExport(specifier: string, name: string): unknown {
-    const namespace = this.#modules.get(specifier);
-    if (!namespace)
+    const module = this.#hostModules.get(specifier);
+    if (!module)
       throw new Error(`Shared module is unavailable: ${specifier}`);
-    return Reflect.get(namespace, name);
+    return Reflect.get(module.namespace, name);
   }
 
   takeContext(id: number): ScriptContext {
@@ -93,16 +92,10 @@ export class ModuleBridge {
   }
 
   dispose(): void {
-    if (this.#disposed) {
-      return;
-    }
-
-    this.#disposed = true;
     this.#contexts.clear();
-    this.#modules.clear();
-    this.#hostModuleURLs.clear();
+    this.#hostModules.clear();
     Reflect.deleteProperty(globalThis, this.#bridgeKey);
-    this.#moduleURLs.dispose();
+    this.moduleURLs.dispose();
   }
 
   #bridgeSource(specifier: string, namespace: object): string {
@@ -128,16 +121,5 @@ export class ModuleBridge {
 
     lines.push(`export { ${exports.join(", ")} };`);
     return lines.join("\n");
-  }
-
-  #assertActive(): void {
-    if (!this.#disposed) {
-      return;
-    }
-
-    throw new GLTSError("Loader has been disposed", {
-      phase: "resolve",
-      url: "glts://bridge",
-    });
   }
 }

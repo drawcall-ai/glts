@@ -23,7 +23,7 @@ export async function reloadRecords(
   records: readonly NodeRecord[],
   { modules, construction, operations }: ReloadContext
 ): Promise<void> {
-  const script = await modules.prepareScript(url, { reload: true });
+  const script = await modules.fetchScript(url);
   const replacements: Replacement[] = [];
 
   try {

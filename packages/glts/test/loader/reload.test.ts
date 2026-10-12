@@ -4,8 +4,6 @@ import { reloadRecords } from "../../src/loader/reload.js";
 import { Construction } from "../../src/loader/construction.js";
 import { Operations } from "../../src/loader/operations.js";
 import { ScriptModules } from "../../src/modules/scripts.js";
-import { ModuleBridge } from "../../src/modules/bridge.js";
-import { ModuleURLStore } from "../../src/modules/urls.js";
 import { Execution } from "../../src/scene/execution.js";
 import { createAutoInstances } from "../../src/scene/instances.js";
 import { ManagedNodes, type NodeRecord } from "../../src/scene/registry.js";
@@ -23,14 +21,9 @@ function context(execution: Execution) {
 
 async function reload(nodes: ManagedNodes, record: NodeRecord, next: Execution): Promise<void> {
   const manager = new LoadingManager();
-  const moduleURLs = new ModuleURLStore();
-  const bridge = new ModuleBridge(moduleURLs);
   const modules = new ScriptModules({
     cdnURL: new URL("https://cdn.test/"),
-    fetch: async () => new Response(""),
-    moduleURLs,
-    bridge,
-    threeRevision: "185"
+    fetch: async () => new Response("")
   });
   const operations = new Operations(manager);
   const construction = new Construction({
@@ -44,7 +37,7 @@ async function reload(nodes: ManagedNodes, record: NodeRecord, next: Execution):
   } finally {
     construction.dispose();
     operations.dispose();
-    bridge.dispose();
+    modules.dispose();
   }
 }
 

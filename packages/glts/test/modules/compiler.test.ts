@@ -4,10 +4,7 @@ import { describe, expect, it } from "vitest";
 import { GLTSError } from "../../src/errors.js";
 import { compileScript } from "../../src/modules/compiler.js";
 
-const context = {
-  importChain: ["https://example.test/tree.glts"],
-  url: "https://example.test/tree.glts"
-};
+const url = "https://example.test/tree.glts";
 
 describe("script exports", () => {
   it("accepts exportless scripts with contextual imports", () => {
@@ -16,7 +13,7 @@ describe("script exports", () => {
       import { scene, isPreview, onDispose } from "@drawcall/glts"
       if (isPreview) scene.add(new THREE.Group())
       onDispose(() => undefined)
-    `, context)).not.toThrow();
+    `, url)).not.toThrow();
   });
 
   it.each([
@@ -27,7 +24,7 @@ describe("script exports", () => {
     "export = 1",
     "export as namespace GLTS"
   ])("rejects exports: %s", (source) => {
-    expect(() => compileScript(source, context))
+    expect(() => compileScript(source, url))
       .toThrow("GLTS scripts must not export values");
   });
 });
@@ -47,7 +44,7 @@ describe("compileScript", () => {
       "const state = new THREE.Group();",
       "onFrame(() => scene.add(state));"
     ].join("\n");
-    const isolated = compileScript(source, context);
+    const isolated = compileScript(source, url);
 
     expect(isolated).toContain("await (async () => {");
     expect(lineOf(isolated, "const state")).toBe(lineOf(source, "const state"));
@@ -61,7 +58,7 @@ describe("compileScript", () => {
       "const size = 2",
       'import { scene } from "@drawcall/glts"',
       "scene.add(new THREE.Group())"
-    ].join("\n"), context);
+    ].join("\n"), url);
 
     expect(isolated.indexOf('from "@drawcall/glts"'))
       .toBeLessThan(isolated.indexOf("await (async () => {"));
@@ -71,7 +68,7 @@ describe("compileScript", () => {
   });
 
   it("accepts a leading hashbang", () => {
-    const isolated = compileScript('#!/usr/bin/env glts\nimport { scene } from "@drawcall/glts"\nscene.name = "x"', context);
+    const isolated = compileScript('#!/usr/bin/env glts\nimport { scene } from "@drawcall/glts"\nscene.name = "x"', url);
 
     expect(() => parseModule(isolated)).not.toThrow();
   });
@@ -83,7 +80,7 @@ describe("compileScript", () => {
       "const state: State = { elapsed: 0 };",
       "await Promise.resolve();",
       'if (state.elapsed !== 0) throw new Error("Unexpected state");'
-    ].join("\n"), context);
+    ].join("\n"), url);
     expect(parse(compiled, { sourceType: "module" }).program.body.map((node) => node.type))
       .not.toContain("VariableDeclaration");
     await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(compiled)}`);
@@ -100,7 +97,7 @@ describe("compileScript", () => {
       'import { value } from "data:text/javascript,export const value = 42";',
       'await Promise.resolve();',
       'if (!text.includes("/* not a comment */")) throw new Error("Changed literal");'
-    ].join("\n"), context);
+    ].join("\n"), url);
     const module = parse(compiled, { sourceType: "module" }).program;
     expect(module.directives).toHaveLength(0);
     expect(compiled).toContain('"use strict";');
@@ -108,7 +105,7 @@ describe("compileScript", () => {
   });
 
   it("rejects top-level return before wrapping the body", () => {
-    expect(() => compileScript("return 42", context)).toThrow(GLTSError);
+    expect(() => compileScript("return 42", url)).toThrow(GLTSError);
   });
 
   it("keeps a separator when hoisting a late import", async () => {
@@ -117,7 +114,7 @@ describe("compileScript", () => {
       'import "data:text/javascript,";',
       "(function () { values.push(2); })()",
       'if (values.join() !== "1,2") throw new Error("Unexpected values");'
-    ].join("\n"), context);
+    ].join("\n"), url);
     await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(compiled)}`);
   });
 });
@@ -127,7 +124,7 @@ it("keeps imports as written, even ones used only as types", () => {
     import { Options, merge } from "./geometry.ts"
     import { type Other } from "./other.ts"
     const options: Options = merge()
-  `, context);
+  `, url);
   expect(compiled).toContain('import { Options, merge } from "./geometry.ts"');
   expect(compiled).toContain('from "./other.ts"');
 });

@@ -13,10 +13,9 @@ describe("rewriteModule", () => {
         export const assetURL = new URL("./leaf.png", import.meta.url);
         export { THREE, Branch };
       `,
-      sourceURL,
-      importChain: [sourceURL],
-      resolveImport: async (specifier) => `blob:${specifier}`
-    });
+      url: sourceURL,
+      importChain: [sourceURL]
+    }, async (specifier) => `blob:${specifier}`);
 
     expect(transformed).toContain('from "blob:three"');
     expect(transformed).toContain('from "blob:./branch.glts"');
@@ -29,10 +28,9 @@ describe("rewriteModule", () => {
     const sourceURL = "https://example.test/assets/tree.glts";
     const operation = rewriteModule({
       source: 'const child = await import("./branch.glts")',
-      sourceURL,
-      importChain: [sourceURL],
-      resolveImport: async (specifier) => specifier
-    });
+      url: sourceURL,
+      importChain: [sourceURL]
+    }, async (specifier) => specifier);
 
     await expect(operation).rejects.toBeInstanceOf(GLTSError);
     await expect(operation).rejects.toThrow("Dynamic and source-phase imports are not supported");
@@ -56,10 +54,9 @@ it("preserves native import.meta identity, property syntax and mutations", async
   `;
   const transformed = await rewriteModule({
     source,
-    sourceURL,
-    importChain: [sourceURL],
-    resolveImport: async (specifier) => specifier,
-  });
+    url: sourceURL,
+    importChain: [sourceURL]
+  }, async (specifier) => specifier);
   const module: unknown = await import(`data:text/javascript,${encodeURIComponent(transformed)}`);
   expect(module).toMatchObject({
     initial: Array(4).fill(sourceURL),
@@ -74,10 +71,9 @@ it.each(["\n", "\r", "\r\n", "\u2028", "\u2029"])("keeps a hashbang first with l
   const sourceURL = "https://example.test/hashbang.glts";
   const transformed = await rewriteModule({
     source: `#!/usr/bin/env node${separator}export const url = import.meta.url;`,
-    sourceURL,
-    importChain: [sourceURL],
-    resolveImport: async (specifier) => specifier,
-  });
+    url: sourceURL,
+    importChain: [sourceURL]
+  }, async (specifier) => specifier);
   expect(transformed.startsWith(`#!/usr/bin/env node${separator}import.meta.url = `)).toBe(true);
   const module: unknown = await import(`data:text/javascript,${encodeURIComponent(transformed)}`);
   expect(module).toMatchObject({ url: sourceURL });
@@ -87,9 +83,8 @@ it("leaves code without import.meta intact and removes sourceURL line separators
   const source = "export const value = 1;";
   const transformed = await rewriteModule({
     source,
-    sourceURL: "https://example.test/\n\r\u2028\u2029plain.js",
-    importChain: [],
-    resolveImport: async (specifier) => specifier,
-  });
+    url: "https://example.test/\n\r\u2028\u2029plain.js",
+    importChain: []
+  }, async (specifier) => specifier);
   expect(transformed).toBe(`${source}\n//# sourceURL=https://example.test/plain.js\n`);
 });

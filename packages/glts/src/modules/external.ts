@@ -1,69 +1,64 @@
-import type { FetchedSource } from "./fetch.js";
+import { REVISION } from "three";
+
 import { GLTSError, toGLTSError } from "../errors.js";
-import { canonicalize, fetchSource } from "./fetch.js";
-import type { ModuleURLStore } from "./urls.js";
+import { canonicalize, fetchSource, type FetchedSource } from "./fetch.js";
 import { rewriteModule } from "./rewrite.js";
-import { resolveModuleURL, type ImportSource } from "./resolution.js";
+import { isBareSpecifier, packageURL } from "./resolution.js";
 import type { ModuleBridge } from "./bridge.js";
 import type { GLTSFetch } from "../types.js";
 
-interface ExternalModulesOptions {
-  readonly cdnURL: URL;
-  readonly fetch: GLTSFetch;
-  readonly moduleURLs: ModuleURLStore;
-  readonly bridge: ModuleBridge;
-  readonly threeRevision: string;
+/** The CDN path of a package, pinning both Three addon spellings to the host's revision. */
+function packagePath(specifier: string): string {
+  if (specifier.startsWith("three/addons/")) {
+    return `three@0.${REVISION}.0/examples/jsm/${specifier.slice("three/addons/".length)}`;
+  }
+  if (specifier.startsWith("three/examples/")) {
+    return `three@0.${REVISION}.0/${specifier.slice("three/".length)}`;
+  }
+  return specifier;
 }
 
 /** Host modules and CDN modules shared by every script of one loader, keyed by URL. */
 export class ExternalModules {
-  readonly #options: ExternalModulesOptions;
+  readonly #cdnURL: URL;
+  readonly #fetch: GLTSFetch;
+  readonly #bridge: ModuleBridge;
   readonly #sources = new Map<string, Promise<FetchedSource>>();
   readonly #modules = new Map<string, string>();
 
-  constructor(options: ExternalModulesOptions) {
-    this.#options = options;
+  constructor({ cdnURL, fetch, bridge }: { readonly cdnURL: URL; readonly fetch: GLTSFetch; readonly bridge: ModuleBridge }) {
+    this.#cdnURL = cdnURL;
+    this.#fetch = fetch;
+    this.#bridge = bridge;
   }
 
   /** Resolves an import to the URL of a module scripts can import. */
-  async prepareImport(
-    specifier: string,
-    importerURL: string,
-    importChain: readonly string[],
-    source: ImportSource = "module",
-  ): Promise<string> {
-    const { bridge } = this.#options;
-    const host = bridge.getHostModuleURL(specifier);
+  async prepareImport(specifier: string, importerURL: string, importChain: readonly string[]): Promise<string> {
+    const host = this.#bridge.getHostModuleURL(specifier);
     if (host) return host;
-
-    const { url, transform } = resolveModuleURL(specifier, importerURL, importChain, {
-      cdnURL: this.#options.cdnURL,
-      threeRevision: this.#options.threeRevision,
-      external: bridge.hostSpecifiers,
-    }, source);
-    return transform ? this.#prepare(url, importChain) : url.href;
-  }
-
-  async #prepare(url: URL, importChain: readonly string[]): Promise<string> {
-    const key = canonicalize(url);
-    const cached = this.#modules.get(key);
-    if (cached) return cached;
-
-    if (importChain.includes(key)) {
-      throw new GLTSError("Cyclic CDN modules are not supported", {
-        importChain: [...importChain, key],
-        phase: "resolve",
-        url: key,
-      });
+    if (specifier.startsWith("#")) {
+      throw new GLTSError(`Unsupported CDN package import: ${specifier}`, { importChain, phase: "resolve", url: importerURL });
     }
 
-    return this.#load(key, [...importChain, key]);
+    const url = isBareSpecifier(specifier)
+      ? packageURL(packagePath(specifier), this.#cdnURL, this.#bridge.hostSpecifiers)
+      : new URL(specifier, importerURL);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return url.href;
+    return this.#load(canonicalize(url), importChain);
   }
 
-  async #load(requestedURL: string, importChain: readonly string[]): Promise<string> {
+  async #load(requestedURL: string, importerChain: readonly string[]): Promise<string> {
+    const cached = this.#modules.get(requestedURL);
+    if (cached) return cached;
+
+    const importChain = [...importerChain, requestedURL];
+    if (importerChain.includes(requestedURL)) {
+      throw new GLTSError("Cyclic CDN modules are not supported", { importChain, phase: "resolve", url: requestedURL });
+    }
+
     let source = this.#sources.get(requestedURL);
     if (!source) {
-      source = fetchSource(this.#options.fetch, requestedURL, false, importChain);
+      source = fetchSource(this.#fetch, requestedURL, false, importChain);
       this.#sources.set(requestedURL, source);
       void source.catch(() => this.#sources.delete(requestedURL));
     }
@@ -76,25 +71,18 @@ export class ExternalModules {
 
     let transformed: string;
     try {
-      transformed = await rewriteModule({
-        importChain,
-        resolveImport: (specifier, importerURL, chain) =>
-          this.prepareImport(specifier, importerURL, chain),
-        source: fetched.source,
-        sourceURL: fetched.url,
-      });
+      transformed = await rewriteModule(
+        { ...fetched, importChain },
+        (specifier) => this.prepareImport(specifier, fetched.url, importChain),
+      );
     } catch (error) {
-      throw toGLTSError(error, "Unable to transform CDN module", {
-        importChain,
-        phase: "transform",
-        url: fetched.url,
-      });
+      throw toGLTSError(error, "Unable to transform CDN module", { importChain, phase: "transform", url: fetched.url });
     }
 
     // A concurrent import of the same module may have finished first.
     const concurrent = this.#modules.get(requestedURL) ?? this.#modules.get(fetched.url);
     if (concurrent) return concurrent;
-    const moduleURL = this.#options.moduleURLs.create(transformed);
+    const moduleURL = this.#bridge.moduleURLs.create(transformed);
     this.#modules.set(requestedURL, moduleURL);
     this.#modules.set(fetched.url, moduleURL);
     return moduleURL;

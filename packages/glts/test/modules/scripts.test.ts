@@ -1,24 +1,17 @@
 import { afterEach, expect, it } from "vitest";
 
-import { ModuleBridge } from "../../src/modules/bridge.js";
 import { ScriptModules } from "../../src/modules/scripts.js";
-import { ModuleURLStore } from "../../src/modules/urls.js";
 
 const base = "https://assets.test/";
-let bridge: ModuleBridge | undefined;
+let modules: ScriptModules | undefined;
 
-afterEach(() => bridge?.dispose());
+afterEach(() => modules?.dispose());
 
 /** Script modules serving `sources` by path, recording each request. */
 function serve(sources: Readonly<Record<string, string>>): { modules: ScriptModules; requests: string[] } {
   const requests: string[] = [];
-  const moduleURLs = new ModuleURLStore();
-  bridge = new ModuleBridge(moduleURLs);
-  const modules = new ScriptModules({
-    bridge,
+  modules = new ScriptModules({
     cdnURL: new URL("https://cdn.test/"),
-    moduleURLs,
-    threeRevision: "185",
     fetch: async (input) => {
       const path = new URL(String(input)).pathname.slice(1);
       requests.push(path);

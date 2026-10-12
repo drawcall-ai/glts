@@ -2,15 +2,12 @@ import {
   Loader,
   type LoadingManager
 } from "three";
-import * as THREE from "three";
 
 import { GLTSError } from "../errors.js";
 import { createContextLoader } from "./context.js";
 import { LoaderRuntime } from "./runtime.js";
 import { ScriptModules } from "../modules/scripts.js";
 import { canonicalize } from "../modules/fetch.js";
-import { ModuleBridge } from "../modules/bridge.js";
-import { ModuleURLStore } from "../modules/urls.js";
 import { defaultCDNURL } from "../modules/resolution.js";
 import type {
   GLTSErrorCallback,
@@ -44,7 +41,7 @@ export class GLTSLoader extends Loader {
   readonly #baseURL: URL;
   readonly #baseFetch: GLTSFetch;
   readonly #runtime: LoaderRuntime;
-  readonly #bridge: ModuleBridge;
+  readonly #modules: ScriptModules;
   #disposed = false;
 
   constructor(
@@ -59,24 +56,18 @@ export class GLTSLoader extends Loader {
     this.#isPreview = options.isPreview ?? false;
     const environmentBase = environmentBaseURL();
     const baseURL = resolvedOptionURL(options.baseURL, environmentBase.href, environmentBase);
-    const moduleURLs = new ModuleURLStore();
-    const moduleBridge = new ModuleBridge(moduleURLs, options.modules);
     const baseFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
     this.#baseURL = baseURL;
     this.#baseFetch = baseFetch;
-    this.#bridge = moduleBridge;
-
-    const modules = new ScriptModules({
+    this.#modules = new ScriptModules({
       cdnURL: resolvedOptionURL(options.cdnURL, defaultCDNURL, baseURL),
       fetch: (input, init) => this.#fetch(input, init),
-      moduleURLs,
-      bridge: moduleBridge,
-      threeRevision: THREE.REVISION
+      modules: options.modules
     });
     this.#runtime = new LoaderRuntime({
       contextLoader: (owner) => createContextLoader(owner, this.#runtime, (url) => this.#resolveURL(url, "")),
       manager,
-      modules
+      modules: this.#modules
     });
   }
 
@@ -132,7 +123,7 @@ export class GLTSLoader extends Loader {
       errors.push(error);
     }
     try {
-      this.#bridge.dispose();
+      this.#modules.dispose();
     } catch (error) {
       errors.push(error);
     }

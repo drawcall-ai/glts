@@ -47,7 +47,12 @@ it("follows helpers to the packages they import", async () => {
 
 it("rejects local imports the loader would reject, which the type check resolves", async () => {
   await writeFiles(temp, { "extension/scene.glts": `import { tube } from "./geometry.js"`, "extension/geometry.ts": `` });
-  await expect(scan(`${temp}/extension`)).rejects.toThrow("Unsupported local import in");
+  await expect(scan(`${temp}/extension`)).rejects.toThrow("Unsupported local import: ./geometry.js");
+});
+
+it("rejects package imports, which the loader rejects", async () => {
+  await writeFiles(temp, { "subpath/scene.glts": `import "#x"` });
+  await expect(scan(`${temp}/subpath`)).rejects.toThrow("Unsupported package import: #x");
 });
 
 it("rejects a script that does not parse, naming it", async () => {

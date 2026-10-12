@@ -1,25 +1,16 @@
 import { parse } from "es-module-lexer/js";
 import MagicString from "magic-string";
 
-import { GLTSError } from "../errors.js";
+import { GLTSError, type GLTSPhase } from "../errors.js";
 
 const staticImport = 1;
 const importMeta = 3;
 
-export type StaticImportResolver = (
-  specifier: string,
-  importerURL: string,
-  importChain: readonly string[]
-) => Promise<string>;
-
-interface ModuleSource {
+/** A module's source, with the URL and import chain its errors report. */
+export interface ModuleSource {
   readonly source: string;
-  readonly sourceURL: string;
+  readonly url: string;
   readonly importChain: readonly string[];
-}
-
-export interface RewriteModuleOptions extends ModuleSource {
-  readonly resolveImport: StaticImportResolver;
 }
 
 interface StaticImport {
@@ -41,16 +32,14 @@ function locationAt(source: string, offset: number): string {
   return `${line}:${column}`;
 }
 
-function parseModule({ source, sourceURL, importChain }: ModuleSource): ParsedModule {
+function parseModule({ source, url, importChain }: ModuleSource): ParsedModule {
+  const failure = (message: string, phase: GLTSPhase, cause?: unknown): GLTSError =>
+    new GLTSError(message, { importChain, phase, url }, cause);
   let entries: ReturnType<typeof parse>[0];
   try {
-    [entries] = parse(source, sourceURL);
+    [entries] = parse(source, url);
   } catch (error) {
-    throw new GLTSError("Unable to parse module imports", {
-      url: sourceURL,
-      phase: "transform",
-      importChain
-    }, error);
+    throw failure("Unable to parse module imports", "transform", error);
   }
 
   const imports: StaticImport[] = [];
@@ -60,27 +49,15 @@ function parseModule({ source, sourceURL, importChain }: ModuleSource): ParsedMo
     }
 
     if (entry.t !== staticImport) {
-      throw new GLTSError(`Dynamic and source-phase imports are not supported (${locationAt(source, entry.ss)})`, {
-        url: sourceURL,
-        phase: "transform",
-        importChain
-      });
+      throw failure(`Dynamic and source-phase imports are not supported (${locationAt(source, entry.ss)})`, "transform");
     }
 
     if (entry.at) {
-      throw new GLTSError(`Import attributes are not supported (${locationAt(source, entry.ss)})`, {
-        url: sourceURL,
-        phase: "transform",
-        importChain
-      });
+      throw failure(`Import attributes are not supported (${locationAt(source, entry.ss)})`, "transform");
     }
 
     if (!entry.n) {
-      throw new GLTSError(`Static import has no resolvable specifier (${locationAt(source, entry.ss)})`, {
-        url: sourceURL,
-        phase: "resolve",
-        importChain
-      });
+      throw failure(`Static import has no resolvable specifier (${locationAt(source, entry.ss)})`, "resolve");
     }
 
     imports.push({ specifier: entry.n, start: entry.s, end: entry.e });
@@ -94,29 +71,27 @@ export function importSpecifiers(module: ModuleSource): string[] {
   return parseModule(module).imports.map(({ specifier }) => specifier);
 }
 
-export async function rewriteModule(options: RewriteModuleOptions): Promise<string> {
-  const { imports, usesImportMeta } = parseModule(options);
-  const rewritten = new MagicString(options.source, { filename: options.sourceURL });
+export async function rewriteModule(
+  module: ModuleSource,
+  resolveImport: (specifier: string) => Promise<string>,
+): Promise<string> {
+  const { imports, usesImportMeta } = parseModule(module);
+  const rewritten = new MagicString(module.source, { filename: module.url });
 
   // Resolve depth-first so a failed graph leaves no sibling work allocating
   // resources after execution cleanup.
   for (const { specifier, start, end } of imports) {
-    const resolved = await options.resolveImport(
-      specifier,
-      options.sourceURL,
-      options.importChain
-    );
-    rewritten.overwrite(start, end, resolved);
+    rewritten.overwrite(start, end, await resolveImport(specifier));
   }
 
   if (usesImportMeta) {
-    const start = options.source.match(
+    const start = module.source.match(
       /^#![^\r\n\u2028\u2029]*(?:\r\n|[\r\n\u2028\u2029])/
     )?.[0].length ?? 0;
-    rewritten.appendLeft(start, `import.meta.url = ${JSON.stringify(options.sourceURL)};\n`);
+    rewritten.appendLeft(start, `import.meta.url = ${JSON.stringify(module.url)};\n`);
   }
 
-  const safeSourceURL = options.sourceURL.replace(/[\n\r\u2028\u2029]/g, "");
-  rewritten.append(`\n//# sourceURL=${safeSourceURL}\n`);
+  const safeURL = module.url.replace(/[\n\r\u2028\u2029]/g, "");
+  rewritten.append(`\n//# sourceURL=${safeURL}\n`);
   return rewritten.toString();
 }

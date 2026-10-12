@@ -5,57 +5,51 @@ import { transform } from "sucrase";
 
 import { GLTSError, toGLTSError } from "../errors.js";
 
-interface CompilationContext {
-  readonly importChain: readonly string[];
-  readonly url: string;
-}
-
 /** Strips types, keeping every import as written, as TypeScript's verbatimModuleSyntax does. */
 function stripTypes(source: string): string {
   return transform(source, { disableESTransforms: true, keepUnusedImports: true, transforms: ["typescript"] }).code;
 }
 
-export function compileScript(source: string, context: CompilationContext): string {
+export function compileScript(source: string, url: string): string {
   try {
-    const program = parseScript(source, context.url);
-    isolateScriptBody(program, context);
+    const { program } = parse(source, { plugins: ["typescript"], sourceFilename: url, sourceType: "module" });
+    isolateScriptBody(program, url);
     return stripTypes(generate(program, { retainLines: true }, source).code);
   } catch (error) {
     throw toGLTSError(error, "Unable to compile GLTS script", {
-      ...context,
-      phase: "transform"
+      importChain: [url],
+      phase: "transform",
+      url
     });
   }
 }
 
-export function compileHelper(source: string, context: CompilationContext): string {
+export function compileHelper(source: string, url: string, importChain: readonly string[]): string {
   try {
     return stripTypes(source);
   } catch (error) {
     throw toGLTSError(error, "Unable to compile helper", {
-      ...context,
-      phase: "transform"
+      importChain,
+      phase: "transform",
+      url
     });
   }
-}
-
-export function parseScript(source: string, url: string): t.Program {
-  return parse(source, { plugins: ["typescript"], sourceFilename: url, sourceType: "module" }).program;
 }
 
 /**
  * Browsers retain evaluated modules for the page's lifetime. Keep imports at
  * module scope, but put script state in a function that disposal can release.
  */
-function isolateScriptBody(program: t.Program, context: CompilationContext): void {
+function isolateScriptBody(program: t.Program, url: string): void {
   if (program.body.some((statement) =>
     t.isExportDeclaration(statement) ||
     statement.type === "TSExportAssignment" ||
     statement.type === "TSNamespaceExportDeclaration"
   )) {
     throw new GLTSError("GLTS scripts must not export values", {
-      ...context,
-      phase: "transform"
+      importChain: [url],
+      phase: "transform",
+      url
     });
   }
 

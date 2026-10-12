@@ -1,32 +1,19 @@
 import { expect, it } from "vitest";
-import { helperURL, resolveModuleURL } from "../../src/modules/resolution.js";
+import { assertScriptImport, helperURL } from "../../src/modules/resolution.js";
 
-const options = { cdnURL: new URL("https://cdn.test/"), threeRevision: "185", external: ["three", "simplex-noise"] };
 const importer = "https://assets.test/path/asset.glts";
 
-it("bundles packages and pins both Three addon spellings to the host revision", () => {
-  const addon = resolveModuleURL("three/addons/controls/OrbitControls.js", importer, [], options, "script");
-  const example = resolveModuleURL("three/examples/jsm/controls/OrbitControls.js", importer, [], options, "module");
-  expect(addon.url.href).toBe(example.url.href);
-  expect(addon.url.pathname).toBe("/three@0.185.0/examples/jsm/controls/OrbitControls.js");
-  expect(addon.url.searchParams.get("external")).toBe("three,simplex-noise");
-  expect(addon.transform).toBe(true);
+it("permits package and http(s) imports in scripts", () => {
+  expect(() => assertScriptImport("simplex-noise@4", importer, [])).not.toThrow();
+  expect(() => assertScriptImport("https://cdn.test/library.js", importer, [])).not.toThrow();
 });
 
-it("permits relative dependencies in external modules but rejects them in scripts", () => {
-  expect(resolveModuleURL("./dependency.js", importer, [], options, "module")).toEqual({
-    url: new URL("https://assets.test/path/dependency.js"), transform: true,
-  });
-  expect(() => resolveModuleURL("./dependency.js", importer, [], options, "script"))
+it("rejects package imports, GLTS imports, and local imports other than helpers", () => {
+  expect(() => assertScriptImport("#internal", importer, [])).toThrow("Unsupported package import: #internal");
+  expect(() => assertScriptImport("./dependency.js", importer, []))
     .toThrow("Unsupported local import: ./dependency.js; import helpers as ./*.ts files");
-  expect(() => resolveModuleURL("./child.glts?v=2", importer, [], options, "script"))
-    .toThrow("use gltsLoader.loadAsync()");
-});
-
-it("passes external non-JavaScript URLs through while preparing absolute script imports", () => {
-  const url = "https://assets.test/library.wasm";
-  expect(resolveModuleURL(url, importer, [], options, "module").transform).toBe(false);
-  expect(resolveModuleURL(url, importer, [], options, "script").transform).toBe(true);
+  expect(() => assertScriptImport("/root.ts", importer, [])).toThrow("Unsupported local import: /root.ts");
+  expect(() => assertScriptImport("./child.glts?v=2", importer, [])).toThrow("use gltsLoader.loadAsync()");
 });
 
 it("treats relative .ts imports as helpers", () => {

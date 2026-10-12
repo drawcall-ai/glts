@@ -2,12 +2,11 @@ import type { ScriptContext } from "../scene/execution.js";
 import { GLTSError, toGLTSError } from "../errors.js";
 import { ExternalModules } from "./external.js";
 import { canonicalize, fetchSource } from "./fetch.js";
-import type { ModuleURLStore } from "./urls.js";
 import { importSpecifiers, rewriteModule } from "./rewrite.js";
-import type { ModuleBridge } from "./bridge.js";
+import { ModuleBridge } from "./bridge.js";
 import { compileHelper, compileScript } from "./compiler.js";
-import { helperURL } from "./resolution.js";
-import type { GLTSFetch } from "../types.js";
+import { assertScriptImport, helperURL } from "./resolution.js";
+import type { GLTSFetch, GLTSModules } from "../types.js";
 
 export interface CompiledScript {
   readonly source: string;
@@ -24,37 +23,26 @@ interface Linking {
   readonly urls: Set<string>;
 }
 
-interface ScriptModulesOptions {
-  readonly cdnURL: URL;
-  readonly fetch: GLTSFetch;
-  readonly moduleURLs: ModuleURLStore;
-  readonly bridge: ModuleBridge;
-  readonly threeRevision: string;
-}
-
 export class ScriptModules {
+  private readonly fetch: GLTSFetch;
+  private readonly bridge: ModuleBridge;
   private readonly external: ExternalModules;
   private readonly scriptCache = new Map<string, Promise<CompiledScript>>();
   /** Every helper URL a script has imported, by script URL. */
   private readonly scriptHelpers = new Map<string, Set<string>>();
 
-  constructor(private readonly options: ScriptModulesOptions) {
-    this.external = new ExternalModules(options);
+  constructor({ cdnURL, fetch, modules }: { readonly cdnURL: URL; readonly fetch: GLTSFetch; readonly modules?: GLTSModules | undefined }) {
+    this.fetch = fetch;
+    this.bridge = new ModuleBridge(modules);
+    this.external = new ExternalModules({ cdnURL, fetch, bridge: this.bridge });
   }
 
-  async prepareScript(
-    requestedURL: string,
-    { reload = false }: { readonly reload?: boolean } = {},
-  ): Promise<CompiledScript> {
+  /** The script at `requestedURL`, prepared once until invalidated. */
+  async prepareScript(requestedURL: string): Promise<CompiledScript> {
     const cached = this.scriptCache.get(requestedURL);
-    if (cached && !reload) {
-      return cached;
-    }
+    if (cached) return cached;
 
-    const loading = this.prepare(requestedURL);
-    // Reloads cache the replacement only after scene changes commit.
-    if (reload) return loading;
-
+    const loading = this.fetchScript(requestedURL);
     this.scriptCache.set(requestedURL, loading);
     try {
       return await loading;
@@ -81,19 +69,14 @@ export class ScriptModules {
   }
 
   async executeScript(script: CompiledScript, context: ScriptContext): Promise<void> {
-    const contextModule = this.options.bridge.createContextModule(context);
+    const contextModule = this.bridge.createContextModule(context);
     let transformed: string;
     try {
-      transformed = await rewriteModule({
-        importChain: [script.url],
-        resolveImport: async (specifier) => {
-          if (specifier === "@drawcall/glts") return contextModule.url;
-          const url = script.imports.get(specifier);
-          if (!url) throw new Error(`Import was not prepared: ${specifier}`);
-          return url;
-        },
-        source: script.source,
-        sourceURL: script.url,
+      transformed = await rewriteModule({ source: script.source, url: script.url, importChain: [script.url] }, async (specifier) => {
+        if (specifier === "@drawcall/glts") return contextModule.url;
+        const url = script.imports.get(specifier);
+        if (!url) throw new Error(`Import was not prepared: ${specifier}`);
+        return url;
       });
     } catch (error) {
       contextModule.release();
@@ -104,7 +87,7 @@ export class ScriptModules {
       });
     }
 
-    const moduleURL = this.options.moduleURLs.create(transformed);
+    const moduleURL = this.bridge.moduleURLs.create(transformed);
     try {
       // Blob URLs are resolved by the browser at runtime, never by a bundler.
       await import(/* @vite-ignore */ /* webpackIgnore: true */ moduleURL);
@@ -115,21 +98,22 @@ export class ScriptModules {
         url: script.url,
       });
     } finally {
-      this.options.moduleURLs.release(moduleURL);
+      this.bridge.moduleURLs.release(moduleURL);
       contextModule.release();
     }
   }
 
-  private async prepare(requestedURL: string): Promise<CompiledScript> {
-    const { source, url } = await fetchSource(this.options.fetch, requestedURL, true, [requestedURL]);
-    const compiled = compileScript(source, { importChain: [url], url });
+  /** Fetches and prepares the script at `requestedURL` past the cache; reloads commit it once their scene changes do. */
+  async fetchScript(requestedURL: string): Promise<CompiledScript> {
+    const { source, url } = await fetchSource(this.fetch, requestedURL, true, [requestedURL]);
+    const compiled = compileScript(source, url);
     // Never shrinks, so fixing a helper that failed, or that an older revision imports, reloads the script.
     const urls = this.scriptHelpers.get(requestedURL) ?? new Set<string>();
     this.scriptHelpers.set(requestedURL, urls);
     const linking: Linking = { modules: new Map(), urls };
     const imports = new Map<string, string>();
     try {
-      for (const specifier of importSpecifiers({ source: compiled, sourceURL: url, importChain: [url] })) {
+      for (const specifier of importSpecifiers({ source: compiled, url, importChain: [url] })) {
         if (specifier === "@drawcall/glts" || imports.has(specifier)) continue;
         imports.set(specifier, await this.prepareImport(specifier, url, [url], linking));
       }
@@ -143,22 +127,25 @@ export class ScriptModules {
     return { source: compiled, url, imports };
   }
 
-  private prepareImport(
+  private async prepareImport(
     specifier: string,
     importerURL: string,
     importChain: readonly string[],
     linking: Linking,
   ): Promise<string> {
     const url = helperURL(specifier, importerURL);
-    if (!url) return this.external.prepareImport(specifier, importerURL, importChain, "script");
+    if (!url) {
+      assertScriptImport(specifier, importerURL, importChain);
+      return this.external.prepareImport(specifier, importerURL, importChain);
+    }
 
     const key = canonicalize(url);
     if (importChain.includes(key)) {
-      return Promise.reject(new GLTSError("Cyclic helper imports are not supported", {
+      throw new GLTSError("Cyclic helper imports are not supported", {
         importChain: [...importChain, key],
         phase: "resolve",
         url: key,
-      }));
+      });
     }
 
     // Recorded before the fetch, so a change from here on reloads the script.
@@ -172,28 +159,27 @@ export class ScriptModules {
   }
 
   private async prepareHelper(url: string, importChain: readonly string[], linking: Linking): Promise<string> {
-    const fetched = await fetchSource(this.options.fetch, url, true, importChain);
-    const context = { importChain, url: fetched.url };
+    const fetched = await fetchSource(this.fetch, url, true, importChain);
     let rewritten: string;
     try {
-      rewritten = await rewriteModule({
-        importChain,
-        resolveImport: async (specifier, importerURL, chain) => {
-          if (specifier === "@drawcall/glts") {
-            throw new GLTSError(
-              "Helpers cannot import @drawcall/glts at runtime; use import type for its types and pass values from the script",
-              { ...context, phase: "resolve" },
-            );
-          }
-          return this.prepareImport(specifier, importerURL, chain, linking);
-        },
-        source: compileHelper(fetched.source, context),
-        sourceURL: fetched.url,
+      const source = compileHelper(fetched.source, fetched.url, importChain);
+      rewritten = await rewriteModule({ source, url: fetched.url, importChain }, async (specifier) => {
+        if (specifier === "@drawcall/glts") {
+          throw new GLTSError(
+            "Helpers cannot import @drawcall/glts at runtime; use import type for its types and pass values from the script",
+            { importChain, phase: "resolve", url: fetched.url },
+          );
+        }
+        return this.prepareImport(specifier, fetched.url, importChain, linking);
       });
     } catch (error) {
-      throw toGLTSError(error, "Unable to transform helper", { ...context, phase: "transform" });
+      throw toGLTSError(error, "Unable to transform helper", { importChain, phase: "transform", url: fetched.url });
     }
     // Released with the loader; the browser keeps evaluated modules anyway.
-    return this.options.moduleURLs.create(rewritten);
+    return this.bridge.moduleURLs.create(rewritten);
+  }
+
+  dispose(): void {
+    this.bridge.dispose();
   }
 }
