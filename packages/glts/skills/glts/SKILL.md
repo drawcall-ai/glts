@@ -44,7 +44,7 @@ Rules:
 
 - Export nothing, including types and interfaces.
 - Do not import `GLTSLoader`, `GLTSRenderer`, or any other runtime value from `@drawcall/glts`; type-only imports are fine.
-- Imports run as written: import types with `import type` or an inline `type`, or the browser fails to find them.
+- Imports run as written: import types with `import type`, or the browser fails to find them. An inline `type` (`import { type X } from "pkg"`) still loads `pkg`.
 - Import `three`, `three/addons/*`, browser-compatible npm packages, full `https://` module URLs, or helpers (see Helpers).
 - Never import `.glts` files statically, or other local files such as `./data.json`; never use dynamic `import()` or import attributes.
 - Top-level `await` works.
@@ -54,7 +54,7 @@ Rules:
 
 - Use native scene properties directly: `background`, `environment`, `fog`, `overrideMaterial`, and the normal `Object3D` API.
 - The host owns the root transform. Put authored placement on a child group; never set `scene.position`, `rotation`, `quaternion`, `scale`, or `matrix`.
-- Assign `scene.defaultCamera` when the asset has a useful view. It is a recommendation the host may override. GLTS never changes camera projection, so the host sets its aspect for the viewport. It does not need to be in the scene graph unless it depends on an authored parent. GLTS never searches the hierarchy for cameras.
+- Assign `scene.defaultCamera` when the asset has a useful view. The host may override it and sets its aspect; GLTS never changes camera projection or searches the hierarchy for cameras. Add it to the scene graph only if it depends on an authored parent.
 - Do not create a renderer, canvas, resize handler, animation loop, controls, or `PMREMGenerator`. The app owns those.
 - For image-based lighting, assign a correctly mapped `Texture` or `CubeTexture` to `scene.environment` and dispose it yourself.
 - Visible shadows need all three: `scene.rendering.shadows = true`, `castShadow` on a shadow-capable light and on the casting meshes, and `receiveShadow` on receivers.
@@ -140,9 +140,9 @@ onDispose(() => {
 ```
 
 - A helper may export anything and import what a script can, including other helpers.
-- Helpers cannot import `@drawcall/glts` at runtime: use `import type` for its types (an inline `type` still imports it), and pass what a helper needs, such as `loadingManager`, from the script.
+- Helpers cannot import `@drawcall/glts` at runtime: import its types with `import type`, and pass what a helper needs, such as `loadingManager`, from the script.
 - A helper has no `onDispose`. Return what it creates and dispose it in the script.
-- Each script gets its own instance of each helper, shared by all of its imports of that helper, direct or through other helpers, and by every node loaded from the script. Keep no module-level state: other scripts do not see it, and the browser keeps it after disposal.
+- Keep no module-level state in helpers. Each script gets its own instance of each helper, shared by its imports and nodes, so other scripts do not see that state, and the browser keeps it after disposal.
 - `import.meta.url` in a helper is the helper's own URL.
 - Cyclic helper imports fail.
 - An asset is its `.glts` file plus the helpers and files it references. Copy them together.
@@ -198,9 +198,8 @@ onDispose(() => {
 
 Registering `onMatrixUpdateAt` selects native instancing. It immediately replays the current matrices and then receives every later host `setMatrixAt()`. The script still runs once. Because `instanceCount` is `1` for `loadAsync()`, the script also works as a single scene.
 
-## Frame updates and reload safety
+## Reload safety
 
-- `onFrame((delta) => ...)` runs when the host calls `update(delta)` on the loaded root.
 - A reload keeps the node's identity, host transform, and instance matrices, replaces its children, and refreshes its root properties, `defaultCamera`, and `rendering`.
 - `scene` is a live binding that follows the stable node after a reload. Reference it directly in callbacks; never store it in another variable.
 
@@ -233,7 +232,7 @@ The result is a `GLTSScene` (a `THREE.Scene`) with:
 | Member | Meaning |
 | --- | --- |
 | `url` | Resolved source URL. |
-| `update(delta)` | Runs frame callbacks of this and nested GLTS scenes; `delta` must be finite and non-negative. |
+| `update(delta)` | Runs frame callbacks of this and nested GLTS scenes. |
 | `reload()` | Re-executes the latest source in place. |
 | `dispose()` | Runs disposal callbacks and disposes nested GLTS scenes. |
 | `defaultCamera` | The asset's recommended camera, or `undefined`. |
@@ -339,9 +338,8 @@ Needs `vite` 6 or later and Node.js 22.17 or later. It works on the `.glts` file
 Type checking: the plugin type checks the public `.glts` files and their helpers strictly, independently of the app's `tsconfig.json`, using the app's `typescript` 5 or 6; install it as a dev dependency, or `vite build` fails.
 
 - Type errors fail `vite build`. During development they print in the terminal and hot reload continues.
-- Imports from packages that are not installed (CDN packages and `https://` imports) are untyped and cannot be used as types. Install a package to type it.
-- `import type` is never fetched, so it needs the package installed.
-- A type imported as a value is an error, since the loader would import it at runtime.
+- Only installed packages are typed: CDN packages and `https://` imports are untyped and cannot be used as types, and `import type` (never fetched) needs the package installed.
+- Importing a type as a value is an error.
 
 ## Verify
 
