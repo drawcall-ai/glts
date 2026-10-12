@@ -148,8 +148,8 @@ export class GLTSLoader extends Loader {
     if (!Number.isSafeInteger(count) || count < 1) {
       throw new RangeError("GLTS instance count must be a positive integer");
     }
-    // Instances are never the standalone asset a preview shows.
     const matrices = Array.from({ length: count }, () => new Matrix4());
+    // Instances are never the standalone asset a preview shows.
     const request = { url, matrices, isPreview: false, instances: true };
     return this.#load(request, parent, (execution) => this.#nodes.createInstances(execution, request));
   }

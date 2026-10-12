@@ -84,10 +84,6 @@ export class Effects {
   #refreshPasses(scene: GLTSScene, camera: THREE.Camera): Pass[] {
     const factories = scene.rendering.effects;
     const current = this.#effects.get(scene);
-    if (factories.length === 0) {
-      this.#release(scene);
-      return [];
-    }
     if (
       current &&
       current.camera === camera &&
@@ -99,6 +95,9 @@ export class Effects {
     }
 
     this.#release(scene);
+    if (factories.length === 0) {
+      return [];
+    }
 
     const size = this.#renderer.getDrawingBufferSize(this.#size);
     const passes: Pass[] = [];
