@@ -30,12 +30,6 @@ interface LoadRequest {
   readonly parent: Execution | undefined;
 }
 
-/** The `gltsLoader` a script sees; reload and dispose exist only to fail clearly. */
-interface ContextLoader extends GLTSScriptLoader {
-  reload(): Promise<never>;
-  dispose(): never;
-}
-
 function environmentBaseURL(): URL {
   if (typeof document !== "undefined") {
     return new URL(document.baseURI);
@@ -219,7 +213,7 @@ export class GLTSLoader extends Loader {
     }
   }
 
-  #contextLoader(owner: Execution): ContextLoader {
+  #contextLoader(owner: Execution): GLTSScriptLoader {
     const resolve = (url: GLTSURL): string => {
       const resolved = this.#resolveURL(url, "");
       owner.nested.assertCanLoad(resolved);
@@ -228,16 +222,7 @@ export class GLTSLoader extends Loader {
     return {
       loadAsync: (url) => owner.nested.own(this.#loadScene(resolve(url), false, owner)),
       loadInstancesAsync: (url, count) =>
-        owner.nested.own(this.#loadInstances(resolve(url), count, false, owner)),
-      reload: () => owner.nested.track(Promise.reject(new GLTSError(
-        "The contextual gltsLoader cannot reload the live graph",
-        { phase: "reload", url: "glts://context-loader" }
-      ))),
-      dispose: () => {
-        throw new GLTSError("The contextual gltsLoader cannot be disposed by a script", {
-          phase: "dispose", url: "glts://context-loader"
-        });
-      }
+        owner.nested.own(this.#loadInstances(resolve(url), count, false, owner))
     };
   }
 

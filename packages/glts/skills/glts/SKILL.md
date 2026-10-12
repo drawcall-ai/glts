@@ -160,7 +160,7 @@ scene.add(wheel)
 
 - Add every loaded result beneath `scene` before the script finishes; an unattached result fails the load.
 - Attached results are disposed with their parent. Do not register `child.dispose()` with `onDispose`.
-- `gltsLoader` cannot `reload()` or `dispose()`. Cyclic loads fail.
+- Cyclic loads fail.
 
 ## Instancing
 

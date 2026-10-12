@@ -41,7 +41,7 @@ export class NestedLoads {
 
   /** Tracks a nested load and owns its node; a node arriving after close is disposed. */
   own<T extends GLTSScene>(loading: Promise<T>): Promise<T> {
-    return this.track(loading.then((node) => {
+    return this.#track(loading.then((node) => {
       if (!this.#accepting) {
         cleanUpAndThrow(
           new GLTSError("Nested GLTS load completed after its parent closed", { phase: "dispose", url: node.url }),
@@ -82,7 +82,7 @@ export class NestedLoads {
     }
   }
 
-  track<T>(promise: Promise<T>): Promise<T> {
+  #track<T>(promise: Promise<T>): Promise<T> {
     this.#pending.add(promise);
     void promise.then(
       () => this.#pending.delete(promise),
