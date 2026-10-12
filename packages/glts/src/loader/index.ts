@@ -156,7 +156,7 @@ export class GLTSLoader extends Loader {
     // A nested load may pass a queued write so its parent, which holds a read, can finish.
     const lock = parent ? this.#locks.acquireReadBeforeQueuedWrite(url) : this.#locks.acquireRead(url);
     return this.#locked(lock, () => trackItem(this.manager, url, this.#lifetime.signal, async () => {
-      const script = await this.#modules.prepareScript(url);
+      const script = await this.#modules.getScript(url);
       const matrices = Array.from({ length: count }, () => new Matrix4());
       const execution = await this.#construction.construct(script, {
         ...options, matrices, parent, requestedURL: url

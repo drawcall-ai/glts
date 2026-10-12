@@ -96,7 +96,7 @@ export class Execution {
   }
 
   /** Instances scripts without onMatrixUpdateAt() automatically. */
-  prepareInstances(url: string): void {
+  autoInstance(url: string): void {
     if (this.#matrixUpdates.length > 0) return;
     if (this.#frames.length > 0) {
       throw new GLTSError(

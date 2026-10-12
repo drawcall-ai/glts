@@ -8,13 +8,13 @@ import { compileHelper, compileScript } from "./compiler.js";
 import { assertScriptImport, helperURL } from "./resolution.js";
 import type { GLTSModules } from "../types.js";
 
-export interface CompiledScript {
+export interface LinkedScript {
   readonly url: string;
   /** The module source with its imports linked; `@drawcall/glts` stays a token each execution binds. */
   readonly source: string;
 }
 
-/** The helpers of one script source being prepared. */
+/** The helpers of one script source being linked. */
 interface Linking {
   /** Helper module URLs by helper URL, so each helper has one instance per script source. */
   readonly modules: Map<string, Promise<string>>;
@@ -26,7 +26,7 @@ export class ScriptModules {
   readonly #fetch: Fetch;
   readonly #bridge: ModuleBridge;
   readonly #external: ExternalModules;
-  readonly #scriptCache = new Map<string, Promise<CompiledScript>>();
+  readonly #scriptCache = new Map<string, Promise<LinkedScript>>();
   /** Every helper URL a script has imported, by script URL. */
   readonly #scriptHelpers = new Map<string, Set<string>>();
 
@@ -36,8 +36,8 @@ export class ScriptModules {
     this.#external = new ExternalModules({ cdnURL, fetch, bridge: this.#bridge });
   }
 
-  /** The script at `requestedURL`, prepared once until invalidated. */
-  async prepareScript(requestedURL: string): Promise<CompiledScript> {
+  /** The script at `requestedURL`, linked once until invalidated. */
+  async getScript(requestedURL: string): Promise<LinkedScript> {
     const cached = this.#scriptCache.get(requestedURL);
     if (cached) return cached;
 
@@ -51,7 +51,7 @@ export class ScriptModules {
     }
   }
 
-  commitScript(requestedURL: string, script: CompiledScript): void {
+  commitScript(requestedURL: string, script: LinkedScript): void {
     // script.url may be a redirect target; cache and lock keys use the request URL.
     this.#scriptCache.set(requestedURL, Promise.resolve(script));
   }
@@ -67,7 +67,7 @@ export class ScriptModules {
       .map(([script]) => script);
   }
 
-  async evaluate(script: CompiledScript, context: ScriptContext): Promise<void> {
+  async evaluate(script: LinkedScript, context: ScriptContext): Promise<void> {
     const contextModule = this.#bridge.createContextModule(context);
     const source = script.source.replaceAll(this.#bridge.contextToken, contextModule.url);
     const moduleURL = this.#bridge.moduleURLs.create(source);
@@ -86,8 +86,8 @@ export class ScriptModules {
     }
   }
 
-  /** Fetches and prepares the script at `requestedURL` past the cache; reloads commit it once their scene changes do. */
-  async fetchScript(requestedURL: string): Promise<CompiledScript> {
+  /** Fetches and links the script at `requestedURL` past the cache; reloads commit it once their scene changes do. */
+  async fetchScript(requestedURL: string): Promise<LinkedScript> {
     const { source, url } = await fetchSource(this.#fetch, requestedURL, true, [requestedURL]);
     const compiled = compileScript(source, url);
     // Never shrinks, so fixing a helper that failed, or that an older version of the script imports, reloads the script.
@@ -97,14 +97,14 @@ export class ScriptModules {
     const importChain = [url];
     try {
       const linked = await rewriteModule({ source: compiled, url, importChain }, async (specifier) =>
-        specifier === "@drawcall/glts" ? this.#bridge.contextToken : this.#prepareImport(specifier, url, importChain, linking));
+        specifier === "@drawcall/glts" ? this.#bridge.contextToken : this.#linkImport(specifier, url, importChain, linking));
       return { url, source: linked };
     } catch (error) {
       throw toGLTSError(error, "Unable to transform GLTS script", { importChain, phase: "transform", url });
     }
   }
 
-  async #prepareImport(
+  async #linkImport(
     specifier: string,
     importerURL: string,
     importChain: readonly string[],
@@ -113,7 +113,7 @@ export class ScriptModules {
     const url = helperURL(specifier, importerURL);
     if (!url) {
       assertScriptImport(specifier, importerURL, importChain);
-      return this.#external.prepareImport(specifier, importerURL, importChain);
+      return this.#external.linkImport(specifier, importerURL, importChain);
     }
 
     const key = canonicalize(url);
@@ -127,15 +127,15 @@ export class ScriptModules {
 
     // Recorded before the fetch, so a change from here on reloads the script.
     linking.urls.add(key);
-    let prepared = linking.modules.get(key);
-    if (!prepared) {
-      prepared = this.#prepareHelper(key, [...importChain, key], linking);
-      linking.modules.set(key, prepared);
+    let linked = linking.modules.get(key);
+    if (!linked) {
+      linked = this.#linkHelper(key, [...importChain, key], linking);
+      linking.modules.set(key, linked);
     }
-    return prepared;
+    return linked;
   }
 
-  async #prepareHelper(url: string, importChain: readonly string[], linking: Linking): Promise<string> {
+  async #linkHelper(url: string, importChain: readonly string[], linking: Linking): Promise<string> {
     const fetched = await fetchSource(this.#fetch, url, true, importChain);
     let rewritten: string;
     try {
@@ -147,7 +147,7 @@ export class ScriptModules {
             { importChain, phase: "resolve", url: fetched.url },
           );
         }
-        return this.#prepareImport(specifier, fetched.url, importChain, linking);
+        return this.#linkImport(specifier, fetched.url, importChain, linking);
       });
     } catch (error) {
       throw toGLTSError(error, "Unable to transform helper", { importChain, phase: "transform", url: fetched.url });

@@ -21,7 +21,7 @@ it("rejects a cycle between sibling dependencies instead of waiting on both", as
     },
   });
   try {
-    await expect(external.prepareImport("a", "https://cdn.test/entry.glts", [])).rejects.toThrow(
+    await expect(external.linkImport("a", "https://cdn.test/entry.glts", [])).rejects.toThrow(
       "Cyclic CDN modules are not supported",
     );
   } finally {
@@ -48,7 +48,7 @@ it("stops at the first failing dependency without starting later imports", async
   });
 
   try {
-    await expect(external.prepareImport("root", "https://cdn.test/entry.glts", [])).rejects.toThrow("404");
+    await expect(external.linkImport("root", "https://cdn.test/entry.glts", [])).rejects.toThrow("404");
     expect(requests).toEqual(["root", "helper", "missing"]);
   } finally {
     bridge.dispose();
@@ -68,10 +68,10 @@ it("imports host modules by exact specifier and sends other versions to the CDN"
     },
   });
   try {
-    const host = await external.prepareImport("simplex-noise", "https://cdn.test/entry.glts", []);
+    const host = await external.linkImport("simplex-noise", "https://cdn.test/entry.glts", []);
     expect(host).toBe(bridge.getHostModuleURL("simplex-noise"));
     expect(bridge.getModuleExport("simplex-noise", "createNoise2D")).toBe(noise.createNoise2D);
-    await external.prepareImport("simplex-noise@4", "https://cdn.test/entry.glts", []);
+    await external.linkImport("simplex-noise@4", "https://cdn.test/entry.glts", []);
     expect(requests).toEqual(["/simplex-noise@4"]);
   } finally {
     bridge.dispose();
@@ -91,16 +91,16 @@ it("pins both Three addon spellings to the host's revision and transforms every 
   });
   try {
     const entry = "https://cdn.test/entry.js";
-    await external.prepareImport("three/addons/controls/OrbitControls.js", entry, []);
-    await external.prepareImport("three/examples/jsm/controls/OrbitControls.js", entry, []);
-    await external.prepareImport("https://cdn.test/library@1.2.3", entry, []);
-    expect(await external.prepareImport("data:text/javascript,", entry, [])).toBe("data:text/javascript,");
+    await external.linkImport("three/addons/controls/OrbitControls.js", entry, []);
+    await external.linkImport("three/examples/jsm/controls/OrbitControls.js", entry, []);
+    await external.linkImport("https://cdn.test/library@1.2.3", entry, []);
+    expect(await external.linkImport("data:text/javascript,", entry, [])).toBe("data:text/javascript,");
     expect(requests.map(({ pathname }) => pathname)).toEqual([
       `/three@0.${REVISION}.0/examples/jsm/controls/OrbitControls.js`,
       "/library@1.2.3",
     ]);
     expect(requests[0]?.searchParams.get("external")).toBe("simplex-noise,three");
-    await expect(external.prepareImport("#internal", entry, [])).rejects.toThrow("Unsupported CDN package import");
+    await expect(external.linkImport("#internal", entry, [])).rejects.toThrow("Unsupported CDN package import");
   } finally {
     bridge.dispose();
   }

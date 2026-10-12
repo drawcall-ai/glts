@@ -16,7 +16,7 @@ const modulesId = "\0glts:modules";
 /** Prefixes CDN URLs, so Vite serves and bundles the fetched code like any other module. */
 const cdnPrefix = "\0glts:cdn:";
 const cdnId = (url: string): string => cdnPrefix + url;
-const cdnURL = (id: string): string | undefined => id.startsWith(cdnPrefix) ? id.slice(cdnPrefix.length) : undefined;
+const cdnModuleURL = (id: string): string | undefined => id.startsWith(cdnPrefix) ? id.slice(cdnPrefix.length) : undefined;
 
 function loaderSource(cdn: string): string {
   return `
@@ -144,8 +144,8 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
       if (id === "@drawcall/glts") return importer === loaderId ? undefined : loaderId;
       if (id === "virtual:glts-modules") return modulesId;
       // Dev serves modules by id and resolves those ids again.
-      if (cdnURL(id) !== undefined) return id;
-      const importerURL = importer && cdnURL(importer);
+      if (cdnModuleURL(id) !== undefined) return id;
+      const importerURL = importer && cdnModuleURL(importer);
       if (importer !== modulesId && !importerURL) return;
       if (importerURL && !isBareSpecifier(id)) return cdnId(new URL(id, importerURL).href);
 
@@ -165,7 +165,7 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
     async load(id) {
       if (id === loaderId) return loaderSource(cdnBase.href);
       if (id === modulesId) return modulesSource((await configured().scan).specifiers);
-      const url = cdnURL(id);
+      const url = cdnModuleURL(id);
       if (url !== undefined) return fetchCode(url);
     },
     async hotUpdate({ type, file }) {

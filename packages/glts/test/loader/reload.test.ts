@@ -19,7 +19,7 @@ async function reload(nodes: ManagedNodes, record: NodeRecord, next: Execution):
     modules,
     signal: new AbortController().signal
   });
-  // Exercise reload orchestration with a prepared execution, without browser imports.
+  // Exercise reload orchestration with a constructed execution, without browser imports.
   vi.spyOn(construction, "construct").mockResolvedValue(next);
   try {
     await reloadRecords(record.url, [record], { construction, modules });
@@ -84,7 +84,7 @@ it("disposes automatic instance resources once when execution cleanup reenters t
   const geometry = new BoxGeometry();
   const material = new MeshBasicMaterial();
   previous.scene.add(new Mesh(geometry, material));
-  previous.prepareInstances(url);
+  previous.autoInstance(url);
   const node = nodes.createInstances(previous, url, false, matrices);
   const disposed = vi.fn();
   node.traverse((object) => {

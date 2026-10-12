@@ -11,7 +11,7 @@ interface ReloadContext {
 }
 
 interface Replacement {
-  readonly prepared: Execution;
+  readonly replacement: Execution;
   readonly record: NodeRecord;
 }
 
@@ -24,13 +24,13 @@ export async function reloadRecords(
   const replacements: Replacement[] = [];
   try {
     for (const record of records) {
-      const prepared = await construction.construct(script, {
+      const replacement = await construction.construct(script, {
         matrices: record.matrices,
         isPreview: record.isPreview,
         instances: record.instances,
         requestedURL: url
       });
-      replacements.push({ prepared, record });
+      replacements.push({ replacement, record });
     }
     const disposed = records.find((record) => record.disposed);
     if (disposed) {
@@ -39,26 +39,26 @@ export async function reloadRecords(
   } catch (error) {
     cleanUpAndThrow(error, url, () => runAll(
       "GLTS reload discard failed",
-      replacements.map(({ prepared }) => () => prepared.dispose())
+      replacements.map(({ replacement }) => () => replacement.dispose())
     ));
   }
 
   modules.commitScript(url, script);
   try {
-    runAll("GLTS reload commit failed", replacements.map(({ prepared, record }) => () => {
+    runAll("GLTS reload commit failed", replacements.map(({ replacement, record }) => () => {
       // An earlier replacement's cleanup may have disposed this node.
       if (record.disposed) {
-        prepared.dispose();
+        replacement.dispose();
         return;
       }
-      replaceExecution(record, prepared);
+      replaceExecution(record, replacement);
     }));
   } catch (error) {
     throw new GLTSError("Reload committed, but cleanup failed", { phase: "dispose", url }, error);
   }
 }
 
-function replaceExecution(record: NodeRecord, prepared: Execution): void {
+function replaceExecution(record: NodeRecord, replacement: Execution): void {
   runAll("GLTS execution replacement failed", [
     // The node keeps its children until the previous execution's disposal callbacks have run.
     () => record.execution.dispose(record.node),
@@ -68,16 +68,16 @@ function replaceExecution(record: NodeRecord, prepared: Execution): void {
         cleanUpAndThrow(
           new GLTSError("GLTS node was disposed during reload", { phase: "reload", url: record.url }),
           record.url,
-          () => prepared.dispose()
+          () => replacement.dispose()
         );
       }
 
-      record.execution = prepared;
-      copyRootState(record.node, prepared.scene);
-      for (const child of [...prepared.scene.children]) {
+      record.execution = replacement;
+      copyRootState(record.node, replacement.scene);
+      for (const child of [...replacement.scene.children]) {
         record.node.add(child);
       }
-      prepared.bindScene(record.node);
+      replacement.bindScene(record.node);
     }
   ]);
 }

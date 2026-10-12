@@ -32,7 +32,7 @@ export class ExternalModules {
   }
 
   /** Resolves an import to the URL of a module scripts can import. */
-  async prepareImport(specifier: string, importerURL: string, importChain: readonly string[]): Promise<string> {
+  async linkImport(specifier: string, importerURL: string, importChain: readonly string[]): Promise<string> {
     const host = this.#bridge.getHostModuleURL(specifier);
     if (host) return host;
     if (specifier.startsWith("#")) {
@@ -72,7 +72,7 @@ export class ExternalModules {
     try {
       transformed = await rewriteModule(
         { ...fetched, importChain },
-        (specifier) => this.prepareImport(specifier, fetched.url, importChain),
+        (specifier) => this.linkImport(specifier, fetched.url, importChain),
       );
     } catch (error) {
       throw toGLTSError(error, "Unable to transform CDN module", { importChain, phase: "transform", url: fetched.url });

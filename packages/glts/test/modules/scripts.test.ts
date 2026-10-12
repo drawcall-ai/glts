@@ -22,14 +22,14 @@ function serve(sources: Readonly<Record<string, string>>): { modules: ScriptModu
   return { modules, requests };
 }
 
-it("prepares a script's helpers once each and tracks the script as their dependent", async () => {
+it("links a script's helpers once each and tracks the script as their dependent", async () => {
   const { modules, requests } = serve({
     "scene.glts": `import { a } from "./a.ts"; import { b } from "./b.ts"; import { b as again } from "./b.ts"; console.log(a, b, again);`,
     "a.ts": `import { shared } from "./shared.ts"; export const a: number = shared;`,
     "b.ts": `import { shared } from "./shared.ts"; import type { GLTSPhase } from "@drawcall/glts"; export const b: number | GLTSPhase = shared;`,
     "shared.ts": `export const shared = 1;`,
   });
-  await modules.prepareScript(`${base}scene.glts`);
+  await modules.getScript(`${base}scene.glts`);
   expect(requests.sort()).toEqual(["a.ts", "b.ts", "scene.glts", "shared.ts"]);
   expect(modules.dependents(`${base}shared.ts`)).toEqual([`${base}scene.glts`]);
   expect(modules.dependents(`${base}other.ts`)).toEqual([]);
@@ -41,7 +41,7 @@ it("rejects helper cycles", async () => {
     "a.ts": `import "./b.ts";`,
     "b.ts": `import "./a.ts";`,
   });
-  await expect(modules.prepareScript(`${base}scene.glts`)).rejects.toThrow("Cyclic helper imports are not supported");
+  await expect(modules.getScript(`${base}scene.glts`)).rejects.toThrow("Cyclic helper imports are not supported");
 });
 
 it("rejects helpers importing the script context at runtime", async () => {
@@ -49,12 +49,12 @@ it("rejects helpers importing the script context at runtime", async () => {
     "scene.glts": `import "./a.ts";`,
     "a.ts": `import { scene } from "@drawcall/glts"; export const root = scene;`,
   });
-  await expect(modules.prepareScript(`${base}scene.glts`))
+  await expect(modules.getScript(`${base}scene.glts`))
     .rejects.toThrow("Helpers cannot import runtime values from @drawcall/glts");
 });
 
 it("tracks a helper that fails, so fixing it reloads the script", async () => {
   const { modules } = serve({ "scene.glts": `import "./missing.ts";` });
-  await expect(modules.prepareScript(`${base}scene.glts`)).rejects.toThrow("404");
+  await expect(modules.getScript(`${base}scene.glts`)).rejects.toThrow("404");
   expect(modules.dependents(`${base}missing.ts`)).toEqual([`${base}scene.glts`]);
 });

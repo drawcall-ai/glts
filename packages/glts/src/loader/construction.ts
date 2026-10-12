@@ -1,7 +1,7 @@
 import type * as THREE from "three";
 
 import { cleanUpAndThrow, GLTSError, toGLTSError } from "../errors.js";
-import type { CompiledScript, ScriptModules } from "../modules/scripts.js";
+import type { LinkedScript, ScriptModules } from "../modules/scripts.js";
 import { Execution, type DisposeNodes } from "../scene/execution.js";
 import type { GLTSScriptLoader } from "../types.js";
 import { LoadingScope } from "./loading.js";
@@ -56,7 +56,7 @@ export class Construction {
   }
 
   async construct(
-    script: CompiledScript,
+    script: LinkedScript,
     { matrices, isPreview, instances, parent, requestedURL }: ExecutionRequest
   ): Promise<Execution> {
     this.#signal.throwIfAborted();
@@ -74,7 +74,7 @@ export class Construction {
       execution.nested.assertAttached(execution.scene);
       await scope.waitAndClose();
       if (instances) {
-        execution.prepareInstances(script.url);
+        execution.autoInstance(script.url);
       }
       return execution;
     } catch (error) {
