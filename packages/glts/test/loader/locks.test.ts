@@ -114,3 +114,22 @@ it("keeps queued write state after an earlier nested read ends", async () => {
   expect(hostReadStarted).toBe(true);
   releaseHostRead();
 });
+
+it("holds a read requested in the same tick as a write before granting the write", async () => {
+  const locks = new URLLocks();
+  const held: string[] = [];
+  const reading = locks.acquireRead("a.glts").then((release) => {
+    held.push("read");
+    return release;
+  });
+  const writing = locks.acquireWrite("a.glts").then((release) => {
+    held.push("write");
+    return release;
+  });
+  const releaseRead = await reading;
+  await Promise.resolve();
+  expect(held).toEqual(["read"]);
+  releaseRead();
+  (await writing)();
+  expect(held).toEqual(["read", "write"]);
+});

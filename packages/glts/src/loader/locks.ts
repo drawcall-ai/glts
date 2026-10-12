@@ -32,15 +32,16 @@ export class URLLocks {
   }
 
   async #read(url: string, ready: () => boolean): Promise<Release> {
-    await this.#until(ready);
-    this.#reads.push(url);
+    // Taken in the step that finds the lock free, so a write requested meanwhile sees it.
+    await this.#until(ready, () => this.#reads.push(url));
     return this.#release(() => this.#reads.splice(this.#reads.indexOf(url), 1));
   }
 
-  async #until(ready: () => boolean): Promise<void> {
+  async #until(ready: () => boolean, take?: () => void): Promise<void> {
     while (!ready()) {
       await new Promise<void>((resolve) => this.#waiting.push(resolve));
     }
+    take?.();
   }
 
   /** Every release wakes all waiters to recheck their condition. */
