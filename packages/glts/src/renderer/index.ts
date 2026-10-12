@@ -40,7 +40,7 @@ export class GLTSRenderer {
     this.#effects = new Effects(renderer);
   }
 
-  render(scene: GLTSScene, camera: THREE.Camera, delta = 0): void {
+  render(scene: GLTSScene, camera?: THREE.Camera, delta = 0): void {
     if (this.#disposed) {
       throw new Error("GLTSRenderer has been disposed");
     }
@@ -49,6 +49,12 @@ export class GLTSRenderer {
     }
     if (!Number.isFinite(delta) || delta < 0) {
       throw new RangeError("GLTS render delta must be a non-negative finite number");
+    }
+    const selectedCamera = camera === undefined ? scene.defaultCamera : camera;
+    if (selectedCamera?.isCamera !== true) {
+      throw new TypeError(
+        "GLTSRenderer.render() requires a camera or scene.defaultCamera"
+      );
     }
     const renderer = this.#renderer;
     const rendering = scene.rendering;
@@ -63,7 +69,7 @@ export class GLTSRenderer {
     const shadowChange = shadows !== rendering.shadows;
     this.#rendering = true;
     try {
-      this.#effects.render(scene, camera, delta, () => {
+      this.#effects.render(scene, selectedCamera, delta, () => {
         renderer.localClippingEnabled = rendering.localClippingEnabled;
         renderer.shadowMap.enabled = rendering.shadows;
         renderer.toneMapping = rendering.toneMapping;

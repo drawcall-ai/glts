@@ -74,8 +74,8 @@ test("applies authored rendering without taking ownership of the host renderer o
       duplicateError = error instanceof Error ? error.message : String(error);
     }
 
-    gltsRenderer.render(scene, camera);
-    gltsRenderer.render(scene, camera);
+    gltsRenderer.render(scene);
+    gltsRenderer.render(scene);
     const context = Reflect.get(globalThis, "__effectContext");
     const afterTwoRenders = {
       camera: context.camera === camera,
@@ -95,6 +95,17 @@ test("applies authored rendering without taking ownership of the host renderer o
       disposals: Reflect.get(globalThis, "__effectDisposals"),
       renders: Reflect.get(globalThis, "__effectRenders")
     };
+    scene.defaultCamera = undefined;
+    const hierarchyCamera = new window.PerspectiveCamera();
+    scene.add(hierarchyCamera);
+    let hierarchyCameraError = "";
+    try {
+      gltsRenderer.render(scene);
+    } catch (error) {
+      hierarchyCameraError = error instanceof Error ? error.message : String(error);
+    }
+    scene.remove(hierarchyCamera);
+    scene.defaultCamera = camera;
     const rendererState = {
       clipping: renderer.localClippingEnabled,
       exposure: renderer.toneMappingExposure,
@@ -185,6 +196,7 @@ test("applies authored rendering without taking ownership of the host renderer o
       duplicateError,
       finalDisposals,
       fractionalViewportError,
+      hierarchyCameraError,
       rendererState,
       staleViewportError,
       targetError,
@@ -221,6 +233,8 @@ test("applies authored rendering without taking ownership of the host renderer o
     duplicateError: "A WebGLRenderer can have only one active GLTSRenderer",
     finalDisposals: 2,
     fractionalViewportError: "",
+    hierarchyCameraError:
+      "GLTSRenderer.render() requires a camera or scene.defaultCamera",
     rendererState: {
       clipping: false,
       exposure: 0.75,
