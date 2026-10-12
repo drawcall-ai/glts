@@ -9,6 +9,7 @@ import type {
 } from "../types.js";
 import { createScriptScene, type GLTSScriptScene } from "./state.js";
 import { NestedLoads } from "./nested.js";
+import { runAll } from "../errors.js";
 
 export interface ScriptContext {
   readonly gltsLoader: GLTSScriptLoader;
@@ -99,22 +100,10 @@ export class Execution {
     if (this.#disposed) return;
     this.#disposed = true;
     this.nested.close();
-    const errors: unknown[] = [];
-    for (const callback of [...this.#disposals].reverse()) {
-      try {
-        callback();
-      } catch (error) {
-        errors.push(error);
-      }
-    }
-
-    this.#disposals.length = 0;
+    const callbacks = this.#disposals.splice(0).reverse();
     this.#frames.length = 0;
     this.#matrixUpdates.length = 0;
-
-    if (errors.length > 0) {
-      throw new AggregateError(errors, "GLTS disposal callbacks failed");
-    }
+    runAll("GLTS disposal callbacks failed", callbacks);
   }
 
   setMatrixAt(index: number, matrix: THREE.Matrix4): void {

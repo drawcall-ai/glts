@@ -1,4 +1,5 @@
 import type * as THREE from "three";
+import { runAll } from "../errors.js";
 import type { Execution } from "./execution.js";
 import type { AutoInstances } from "./instances.js";
 
@@ -24,21 +25,11 @@ export class Revision {
       return;
     }
     this.#disposed = true;
-    const errors: unknown[] = [];
-    for (const dispose of [
+    runAll("GLTS execution disposal failed", [
       () => this.#disposeNested(root),
       () => this.automatic?.dispose(),
-      () => this.execution.dispose()
-    ]) {
-      try {
-        dispose();
-      } catch (error) {
-        errors.push(error);
-      }
-    }
-    root.clear();
-    if (errors.length > 0) {
-      throw new AggregateError(errors, "GLTS execution disposal failed");
-    }
+      () => this.execution.dispose(),
+      () => root.clear()
+    ]);
   }
 }

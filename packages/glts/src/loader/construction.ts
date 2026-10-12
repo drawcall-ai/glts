@@ -1,6 +1,6 @@
 import type * as THREE from "three";
 import { Execution } from "../scene/execution.js";
-import { GLTSError, toGLTSError } from "../errors.js";
+import { cleanUpAndThrow, GLTSError, toGLTSError } from "../errors.js";
 import { createAutoInstances, type AutoInstances } from "../scene/instances.js";
 import type { ManagedNodes } from "../scene/registry.js";
 import type { Revision } from "../scene/revision.js";
@@ -15,14 +15,6 @@ interface ExecutionRequest {
   readonly instances: boolean;
   readonly parent?: Execution | undefined;
   readonly requestedURL: string;
-}
-
-function cleanupFailure(url: string, error: unknown, cleanup: unknown): GLTSError {
-  return new GLTSError(
-    "GLTS operation and cleanup both failed",
-    { phase: "dispose", url },
-    new AggregateError([error, cleanup])
-  );
 }
 
 function nestedFailure(url: string, error: unknown, nested: unknown): GLTSError {
@@ -126,12 +118,7 @@ export class Construction {
           failure = nestedFailure(script.url, failure, nested);
         }
       }
-      try {
-        this.#nodes.createRevision(execution, automatic).dispose();
-      } catch (cleanup) {
-        throw cleanupFailure(script.url, failure, cleanup);
-      }
-      throw failure;
+      cleanUpAndThrow(failure, script.url, () => this.#nodes.createRevision(execution, automatic).dispose());
     } finally {
       this.#scopes.delete(scope);
     }

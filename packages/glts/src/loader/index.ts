@@ -3,7 +3,7 @@ import {
   type LoadingManager
 } from "three";
 
-import { GLTSError } from "../errors.js";
+import { GLTSError, runAll } from "../errors.js";
 import { createContextLoader } from "./context.js";
 import { LoaderRuntime } from "./runtime.js";
 import { ScriptModules } from "../modules/scripts.js";
@@ -116,24 +116,10 @@ export class GLTSLoader extends Loader {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    const errors: unknown[] = [];
     try {
-      this.#runtime.dispose();
+      runAll("Loader disposal failed", [() => this.#runtime.dispose(), () => this.#modules.dispose()]);
     } catch (error) {
-      errors.push(error);
-    }
-    try {
-      this.#modules.dispose();
-    } catch (error) {
-      errors.push(error);
-    }
-
-    if (errors.length > 0) {
-      throw new GLTSError(
-        "Loader disposal failed",
-        { phase: "dispose", url: "glts://loader" },
-        new AggregateError(errors)
-      );
+      throw new GLTSError("Loader disposal failed", { phase: "dispose", url: "glts://loader" }, error);
     }
   }
 

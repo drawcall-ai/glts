@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 import type { Execution } from "./execution.js";
-import { GLTSError } from "../errors.js";
+import { cleanUpAndThrow, GLTSError, runAll } from "../errors.js";
 import type { AutoInstances } from "./instances.js";
 import {
   attachInstanceMethods,
@@ -119,17 +119,7 @@ export class ManagedNodes {
   }
 
   #disposeRecords(records: readonly NodeRecord[]): void {
-    const errors: unknown[] = [];
-    for (const record of records) {
-      try {
-        this.#disposeRecord(record);
-      } catch (error) {
-        errors.push(error);
-      }
-    }
-    if (errors.length > 0) {
-      throw new AggregateError(errors, "GLTS node disposal failed");
-    }
+    runAll("GLTS node disposal failed", records.map((record) => () => this.#disposeRecord(record)));
   }
 
   disposeAll(): void {
@@ -172,12 +162,7 @@ export class ManagedNodes {
     try {
       node = create();
     } catch (error) {
-      try {
-        prepared.dispose();
-      } catch (cleanup) {
-        throw new AggregateError([error, cleanup], "GLTS node creation and cleanup failed");
-      }
-      throw error;
+      cleanUpAndThrow(error, url, () => prepared.dispose());
     }
 
     this.#records.set(node, {

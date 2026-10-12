@@ -1,4 +1,4 @@
-import { GLTSError } from "../errors.js";
+import { cleanUpAndThrow, GLTSError } from "../errors.js";
 import type { Execution } from "../scene/execution.js";
 import type { GLTSScene, GLTSScriptLoader, GLTSURL } from "../types.js";
 import type { LoaderRuntime } from "./runtime.js";
@@ -36,16 +36,7 @@ function trackOwnedLoad<T extends GLTSScene>(owner: Execution, promise: Promise<
     try {
       owner.nested.own(value);
     } catch (error) {
-      try {
-        value.dispose();
-      } catch (cleanup) {
-        throw new GLTSError(
-          "Nested GLTS ownership and cleanup both failed",
-          { phase: "dispose", url: value.url },
-          new AggregateError([error, cleanup])
-        );
-      }
-      throw error;
+      cleanUpAndThrow(error, value.url, () => value.dispose());
     }
     return value;
   });

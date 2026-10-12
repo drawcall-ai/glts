@@ -1,6 +1,6 @@
 import type * as THREE from "three";
 
-import { GLTSError, toGLTSError } from "../errors.js";
+import { cleanUpAndThrow, GLTSError, toGLTSError } from "../errors.js";
 import { URLLocks } from "./locks.js";
 
 interface ActiveOperation {
@@ -161,15 +161,8 @@ export class Operations {
       error = notificationFailure(url, notificationErrors);
     }
     if (outcome.ok) {
-      try {
-        cleanup(outcome.value);
-      } catch (cleanupError) {
-        throw new GLTSError(
-          "GLTS operation and cleanup both failed",
-          { phase: "dispose", url },
-          new AggregateError([error, cleanupError])
-        );
-      }
+      const { value } = outcome;
+      cleanUpAndThrow(error, url, () => cleanup(value));
     }
     throw error;
   }

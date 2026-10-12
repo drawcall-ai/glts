@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GLTSError } from "../errors.js";
+import { cleanUpAndThrow, GLTSError, runAll } from "../errors.js";
 import { copyRootState } from "../scene/state.js";
 import type { NodeRecord } from "../scene/registry.js";
 import type { Revision } from "../scene/revision.js";
@@ -53,31 +53,18 @@ export async function reloadRecords(
     );
   }
 
-  const disposalErrors: unknown[] = [];
-  for (const { prepared, record } of replacements) {
-    if (record.disposed) {
-      try {
-        prepared.dispose();
-      } catch (error) {
-        disposalErrors.push(error);
-      }
-      continue;
-    }
-
-    try {
-      replaceRevision(record, prepared);
-    } catch (error) {
-      disposalErrors.push(error);
-    }
-  }
   modules.commitScript(url, script);
-
-  if (disposalErrors.length > 0) {
-    throw new GLTSError(
-      "Reload committed, but cleanup failed",
-      { phase: "dispose", url },
-      new AggregateError(disposalErrors)
-    );
+  try {
+    runAll("GLTS revision replacement failed", replacements.map(({ prepared, record }) => () => {
+      // An earlier replacement's cleanup may have disposed this node.
+      if (record.disposed) {
+        prepared.dispose();
+        return;
+      }
+      replaceRevision(record, prepared);
+    }));
+  } catch (error) {
+    throw new GLTSError("Reload committed, but cleanup failed", { phase: "dispose", url }, error);
   }
 }
 
@@ -86,20 +73,10 @@ function discardRevisionsAndRethrow(
   replacements: readonly Replacement[],
   error: unknown
 ): never {
-  const cleanupErrors: unknown[] = [];
-  for (const { prepared } of replacements) {
-    try {
-      prepared.dispose();
-    } catch (cleanup) {
-      cleanupErrors.push(cleanup);
-    }
-  }
-
-  if (cleanupErrors.length > 0) {
-    throw new GLTSError("GLTS operation and cleanup both failed",
-      { phase: "dispose", url }, new AggregateError([error, ...cleanupErrors]));
-  }
-  throw error;
+  cleanUpAndThrow(error, url, () => runAll(
+    "GLTS revision disposal failed",
+    replacements.map(({ prepared }) => () => prepared.dispose())
+  ));
 }
 
 function replaceRevision(record: NodeRecord, prepared: Revision): void {

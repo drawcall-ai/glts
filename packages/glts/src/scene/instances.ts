@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { GLTSError } from "../errors.js";
+import { GLTSError, runAll } from "../errors.js";
 
 export interface AutoInstances {
   dispose(): void;
@@ -130,17 +130,7 @@ export function createAutoInstances(
     dispose: () => {
       if (disposed) return;
       disposed = true;
-      const errors: unknown[] = [];
-      for (const { target } of targets) {
-        try {
-          target.dispose();
-        } catch (error) {
-          errors.push(error);
-        }
-      }
-      if (errors.length > 0) {
-        throw new AggregateError(errors, "Automatic instance disposal failed");
-      }
+      runAll("Automatic instance disposal failed", targets.map(({ target }) => () => target.dispose()));
     },
     setMatrixAt
   };
