@@ -28,7 +28,6 @@ interface GLTSSceneMethods {
   clone(recursive?: boolean): THREE.Scene;
   copy(source: THREE.Scene, recursive?: boolean): this;
   dispose(): void;
-  reload(): Promise<void>;
   remove(...objects: THREE.Object3D[]): this;
   removeFromParent(): this;
   rotateOnAxis(axis: THREE.Vector3, angle: number): this;

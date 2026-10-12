@@ -266,7 +266,7 @@ test("reloads native scene presentation into the stable root", async ({ page }) 
     const scene = await loader.loadAsync("/assets/presentation.glts");
     const stable = scene;
     scene.position.x = 7;
-    await scene.reload();
+    await loader.reload("/assets/presentation.glts");
     const result = {
       background: scene.background && "getHexString" in scene.background
         ? scene.background.getHexString()
@@ -352,7 +352,7 @@ test("rebuilds effects after reload, recovers after a pass throws, and frees the
       firstError = error instanceof Error ? error.message : String(error);
     }
     gltsRenderer.render(scene, camera, 0.1);
-    await scene.reload();
+    await loader.reload("/assets/stable-effect.glts");
     gltsRenderer.render(scene, camera, 0.1);
 
     const snapshot = {

@@ -38,7 +38,7 @@ function errorCauses(error: unknown): unknown[] {
 it.each(["node", "registry"])("cleans a replacement when old cleanup disposes its %s", async (target) => {
   const url = "https://example.test/scene.glts";
   const matrices = [new Matrix4()];
-  const nodes = new ManagedNodes(async () => {});
+  const nodes = new ManagedNodes();
   const previous = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
   const next = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
   const node = nodes.createScene(previous, url, false, matrices);
@@ -79,7 +79,7 @@ it.each(["node", "registry"])("cleans a replacement when old cleanup disposes it
 it("disposes automatic instance resources once when execution cleanup reenters the node", async () => {
   const url = "https://example.test/instances.glts";
   const matrices = [new Matrix4()];
-  const nodes = new ManagedNodes(async () => {});
+  const nodes = new ManagedNodes();
   const previous = new Execution(matrices, [url], (root, owned) => nodes.disposeNested(root, owned));
   const geometry = new BoxGeometry();
   const material = new MeshBasicMaterial();

@@ -29,7 +29,7 @@ test("disposes a replacement when its node is disposed during reload", async ({ 
     Reflect.set(globalThis, "__reloadRaceLoader", loader);
     Reflect.set(globalThis, "__reloadRaceNode", node);
     Reflect.set(globalThis, "__reloadRaceResult", "pending");
-    void node.reload().then(
+    void loader.reload("/assets/reload-race.glts").then(
       () => { Reflect.set(globalThis, "__reloadRaceResult", "resolved"); },
       (error: unknown) => {
         Reflect.set(
@@ -62,7 +62,7 @@ test("disposes a replacement when its node is disposed during reload", async ({ 
   expect(result.result).toContain("disposed during reload");
 });
 
-test("serializes node and loader reloads for the same URL", async ({ page }) => {
+test("serializes reloads of the same URL", async ({ page }) => {
   const resourceRequested = deferred();
   const releaseResource = deferred();
   let requests = 0;
@@ -95,20 +95,20 @@ test("serializes node and loader reloads for the same URL", async ({ page }) => 
     const node = await loader.loadAsync("/assets/serialized.glts");
     Reflect.set(globalThis, "__serializedLoader", loader);
     Reflect.set(globalThis, "__serializedNode", node);
-    Reflect.set(globalThis, "__nodeReload", "pending");
-    void node.reload().then(
-      () => { Reflect.set(globalThis, "__nodeReload", "resolved"); },
-      () => { Reflect.set(globalThis, "__nodeReload", "rejected"); }
+    Reflect.set(globalThis, "__firstReload", "pending");
+    void loader.reload("/assets/serialized.glts").then(
+      () => { Reflect.set(globalThis, "__firstReload", "resolved"); },
+      () => { Reflect.set(globalThis, "__firstReload", "rejected"); }
     );
   });
 
   await resourceRequested.promise;
   await page.evaluate(() => {
     const loader = Reflect.get(globalThis, "__serializedLoader");
-    Reflect.set(globalThis, "__loaderReload", "pending");
+    Reflect.set(globalThis, "__secondReload", "pending");
     void loader.reload("/assets/serialized.glts").then(
-      () => { Reflect.set(globalThis, "__loaderReload", "resolved"); },
-      () => { Reflect.set(globalThis, "__loaderReload", "rejected"); }
+      () => { Reflect.set(globalThis, "__secondReload", "resolved"); },
+      () => { Reflect.set(globalThis, "__secondReload", "rejected"); }
     );
   });
   await page.waitForTimeout(50);
@@ -116,9 +116,9 @@ test("serializes node and loader reloads for the same URL", async ({ page }) => 
 
   releaseResource.resolve();
   await expect.poll(() => page.evaluate(() => ({
-    loader: Reflect.get(globalThis, "__loaderReload"),
-    node: Reflect.get(globalThis, "__nodeReload")
-  }))).toEqual({ loader: "resolved", node: "resolved" });
+    first: Reflect.get(globalThis, "__firstReload"),
+    second: Reflect.get(globalThis, "__secondReload")
+  }))).toEqual({ first: "resolved", second: "resolved" });
 
   const name = await page.evaluate(() => {
     const node = Reflect.get(globalThis, "__serializedNode");
@@ -152,7 +152,7 @@ test("notifies LoadingManager completion after a reload commits", async ({ page 
     manager.onLoad = () => {
       nameAtCompletion = node.name;
     };
-    await node.reload();
+    await loader.reload("/assets/manager-order.glts");
     const name = node.name;
     node.dispose();
     loader.dispose();
@@ -188,7 +188,7 @@ test("does not replace a same-source node disposed by an earlier commit", async 
 
     let nestedDisposed = false;
     try {
-      await nested.reload();
+      nested.update(0);
     } catch {
       nestedDisposed = true;
     }

@@ -6,7 +6,6 @@ import type { GLTSScriptScene } from "./root.js";
 
 export interface SceneMethods {
   readonly dispose: () => void;
-  readonly reload: () => Promise<void>;
   readonly update: (delta: number) => void;
 }
 
@@ -23,7 +22,6 @@ function defineSceneMethods(
 ): void {
   Object.defineProperties(scene, {
     dispose: { value: methods.dispose },
-    reload: { value: methods.reload },
     update: { value: methods.update },
     url: { value: url }
   });
@@ -36,7 +34,6 @@ function isManagedScene(value: unknown): value is GLTSScene {
     "rendering" in value &&
     typeof Reflect.get(value, "url") === "string" &&
     typeof Reflect.get(value, "dispose") === "function" &&
-    typeof Reflect.get(value, "reload") === "function" &&
     typeof Reflect.get(value, "update") === "function"
   );
 }

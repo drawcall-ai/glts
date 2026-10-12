@@ -33,11 +33,6 @@ export function onNodeDispose(node: THREE.Object3D, listener: () => void): () =>
 export class ManagedNodes {
   /** Undisposed nodes only. */
   readonly #records = new Map<THREE.Object3D, NodeRecord>();
-  readonly #reload: (record: NodeRecord) => Promise<void>;
-
-  constructor(reload: (record: NodeRecord) => Promise<void>) {
-    this.#reload = reload;
-  }
 
   createScene(
     execution: Execution,
@@ -47,7 +42,6 @@ export class ManagedNodes {
   ): GLTSScene {
     const node = attachSceneMethods(execution.scene, url, {
       dispose: () => this.dispose(node),
-      reload: () => this.#reload(this.getRecord(node)),
       update: (delta) => this.update(node, delta)
     });
     this.#records.set(node, { disposed: false, instances: false, isPreview, matrices, node, execution, url });
@@ -64,7 +58,6 @@ export class ManagedNodes {
       count: matrices.length,
       dispose: () => this.dispose(node),
       ...createInstanceMatrixMethods(() => this.getRecord(node)),
-      reload: () => this.#reload(this.getRecord(node)),
       update: (delta) => this.update(node, delta)
     });
     this.#records.set(node, { disposed: false, instances: true, isPreview, matrices, node, execution, url });

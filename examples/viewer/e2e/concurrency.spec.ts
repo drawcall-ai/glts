@@ -101,13 +101,12 @@ test("keeps a host load behind a cross-URL queued reload", async ({ page }) => {
     Reflect.set(globalThis, "__queuedLoader", loader);
     Reflect.set(globalThis, "__queuedTarget", target);
     Reflect.set(globalThis, "__reloadBlocker", blocker);
-    Reflect.set(globalThis, "__blockingReload", blocker.reload());
+    Reflect.set(globalThis, "__blockingReload", loader.reload("/assets/reload-blocker.glts"));
   });
   await blockerRequested.promise;
   await page.evaluate(() => {
     const loader = Reflect.get(globalThis, "__queuedLoader");
-    const target = Reflect.get(globalThis, "__queuedTarget");
-    Reflect.set(globalThis, "__queuedReload", target.reload());
+    Reflect.set(globalThis, "__queuedReload", loader.reload("/assets/queued-target.glts"));
     Reflect.set(globalThis, "__queuedLoad", loader.loadAsync("/assets/queued-target.glts"));
   });
   releaseBlocker.resolve();
@@ -187,7 +186,10 @@ test("serializes mutually recursive reloads without deadlocking", async ({ page 
       loader.loadAsync("/assets/reload-cycle-a.glts"),
       loader.loadAsync("/assets/reload-cycle-b.glts")
     ]);
-    const reloads = Promise.allSettled([a.reload(), b.reload()]);
+    const reloads = Promise.allSettled([
+      loader.reload("/assets/reload-cycle-a.glts"),
+      loader.reload("/assets/reload-cycle-b.glts")
+    ]);
     const result = await Promise.race([
       reloads.then((outcomes) => outcomes.map(({ status }) => status)),
       new Promise<string[]>((resolve) => {
@@ -212,7 +214,9 @@ test("does not deadlock a mutually recursive load and reload", async ({ page }) 
       scene.add(await gltsLoader.loadAsync(
         new URL("./mixed-cycle-b.glts", import.meta.url),
       ))
-    `
+    `,
+    // The failed reload invalidated a's source, so b's nested load fetches it again.
+    'import { scene } from "@drawcall/glts"; scene.name = "a3"'
   ]);
   await routeGLTS(page, "**/assets/mixed-cycle-b.glts", `
     import { gltsLoader, scene } from "@drawcall/glts"
@@ -226,7 +230,7 @@ test("does not deadlock a mutually recursive load and reload", async ({ page }) 
     const loader = new window.GLTSLoader(new window.LoadingManager());
     const a = await loader.loadAsync("/assets/mixed-cycle-a.glts");
     const operations = Promise.allSettled([
-      a.reload(),
+      loader.reload("/assets/mixed-cycle-a.glts"),
       loader.loadAsync("/assets/mixed-cycle-b.glts")
     ]);
     const result = await Promise.race([

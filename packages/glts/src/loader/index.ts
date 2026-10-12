@@ -5,7 +5,7 @@ import { canonicalize } from "../modules/fetch.js";
 import { defaultCDNURL } from "../modules/resolution.js";
 import { ScriptModules } from "../modules/scripts.js";
 import type { Execution } from "../scene/execution.js";
-import { ManagedNodes, type NodeRecord } from "../scene/nodes.js";
+import { ManagedNodes } from "../scene/nodes.js";
 import type {
   GLTSErrorCallback,
   GLTSFetch,
@@ -50,9 +50,7 @@ export class GLTSLoader extends Loader {
   readonly #construction: Construction;
   readonly #lifetime = new AbortController();
   readonly #locks = new URLLocks();
-  readonly #nodes = new ManagedNodes((record) =>
-    this.#locked(this.#locks.acquireWrite(record.url), () => this.#reloadRecords(record.url, [record]))
-  );
+  readonly #nodes = new ManagedNodes();
 
   constructor(
     manager: LoadingManager,
@@ -188,15 +186,10 @@ export class GLTSLoader extends Loader {
       // The write lock lets pending loads finish before their source is invalidated.
       this.#modules.invalidateScript(url);
       const records = this.#nodes.recordsForURL(url);
-      if (records.length > 0) {
-        await this.#reloadRecords(url, records);
-      }
+      if (records.length === 0) return;
+      await trackItem(this.manager, url, this.#lifetime.signal, () =>
+        reloadRecords(url, records, { construction: this.#construction, modules: this.#modules }));
     });
-  }
-
-  #reloadRecords(url: string, records: readonly NodeRecord[]): Promise<void> {
-    return trackItem(this.manager, url, this.#lifetime.signal, () =>
-      reloadRecords(url, records, { construction: this.#construction, modules: this.#modules }));
   }
 
   async #locked<T>(lock: Promise<() => void>, operation: () => Promise<T>): Promise<T> {
