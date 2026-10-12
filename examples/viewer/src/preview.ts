@@ -37,7 +37,6 @@ export function createPreview(
   timer.connect(document);
   let current: GLTSScene | undefined;
   let renderFailure: GLTSScene | undefined;
-  let disposed = false;
 
   function setCamera(
     scene?: GLTSScene,
@@ -109,26 +108,6 @@ export function createPreview(
     },
     release(scene: GLTSScene): void {
       gltsRenderer.release(scene);
-    },
-    dispose(): void {
-      if (disposed) return;
-      disposed = true;
-      renderer.setAnimationLoop(null);
-      window.removeEventListener("resize", resize);
-      const errors: unknown[] = [];
-      for (const dispose of [
-        () => controls.dispose(),
-        () => timer.dispose(),
-        () => gltsRenderer.dispose(),
-        () => renderer.dispose()
-      ]) {
-        try {
-          dispose();
-        } catch (error) {
-          errors.push(error);
-        }
-      }
-      if (errors.length > 0) throw new AggregateError(errors, "Preview disposal failed");
     }
   };
 }

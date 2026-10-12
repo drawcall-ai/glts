@@ -2,7 +2,7 @@ export function bindFileDrop(
   viewer: HTMLElement,
   onFile: (file: File) => void,
   onError: (message: string) => void
-): () => void {
+): void {
   let dragDepth = 0;
 
   function draggedFiles(event: DragEvent): FileList | undefined {
@@ -51,11 +51,4 @@ export function bindFileDrop(
   window.addEventListener("dragover", keepDropTarget);
   window.addEventListener("dragleave", hideDropTarget);
   window.addEventListener("drop", dropFile);
-
-  return () => {
-    window.removeEventListener("dragenter", showDropTarget);
-    window.removeEventListener("dragover", keepDropTarget);
-    window.removeEventListener("dragleave", hideDropTarget);
-    window.removeEventListener("drop", dropFile);
-  };
 }
