@@ -242,6 +242,7 @@ Options, `new GLTSLoader(manager, options)`:
 | `isPreview` | `false` | Value of `isPreview` for scripts this loader's `loadAsync()` loads directly. |
 | `modules` | `{}` | Host packages scripts import instead of the CDN (see Packages). |
 | `cdnURL` | `https://esm.sh/` | Where scripts' other packages come from. |
+| `resolve` | none | Resolves bare imports to URLs the app imports natively, such as `import.meta.resolve` (see Packages). |
 
 ## Instances
 
@@ -307,6 +308,12 @@ const loader = new GLTSLoader(manager, { modules: { "simplex-noise": simplexNois
 ```
 
 Share every package whose objects the app must recognize (`instanceof` checks, registries, singletons); a CDN copy is a different instance whose objects the app won't recognize.
+
+In Node.js, pass the app's `import.meta.resolve` as `resolve` to load every bare import from the app's `node_modules`, sharing the app's instances like the Vite plugin does. Imports with a version, such as `simplex-noise@4`, still come from the CDN, and a package the app cannot resolve fails the load:
+
+```ts
+const loader = new GLTSLoader(manager, { resolve: import.meta.resolve })
+```
 
 ## Vite plugin
 

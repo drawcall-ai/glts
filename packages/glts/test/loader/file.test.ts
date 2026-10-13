@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import MagicString from "magic-string";
 import { LoadingManager, Mesh } from "three";
 import { expect, it } from "vitest";
 
@@ -44,5 +45,24 @@ it("reports a missing file as a fetch failure", async () => {
     await expect(loader.loadAsync(url)).rejects.toMatchObject({ phase: "fetch", url: url.href });
   } finally {
     loader.dispose();
+  }
+});
+
+it("imports bare specifiers through the host's resolve, sharing its instances, and reports missing ones", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "glts-"));
+  const url = (name: string): URL => pathToFileURL(join(directory, name));
+  await writeFile(url("scene.glts"), `
+    import MagicString from "magic-string";
+    import { scene } from "@drawcall/glts";
+    scene.userData.MagicString = MagicString;
+  `);
+  await writeFile(url("missing.glts"), 'import "glts-missing-package";');
+  const loader = new GLTSLoader(new LoadingManager(), { resolve: import.meta.resolve });
+  try {
+    expect((await loader.loadAsync(url("scene.glts"))).userData.MagicString).toBe(MagicString);
+    await expect(loader.loadAsync(url("missing.glts"))).rejects.toMatchObject({ phase: "resolve" });
+  } finally {
+    loader.dispose();
+    await rm(directory, { recursive: true });
   }
 });

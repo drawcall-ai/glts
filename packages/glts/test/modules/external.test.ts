@@ -4,7 +4,7 @@ import { afterEach, expect, it } from "vitest";
 import { ExternalModules } from "../../src/modules/external.js";
 import { ModuleBridge } from "../../src/modules/bridge.js";
 import type { Fetch } from "../../src/modules/fetch.js";
-import type { GLTSModules } from "../../src/types.js";
+import type { GLTSModules, GLTSResolve } from "../../src/types.js";
 
 let disposals: (() => void)[] = [];
 
@@ -14,10 +14,14 @@ afterEach(() => {
 });
 
 /** External modules fetching with `fetch` and sharing the host `modules`. */
-function externalModules(fetch: Fetch, modules: GLTSModules = {}): { bridge: ModuleBridge; external: ExternalModules } {
+function externalModules(
+  fetch: Fetch,
+  modules: GLTSModules = {},
+  resolve?: GLTSResolve,
+): { bridge: ModuleBridge; external: ExternalModules } {
   const bridge = new ModuleBridge(modules);
   disposals.push(() => bridge.dispose());
-  return { bridge, external: new ExternalModules({ bridge, cdnURL: new URL("https://cdn.test/"), fetch }) };
+  return { bridge, external: new ExternalModules({ bridge, cdnURL: new URL("https://cdn.test/"), fetch, resolve }) };
 }
 
 it("rejects a cycle between sibling dependencies instead of waiting on both", async () => {
@@ -53,13 +57,15 @@ it("stops at the first failing dependency without starting later imports", async
   expect(requests).toEqual(["root", "helper", "missing"]);
 });
 
-it("imports host modules by exact specifier and sends other versions to the CDN", async () => {
+it("imports host modules by exact specifier and sends other versions to the CDN, even with a resolve", async () => {
   const noise = { createNoise2D: () => 0 };
   const requests: string[] = [];
   const { bridge, external } = externalModules(async (input) => {
     requests.push(new URL(String(input)).pathname);
     return new Response("export {};");
-  }, { "simplex-noise": noise });
+  }, { "simplex-noise": noise }, () => {
+    throw new Error("Pinned versions never resolve through the host");
+  });
   const host = await external.linkImport("simplex-noise", "https://cdn.test/entry.glts", []);
   expect(host).toBe(bridge.getHostModuleURL("simplex-noise"));
   expect(bridge.namespaces["simplex-noise"]).toBe(noise);
