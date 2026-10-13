@@ -94,7 +94,7 @@ it("links only peers under the CDN's path, leaving other root paths of its origi
     fetch: async (input) => {
       const url = new URL(String(input));
       requests.push(url.pathname + url.search);
-      if (url.pathname === "/esm/robotics") return new Response('import "/esm/physics@^1.0.0"; import "/other@^1.0.0";');
+      if (url.pathname === "/esm/robotics") return new Response('import "/esm/physics@^1.0.0"; import "/other@1.0.0";');
       return new Response("export {};");
     },
   });
@@ -102,7 +102,7 @@ it("links only peers under the CDN's path, leaving other root paths of its origi
   expect(requests).toEqual([
     "/esm/robotics?bundle=&external=three&target=es2022",
     "/esm/physics?bundle=&external=three&target=es2022",
-    "/other@^1.0.0",
+    "/other@1.0.0",
   ]);
 });
 
