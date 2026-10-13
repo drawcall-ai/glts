@@ -1,36 +1,12 @@
-export class ModuleURLStore {
-  readonly #urls = new Set<string>();
-  #disposed = false;
+/** Tells this copy of GLTS apart from others in the realm, which share one module map. */
+const copy = Math.random().toString(36).slice(2);
+let sequence = 0;
 
-  create(source: string): string {
-    if (this.#disposed) {
-      throw new Error("Module URL store has been disposed");
-    }
-
-    const blob = new Blob([source], { type: "text/javascript" });
-    const url = URL.createObjectURL(blob);
-    this.#urls.add(url);
-    return url;
-  }
-
-  release(url: string): void {
-    if (!this.#urls.delete(url)) {
-      return;
-    }
-
-    URL.revokeObjectURL(url);
-  }
-
-  dispose(): void {
-    if (this.#disposed) {
-      return;
-    }
-
-    this.#disposed = true;
-    for (const url of this.#urls) {
-      URL.revokeObjectURL(url);
-    }
-
-    this.#urls.clear();
-  }
+/**
+ * A `data:` URL that evaluates `source` as a module; unlike `blob:` URLs, browsers and Node.js both import it.
+ * The fragment keeps every URL distinct, as engines evaluate one module per URL, and leaves the source untouched.
+ */
+export function moduleURL(source: string): string {
+  sequence += 1;
+  return `data:text/javascript,${encodeURIComponent(source)}#${copy}-${sequence}`;
 }

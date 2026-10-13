@@ -218,9 +218,10 @@ loader.dispose() // also disposes every scene it loaded
 ```
 
 - `load()` (Three.js callback style), `loadAsync()`, `loadInstancesAsync()`, and `reload()` take a string or `URL`. Strings resolve against `loader.path` and then the page's `document.baseURI`; the manager's URL modifier applies. Without a page, pass absolute URLs.
+- In Node.js 22.3 or later, load scripts from disk with `file:` URLs, such as `pathToFileURL("scene.glts")`; their helpers and nested scripts are read from disk too, and `reload()` re-reads them.
 - Per-load progress callbacks are rejected. Track progress with `manager.onProgress`; nested scripts and their resources report through the same manager.
 - `setRequestHeader()` and `setWithCredentials()` apply to script and package requests.
-- Serve cross-origin scripts and packages with CORS, and allow `blob:` ES modules in the page's CSP.
+- Serve cross-origin scripts and packages with CORS, and allow `data:` ES modules in the page's CSP.
 
 The result is a `GLTSScene` (a `THREE.Scene`) with:
 
