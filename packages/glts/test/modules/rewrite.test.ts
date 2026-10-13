@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { GLTSError } from "../../src/errors.js";
-import { rewriteModule } from "../../src/modules/rewrite.js";
+import { importSpecifiers, rewriteModule } from "../../src/modules/rewrite.js";
 
 describe("rewriteModule", () => {
   it("rewrites static specifiers and initializes import.meta.url", async () => {
@@ -15,7 +15,7 @@ describe("rewriteModule", () => {
       `,
       url: sourceURL,
       importChain: [sourceURL]
-    }, async (specifier) => `blob:${specifier}`);
+    }, async (specifier) => `blob:${specifier}`, () => "load");
 
     expect(transformed).toContain('from "blob:three"');
     expect(transformed).toContain('from "blob:./branch.glts"');
@@ -24,16 +24,50 @@ describe("rewriteModule", () => {
     expect(transformed).toContain(`//# sourceURL=${sourceURL}`);
   });
 
-  it("rejects dynamic imports with source context", async () => {
+  it("replaces the keyword of literal and computed dynamic imports, resolving nothing up front", async () => {
     const sourceURL = "https://example.test/assets/tree.glts";
-    const operation = rewriteModule({
-      source: 'const child = await import("./branch.glts")',
+    const resolved: string[] = [];
+    const transformed = await rewriteModule({
+      source: 'import "three"; const a = () => import("rclnodejs"); const b = (name) => import (name);',
       url: sourceURL,
       importChain: [sourceURL]
-    }, async (specifier) => specifier);
+    }, async (specifier) => { resolved.push(specifier); return specifier; }, () => "load");
+
+    expect(resolved).toEqual(["three"]);
+    expect(transformed.startsWith("const __glts_import = load;\n")).toBe(true);
+    expect(transformed).toContain('const a = () => __glts_import("rclnodejs");');
+    expect(transformed).toContain("const b = (name) => __glts_import (name);");
+  });
+
+  it("keeps a dynamic import its own statement in code without semicolons", async () => {
+    const transformed = await rewriteModule({
+      source: 'export const f = 1\nimport("x").catch(() => {})',
+      url: "https://example.test/asi.js",
+      importChain: []
+    }, async (specifier) => specifier, () => "() => Promise.resolve()");
+    const module: unknown = await import(`data:text/javascript,${encodeURIComponent(transformed)}`);
+    expect(module).toMatchObject({ f: 1 });
+  });
+
+  it("rejects dynamic imports with import attributes", async () => {
+    const operation = rewriteModule({
+      source: 'const data = import("./data.json", { with: { type: "json" } });',
+      url: "https://example.test/data.js",
+      importChain: []
+    }, async (specifier) => specifier, () => "load");
+    await expect(operation).rejects.toThrow("Import attributes are not supported (1:14)");
+  });
+
+  it("rejects source-phase imports with source context", async () => {
+    const sourceURL = "https://example.test/assets/tree.glts";
+    const operation = rewriteModule({
+      source: 'const child = await import.source("./branch.wasm")',
+      url: sourceURL,
+      importChain: [sourceURL]
+    }, async (specifier) => specifier, () => "load");
 
     await expect(operation).rejects.toBeInstanceOf(GLTSError);
-    await expect(operation).rejects.toThrow("Dynamic and source-phase imports are not supported");
+    await expect(operation).rejects.toThrow("Source- and defer-phase imports are not supported (1:21)");
   });
 });
 
@@ -56,7 +90,7 @@ it("preserves native import.meta identity, property syntax and mutations", async
     source,
     url: sourceURL,
     importChain: [sourceURL]
-  }, async (specifier) => specifier);
+  }, async (specifier) => specifier, () => "load");
   const module: unknown = await import(`data:text/javascript,${encodeURIComponent(transformed)}`);
   expect(module).toMatchObject({
     initial: Array(4).fill(sourceURL),
@@ -73,7 +107,7 @@ it.each(["\n", "\r", "\r\n", "\u2028", "\u2029"])("keeps a hashbang first with l
     source: `#!/usr/bin/env node${separator}export const url = import.meta.url;`,
     url: sourceURL,
     importChain: [sourceURL]
-  }, async (specifier) => specifier);
+  }, async (specifier) => specifier, () => "load");
   expect(transformed.startsWith(`#!/usr/bin/env node${separator}import.meta.url = `)).toBe(true);
   const module: unknown = await import(`data:text/javascript,${encodeURIComponent(transformed)}`);
   expect(module).toMatchObject({ url: sourceURL });
@@ -85,6 +119,11 @@ it("leaves code without import.meta intact and removes sourceURL line separators
     source,
     url: "https://example.test/\n\r\u2028\u2029plain.js",
     importChain: []
-  }, async (specifier) => specifier);
+  }, async (specifier) => specifier, () => "load");
   expect(transformed).toBe(`${source}\n//# sourceURL=https://example.test/plain.js\n`);
+});
+
+it("lists static and literal dynamic specifiers, but not computed ones", () => {
+  const source = 'import "three"; import("pkg"); import(`${"computed"}`); import("a" + "b");';
+  expect(importSpecifiers({ source, url: "https://example.test/a.glts", importChain: [] })).toEqual(["three", "pkg"]);
 });

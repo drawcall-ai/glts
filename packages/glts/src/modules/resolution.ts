@@ -45,7 +45,7 @@ export function assertScriptImport(specifier: string, importerURL: string, impor
   if (isBareSpecifier(specifier)) return;
 
   if (new URL(specifier, importerURL).pathname.endsWith(".glts")) {
-    throw new GLTSError(`Static GLTS imports are not supported: ${specifier}; use gltsLoader.loadAsync()`, context);
+    throw new GLTSError(`GLTS files cannot be imported: ${specifier}; use gltsLoader.loadAsync()`, context);
   }
   if (/^https?:/i.test(specifier)) return;
   throw new GLTSError(

@@ -66,3 +66,43 @@ it("imports bare specifiers through the host's resolve, sharing its instances, a
     await rm(directory, { recursive: true });
   }
 });
+
+it("resolves dynamic imports when they run, like static ones, and tracks the helpers they load", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "glts-"));
+  const url = (name: string): URL => pathToFileURL(join(directory, name));
+  await writeFile(url("name.ts"), 'export const name = "first";');
+  await writeFile(url("parent.ts"), 'export { load } from "./child.ts";');
+  await writeFile(url("child.ts"), 'export const load = () => import("./parent.ts");');
+  await writeFile(url("scene.glts"), `
+    import { scene } from "@drawcall/glts";
+    import * as parent from "./parent.ts";
+    scene.userData.parent = (await parent.load()) === parent;
+    const missing = () => import("glts-missing-package");
+    scene.name = (await import("./name.ts")).name;
+    scene.userData.MagicString = (await import("magic-" + "string")).default;
+    scene.userData.context = await import("@drawcall/glts").then(() => "", (error) => error.cause.message);
+    scene.userData.load = () => import("./name.ts");
+    scene.userData.missing = await import("./missing.ts").then(() => "", (error) => error.message);
+  `);
+  const loader = new GLTSLoader(new LoadingManager(), { resolve: import.meta.resolve });
+  try {
+    const scene = await loader.loadAsync(url("scene.glts"));
+    expect(scene.name).toBe("first");
+    expect(scene.userData.parent).toBe(true);
+    expect(scene.userData.missing).toContain(`[GLTS:resolve] Unable to import ./missing.ts\nURL: ${url("scene.glts").href}`);
+    expect(scene.userData.MagicString).toBe(MagicString);
+    expect(scene.userData.context).toContain("Dynamic imports cannot bind @drawcall/glts");
+
+    await writeFile(url("name.ts"), 'export const name = "second";');
+    await loader.reload(url("name.ts"));
+    expect(scene.name).toBe("second");
+
+    const load: unknown = scene.userData.load;
+    if (typeof load !== "function") throw new Error("The script did not store its loader");
+    loader.dispose();
+    await expect(load()).rejects.toThrow("The GLTS loader of this module has been disposed");
+  } finally {
+    loader.dispose();
+    await rm(directory, { recursive: true });
+  }
+});

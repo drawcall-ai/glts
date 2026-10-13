@@ -23,6 +23,12 @@ interface Linking {
   readonly urls: Set<string>;
 }
 
+/**
+ * The import chain of a dynamic import: it runs once linking is done, so no module it reaches is still linking and
+ * importing one of its importers is no cycle.
+ */
+const runtimeChain: readonly string[] = [];
+
 export class ScriptModules {
   readonly #fetch: Fetch;
   readonly #bridge: ModuleBridge;
@@ -100,8 +106,21 @@ export class ScriptModules {
     const linking: Linking = { modules: new Map(), urls };
     const importChain = [url];
     try {
-      const linked = await rewriteModule({ source: compiled, url, importChain }, async (specifier) =>
-        specifier === "@drawcall/glts" ? this.#bridge.contextToken : this.#linkImport(specifier, url, importChain, linking));
+      const linked = await rewriteModule(
+        { source: compiled, url, importChain },
+        async (specifier) => specifier === "@drawcall/glts"
+          ? this.#bridge.contextToken
+          : this.#linkImport(specifier, url, importChain, linking),
+        () => this.#bridge.importFunction(url, async (specifier) => {
+          // The context exists only while the script evaluates.
+          if (specifier === "@drawcall/glts") {
+            throw new GLTSError("Dynamic imports cannot bind @drawcall/glts; import it statically", {
+              importChain, phase: "resolve", url,
+            });
+          }
+          return this.#linkImport(specifier, url, runtimeChain, linking);
+        }),
+      );
       return { url, source: linked };
     } catch (error) {
       throw toGLTSError(error, "Unable to transform GLTS script", { importChain, phase: "transform", url });
@@ -135,6 +154,8 @@ export class ScriptModules {
     if (!linked) {
       linked = this.#linkHelper(key, [...importChain, key], linking);
       linking.modules.set(key, linked);
+      // A dynamic import retries a helper that failed.
+      void linked.catch(() => linking.modules.delete(key));
     }
     return linked;
   }
@@ -144,15 +165,20 @@ export class ScriptModules {
     let rewritten: string;
     try {
       const source = compileHelper(fetched.source, fetched.url, importChain);
-      rewritten = await rewriteModule({ source, url: fetched.url, importChain }, async (specifier) => {
+      const link = (chain: readonly string[]) => async (specifier: string): Promise<string> => {
         if (specifier === "@drawcall/glts") {
           throw new GLTSError(
             "Helpers cannot import runtime values from @drawcall/glts; pass them from the script",
             { importChain, phase: "resolve", url: fetched.url },
           );
         }
-        return this.#linkImport(specifier, fetched.url, importChain, linking);
-      });
+        return this.#linkImport(specifier, fetched.url, chain, linking);
+      };
+      rewritten = await rewriteModule(
+        { source, url: fetched.url, importChain },
+        link(importChain),
+        () => this.#bridge.importFunction(fetched.url, link(runtimeChain)),
+      );
     } catch (error) {
       throw toGLTSError(error, "Unable to transform helper", { importChain, phase: "transform", url: fetched.url });
     }

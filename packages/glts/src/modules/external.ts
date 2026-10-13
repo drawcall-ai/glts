@@ -61,8 +61,22 @@ export class ExternalModules {
     const url = bare
       ? packageURL(packagePath(specifier), this.#cdnURL, this.#bridge.hostSpecifiers)
       : new URL(specifier, importerURL);
+    const peer = this.#peerName(specifier, url);
+    if (peer) return this.linkImport(peer, importerURL, importChain);
     if (url.protocol !== "http:" && url.protocol !== "https:") return url.href;
     return this.#load(canonicalize(url), importChain);
+  }
+
+  /**
+   * The package a CDN bundle imports as a peer, which the CDN writes as an unbundled root path such as
+   * `/pkg@^1.0.0?external=three`. Linked by name instead, it shares the script's or host's instance.
+   */
+  #peerName(specifier: string, url: URL): string | undefined {
+    const cdn = this.#cdnURL;
+    if (!specifier.startsWith("/") || url.origin !== cdn.origin || !url.pathname.startsWith(cdn.pathname)) return;
+    if (url.searchParams.has("bundle")) return;
+    const path = url.pathname.slice(cdn.pathname.length);
+    return /^((?:@[^/]+\/)?[^/@]+)@[^/]+$/.exec(path)?.[1];
   }
 
   async #load(requestedURL: string, importerChain: readonly string[]): Promise<string> {
@@ -89,10 +103,8 @@ export class ExternalModules {
 
     let transformed: string;
     try {
-      transformed = await rewriteModule(
-        { ...fetched, importChain },
-        (specifier) => this.linkImport(specifier, fetched.url, importChain),
-      );
+      const link = (specifier: string) => this.linkImport(specifier, fetched.url, importChain);
+      transformed = await rewriteModule({ ...fetched, importChain }, link, () => this.#bridge.importFunction(fetched.url, link));
     } catch (error) {
       throw toGLTSError(error, "Unable to transform CDN module", { importChain, phase: "transform", url: fetched.url });
     }

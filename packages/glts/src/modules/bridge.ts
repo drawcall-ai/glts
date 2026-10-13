@@ -1,5 +1,6 @@
 import * as THREE from "three";
 
+import { GLTSError } from "../errors.js";
 import type { ScriptContext } from "../scene/execution.js";
 import type { GLTSModules } from "../types.js";
 import { moduleURL } from "./urls.js";
@@ -17,6 +18,8 @@ export class ModuleBridge {
   readonly namespaces: GLTSModules;
   readonly #hostModuleURLs = new Map<string, string>();
   readonly #contexts = new Map<number, ScriptContext>();
+  /** The resolvers of generated modules' dynamic imports, by id. */
+  readonly #importers: ((specifier: string) => Promise<string>)[] = [];
   readonly #bridgeKey = nextBridgeKey();
   /** Starts every generated module; a module evaluated after disposal fails. */
   readonly #prologue = [
@@ -70,6 +73,30 @@ export class ModuleBridge {
     return [...this.#hostModuleURLs.keys()];
   }
 
+  /**
+   * The source of the function a generated module's dynamic imports call: it resolves each specifier through
+   * `resolve` when the import runs, reporting failures against `importerURL`.
+   */
+  importFunction(importerURL: string, resolve: (specifier: string) => Promise<string>): string {
+    const id = this.#importers.push(async (specifier) => {
+      try {
+        return await resolve(specifier);
+      } catch (error) {
+        throw new GLTSError(`Unable to import ${specifier}`, { phase: "resolve", url: importerURL }, error);
+      }
+    }) - 1;
+    const bridge = `globalThis[${JSON.stringify(this.#bridgeKey)}]`;
+    return `(specifier) => ${bridge} ? ${bridge}.import(${id}, specifier)` +
+      ` : Promise.reject(new Error("The GLTS loader of this module has been disposed"))`;
+  }
+
+  async import(id: number, specifier: unknown): Promise<unknown> {
+    const resolve = this.#importers[id];
+    if (!resolve) throw new Error(`GLTS dynamic import resolver is unavailable: ${id}`);
+    // Module URLs are resolved at runtime, never by a bundler.
+    return import(/* @vite-ignore */ /* webpackIgnore: true */ await resolve(String(specifier)));
+  }
+
   getHostModuleURL(specifier: string): string | undefined {
     return this.#hostModuleURLs.get(specifier);
   }
@@ -85,6 +112,7 @@ export class ModuleBridge {
   }
 
   dispose(): void {
+    this.#importers.length = 0;
     Reflect.deleteProperty(globalThis, this.#bridgeKey);
   }
 

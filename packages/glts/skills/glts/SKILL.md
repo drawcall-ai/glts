@@ -44,7 +44,8 @@ Rules:
 
 - Export no values, and from `@drawcall/glts` import only the context names above; types are fine.
 - Import `three`, `three/addons/*`, browser-compatible npm packages, full `https://` module URLs, or helpers (see Helpers).
-- Never import `.glts` files statically, or other local files such as `./data.json`; never use dynamic `import()` or import attributes.
+- Never import `.glts` files (load them with `gltsLoader.loadAsync()`) or other local files such as `./data.json`, and never use import attributes.
+- Dynamic `import()` follows the same rules and resolves when it runs, so an import on a path that never runs is never fetched. `@drawcall/glts` must be imported statically. The Vite plugin bundles a literal specifier such as `import("pkg")` like a static import, loaded with the app; a computed one such as `import(name)` loads from the CDN.
 - Top-level `await` works.
 
 ## Scene and presentation
