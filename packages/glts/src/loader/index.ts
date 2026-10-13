@@ -73,7 +73,8 @@ export class GLTSLoader extends Loader {
     this.#modules = new ScriptModules({
       cdnURL: pageURL(options.cdnURL ?? defaultCDNURL),
       fetch: (input, init) => this.#fetch(input, init),
-      modules: options.modules
+      modules: options.modules,
+      resolve: options.resolve
     });
   }
 

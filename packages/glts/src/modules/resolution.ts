@@ -8,6 +8,18 @@ export function isBareSpecifier(specifier: string): boolean {
     !/^[A-Za-z][A-Za-z\d+.-]*:/.test(specifier);
 }
 
+/** The package a bare specifier imports from, e.g. `@scope/x` for `@scope/x@1/sub`. */
+export function packageName(specifier: string): string {
+  const name = /^(?:@[^/]+\/)?[^/@]+/.exec(specifier)?.[0];
+  if (!name) throw new Error(`Invalid package specifier: ${specifier}`);
+  return name;
+}
+
+/** Whether a bare specifier pins a version, e.g. `simplex-noise@4`; those always come from the CDN. */
+export function hasVersion(specifier: string): boolean {
+  return specifier.startsWith(`${packageName(specifier)}@`);
+}
+
 /** The CDN bundle of a package, importing the `external` packages instead of inlining them. */
 export function packageURL(path: string, cdnURL: URL, external: readonly string[]): URL {
   const url = new URL(path, cdnURL);

@@ -3,8 +3,9 @@ import { REVISION } from "three";
 import { GLTSError, toGLTSError } from "../errors.js";
 import { canonicalize, fetchSource, type Fetch, type FetchedSource } from "./fetch.js";
 import { rewriteModule } from "./rewrite.js";
-import { isBareSpecifier, packageURL } from "./resolution.js";
+import { hasVersion, isBareSpecifier, packageURL } from "./resolution.js";
 import type { ModuleBridge } from "./bridge.js";
+import type { GLTSResolve } from "../types.js";
 import { moduleURL } from "./urls.js";
 
 /** The CDN path of a package, pinning both Three addon spellings to the host's revision. */
@@ -23,17 +24,20 @@ export class ExternalModules {
   readonly #cdnURL: URL;
   readonly #fetch: Fetch;
   readonly #bridge: ModuleBridge;
+  readonly #resolve: GLTSResolve | undefined;
   readonly #sources = new Map<string, Promise<FetchedSource>>();
   readonly #modules = new Map<string, string>();
 
-  constructor({ cdnURL, fetch, bridge }: {
+  constructor({ cdnURL, fetch, bridge, resolve }: {
     readonly cdnURL: URL;
     readonly fetch: Fetch;
     readonly bridge: ModuleBridge;
+    readonly resolve?: GLTSResolve | undefined;
   }) {
     this.#cdnURL = cdnURL;
     this.#fetch = fetch;
     this.#bridge = bridge;
+    this.#resolve = resolve;
   }
 
   /** Resolves an import to the URL of a module scripts can import. */
@@ -44,7 +48,17 @@ export class ExternalModules {
       throw new GLTSError(`Unsupported CDN package import: ${specifier}`, { importChain, phase: "resolve", url: importerURL });
     }
 
-    const url = isBareSpecifier(specifier)
+    const bare = isBareSpecifier(specifier);
+    // Scripts share the host's package instances; the host imports the resolved URL natively.
+    if (bare && this.#resolve && !hasVersion(specifier)) {
+      try {
+        return this.#resolve(specifier);
+      } catch (error) {
+        throw new GLTSError(`Unable to resolve ${specifier} from the host`, { importChain, phase: "resolve", url: importerURL }, error);
+      }
+    }
+
+    const url = bare
       ? packageURL(packagePath(specifier), this.#cdnURL, this.#bridge.hostSpecifiers)
       : new URL(specifier, importerURL);
     if (url.protocol !== "http:" && url.protocol !== "https:") return url.href;

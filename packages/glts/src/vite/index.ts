@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { normalizePath, type DevEnvironment, type Plugin } from "vite";
 
-import { defaultCDNURL, isBareSpecifier, packageURL } from "../modules/resolution.js";
+import { defaultCDNURL, hasVersion, isBareSpecifier, packageName, packageURL } from "../modules/resolution.js";
 import type { GLTSURL } from "../types.js";
 import { check } from "./check.js";
 import { scan, type Scan } from "./scan.js";
@@ -45,13 +45,6 @@ function modulesSource(specifiers: readonly string[]): string {
     `import * as m${index} from ${JSON.stringify(specifier)};`);
   const entries = specifiers.map((specifier, index) => `${JSON.stringify(specifier)}: m${index}`);
   return [...imports, `export default { ${entries.join(", ")} };`].join("\n");
-}
-
-/** The package a bare specifier imports from, e.g. `@scope/x` for `@scope/x@1/sub`. */
-function packageName(specifier: string): string {
-  const name = /^(?:@[^/]+\/)?[^/@]+/.exec(specifier)?.[0];
-  if (!name) throw new Error(`Invalid package specifier: ${specifier}`);
-  return name;
 }
 
 /** `three` and the dependencies and devDependencies of the app's nearest package.json. */
@@ -100,11 +93,8 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
     if (!configuredProject) throw new Error("The glts plugin has not been configured");
     return configuredProject;
   };
-  // An explicit version always comes from the CDN.
-  const isDependency = (specifier: string): boolean => {
-    const name = packageName(specifier);
-    return !specifier.startsWith(`${name}@`) && configured().dependencies.includes(name);
-  };
+  const isDependency = (specifier: string): boolean =>
+    !hasVersion(specifier) && configured().dependencies.includes(packageName(specifier));
   // Reports in the terminal without blocking the server or hot reload.
   const report = async (environment: DevEnvironment, scan: Promise<Scan>): Promise<void> => {
     const errors = await scan.then(({ scripts }) => check(scripts)).catch((error: unknown) => String(error));

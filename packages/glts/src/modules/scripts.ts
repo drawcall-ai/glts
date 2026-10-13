@@ -7,7 +7,7 @@ import { ModuleBridge } from "./bridge.js";
 import { compileHelper, compileScript } from "./compiler.js";
 import { assertScriptImport, helperURL } from "./resolution.js";
 import { moduleURL } from "./urls.js";
-import type { GLTSModules } from "../types.js";
+import type { GLTSModules, GLTSResolve } from "../types.js";
 
 export interface LinkedScript {
   readonly url: string;
@@ -31,10 +31,15 @@ export class ScriptModules {
   /** Every helper URL a script has imported, by script URL. */
   readonly #scriptHelpers = new Map<string, Set<string>>();
 
-  constructor({ cdnURL, fetch, modules }: { readonly cdnURL: URL; readonly fetch: Fetch; readonly modules?: GLTSModules | undefined }) {
+  constructor({ cdnURL, fetch, modules, resolve }: {
+    readonly cdnURL: URL;
+    readonly fetch: Fetch;
+    readonly modules?: GLTSModules | undefined;
+    readonly resolve?: GLTSResolve | undefined;
+  }) {
     this.#fetch = fetch;
     this.#bridge = new ModuleBridge(modules ?? {});
-    this.#external = new ExternalModules({ cdnURL, fetch, bridge: this.#bridge });
+    this.#external = new ExternalModules({ cdnURL, fetch, bridge: this.#bridge, resolve });
   }
 
   /** The script at `requestedURL`, linked once until invalidated. */

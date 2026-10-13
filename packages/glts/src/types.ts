@@ -6,10 +6,14 @@ export type GLTSURL = string | URL;
 /** Host namespaces by exact bare specifier, imported by scripts instead of the CDN. */
 export type GLTSModules = Readonly<Record<string, object>>;
 
+/** Resolves a bare specifier to a URL the host can import, such as the host's `import.meta.resolve`. */
+export type GLTSResolve = (specifier: string) => string;
+
 export interface GLTSLoaderOptions {
   cdnURL?: GLTSURL;
   isPreview?: boolean;
   modules?: GLTSModules;
+  resolve?: GLTSResolve;
 }
 
 interface GLTSSceneMethods {
