@@ -27,9 +27,50 @@
         font: 12px/1.5 ui-monospace, monospace;
         white-space: pre-wrap;
       }
+      #hint {
+        position: fixed;
+        inset: 24px;
+        display: grid;
+        place-content: center;
+        gap: 12px;
+        border: 2px dashed #444;
+        border-radius: 16px;
+        color: #aaa;
+        font: 15px/1.5 system-ui, sans-serif;
+        text-align: center;
+      }
+      #hint[hidden] {
+        display: none;
+      }
+      #hint strong {
+        color: #eee;
+        font-size: 18px;
+      }
+      #hint label {
+        color: #8ab4ff;
+        cursor: pointer;
+        text-decoration: underline;
+      }
+      body[data-dragging]::after {
+        content: "Drop a .glts file";
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        background: rgb(17 17 17 / 0.85);
+        outline: 2px dashed #8ab4ff;
+        outline-offset: -24px;
+        color: #eee;
+        font: 600 18px system-ui, sans-serif;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
+    <div id="hint" hidden>
+      <strong>Drop a .glts file anywhere</strong>
+      <span>or <label>choose a file<input id="picker" type="file" accept=".glts" hidden /></label></span>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
