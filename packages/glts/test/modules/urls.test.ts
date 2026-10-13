@@ -1,18 +1,21 @@
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 
-import { ModuleURLStore } from "../../src/modules/urls.js";
+import { moduleURL } from "../../src/modules/urls.js";
 
-it("cannot create module URLs after disposal", () => {
-  const createObjectURL = vi.spyOn(URL, "createObjectURL")
-    .mockReturnValue("blob:test");
-  const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL")
-    .mockImplementation(() => undefined);
-  const store = new ModuleURLStore();
-  store.create("export {};");
-  store.dispose();
+it("evaluates the same source once per module URL", async () => {
+  const counter = { evaluations: 0 };
+  Reflect.set(globalThis, "__glts_urls_test", counter);
+  const source = "globalThis.__glts_urls_test.evaluations += 1;";
+  try {
+    await import(/* @vite-ignore */ moduleURL(source));
+    await import(/* @vite-ignore */ moduleURL(source));
+  } finally {
+    Reflect.deleteProperty(globalThis, "__glts_urls_test");
+  }
+  expect(counter.evaluations).toBe(2);
+});
 
-  expect(() => store.create("export {};")).toThrow("has been disposed");
-  expect(createObjectURL).toHaveBeenCalledOnce();
-  expect(revokeObjectURL).toHaveBeenCalledOnce();
-  expect(revokeObjectURL).toHaveBeenCalledWith("blob:test");
+it("evaluates a module that starts with a hashbang", async () => {
+  const module: unknown = await import(/* @vite-ignore */ moduleURL("#!/usr/bin/env node\nexport const value = 1;"));
+  expect(module).toMatchObject({ value: 1 });
 });

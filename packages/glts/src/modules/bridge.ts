@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 import type { ScriptContext } from "../scene/execution.js";
 import type { GLTSModules } from "../types.js";
-import type { ModuleURLStore } from "./urls.js";
+import { moduleURL } from "./urls.js";
 
 let bridgeSequence = 0;
 
@@ -15,7 +15,6 @@ function nextBridgeKey(): string {
 export class ModuleBridge {
   /** Host namespaces by bare specifier, `three` included; generated host modules read them. */
   readonly namespaces: GLTSModules;
-  readonly #urls: ModuleURLStore;
   readonly #hostModuleURLs = new Map<string, string>();
   readonly #contexts = new Map<number, ScriptContext>();
   readonly #bridgeKey = nextBridgeKey();
@@ -28,12 +27,11 @@ export class ModuleBridge {
   readonly contextToken = `glts-context:${this.#bridgeKey}`;
   #contextSequence = 0;
 
-  constructor(modules: GLTSModules, urls: ModuleURLStore) {
-    this.#urls = urls;
+  constructor(modules: GLTSModules) {
     this.namespaces = { ...modules, three: THREE };
     Reflect.set(globalThis, this.#bridgeKey, this);
     for (const [specifier, namespace] of Object.entries(this.namespaces)) {
-      this.#hostModuleURLs.set(specifier, urls.create(this.#hostModuleSource(specifier, namespace)));
+      this.#hostModuleURLs.set(specifier, moduleURL(this.#hostModuleSource(specifier, namespace)));
     }
   }
 
@@ -43,7 +41,7 @@ export class ModuleBridge {
   } {
     this.#contextSequence += 1;
     const id = this.#contextSequence;
-    const url = this.#urls.create(
+    const url = moduleURL(
       [
         ...this.#prologue,
         `const context = bridge.takeContext(${id});`,
@@ -62,10 +60,7 @@ export class ModuleBridge {
     this.#contexts.set(id, context);
 
     return {
-      release: () => {
-        this.#contexts.delete(id);
-        this.#urls.release(url);
-      },
+      release: () => this.#contexts.delete(id),
       url,
     };
   }

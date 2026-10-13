@@ -5,7 +5,7 @@ import { canonicalize, fetchSource, type Fetch, type FetchedSource } from "./fet
 import { rewriteModule } from "./rewrite.js";
 import { isBareSpecifier, packageURL } from "./resolution.js";
 import type { ModuleBridge } from "./bridge.js";
-import type { ModuleURLStore } from "./urls.js";
+import { moduleURL } from "./urls.js";
 
 /** The CDN path of a package, pinning both Three addon spellings to the host's revision. */
 function packagePath(specifier: string): string {
@@ -23,20 +23,17 @@ export class ExternalModules {
   readonly #cdnURL: URL;
   readonly #fetch: Fetch;
   readonly #bridge: ModuleBridge;
-  readonly #urls: ModuleURLStore;
   readonly #sources = new Map<string, Promise<FetchedSource>>();
   readonly #modules = new Map<string, string>();
 
-  constructor({ cdnURL, fetch, bridge, urls }: {
+  constructor({ cdnURL, fetch, bridge }: {
     readonly cdnURL: URL;
     readonly fetch: Fetch;
     readonly bridge: ModuleBridge;
-    readonly urls: ModuleURLStore;
   }) {
     this.#cdnURL = cdnURL;
     this.#fetch = fetch;
     this.#bridge = bridge;
-    this.#urls = urls;
   }
 
   /** Resolves an import to the URL of a module scripts can import. */
@@ -89,9 +86,9 @@ export class ExternalModules {
     // A concurrent import of the same module may have finished first.
     const concurrent = this.#modules.get(requestedURL) ?? this.#modules.get(fetched.url);
     if (concurrent) return concurrent;
-    const moduleURL = this.#urls.create(transformed);
-    this.#modules.set(requestedURL, moduleURL);
-    this.#modules.set(fetched.url, moduleURL);
-    return moduleURL;
+    const url = moduleURL(transformed);
+    this.#modules.set(requestedURL, url);
+    this.#modules.set(fetched.url, url);
+    return url;
   }
 }

@@ -4,7 +4,6 @@ import { afterEach, expect, it } from "vitest";
 import { ExternalModules } from "../../src/modules/external.js";
 import { ModuleBridge } from "../../src/modules/bridge.js";
 import type { Fetch } from "../../src/modules/fetch.js";
-import { ModuleURLStore } from "../../src/modules/urls.js";
 import type { GLTSModules } from "../../src/types.js";
 
 let disposals: (() => void)[] = [];
@@ -16,10 +15,9 @@ afterEach(() => {
 
 /** External modules fetching with `fetch` and sharing the host `modules`. */
 function externalModules(fetch: Fetch, modules: GLTSModules = {}): { bridge: ModuleBridge; external: ExternalModules } {
-  const urls = new ModuleURLStore();
-  const bridge = new ModuleBridge(modules, urls);
-  disposals.push(() => bridge.dispose(), () => urls.dispose());
-  return { bridge, external: new ExternalModules({ bridge, cdnURL: new URL("https://cdn.test/"), fetch, urls }) };
+  const bridge = new ModuleBridge(modules);
+  disposals.push(() => bridge.dispose());
+  return { bridge, external: new ExternalModules({ bridge, cdnURL: new URL("https://cdn.test/"), fetch }) };
 }
 
 it("rejects a cycle between sibling dependencies instead of waiting on both", async () => {
