@@ -1,6 +1,7 @@
 // Loads the asset at `?url=<asset.glts>` (served with CORS) with `isPreview: true`, renders
 // one frame with its `defaultCamera` or a camera fitted to its bounds, then logs "ready",
-// or logs and shows the error.
+// or logs and shows the error. A .glts file dropped anywhere on the page, or picked when no
+// URL was given, replaces the shown asset the same way.
 import { GLTSLoader, GLTSRenderer, type GLTSScene } from "@drawcall/glts";
 import * as THREE from "three";
 
@@ -8,41 +9,129 @@ import * as THREE from "three";
 // apply authored state such as animation poses.
 const delta = 1 / 60;
 
+const hint = element("#hint", HTMLElement);
+const picker = element("#picker", HTMLInputElement);
+
+const renderer = new THREE.WebGLRenderer({
+  ...GLTSRenderer.parameters,
+  antialias: true,
+  // Keeps the frame readable by screenshots after it was drawn.
+  preserveDrawingBuffer: true,
+});
+renderer.domElement.addEventListener("webglcontextlost", () =>
+  fail(new Error("The WebGL context was lost.")),
+);
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight, false);
+renderer.setClearColor(0x111111);
+document.body.prepend(renderer.domElement);
+const glts = new GLTSRenderer(renderer);
+
+const loader = new GLTSLoader(new THREE.LoadingManager(), { isPreview: true });
+let current: GLTSScene | undefined;
+// Counts loads so a slower earlier load never replaces a later one.
+let loads = 0;
 let failed = false;
+let output: HTMLPreElement | undefined;
 
 addEventListener("error", (event) =>
   fail(event.error ?? new Error(event.message || "The preview failed.")),
 );
 addEventListener("unhandledrejection", (event) => fail(event.reason));
-render().then(() => {
+picker.addEventListener("change", () => {
+  const file = picker.files?.[0];
+  picker.value = "";
+  if (file) void showFile(file);
+});
+bindDrop();
+
+const url = new URLSearchParams(location.search).get("url");
+if (url) void show(url);
+else hint.hidden = false;
+
+async function showFile(file: File): Promise<void> {
+  if (!file.name.toLowerCase().endsWith(".glts")) {
+    fail(new Error(`${file.name} is not a .glts file.`));
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    await show(url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function show(url: string): Promise<void> {
+  const load = ++loads;
+  hint.hidden = true;
+  failed = false;
+  output?.remove();
+  try {
+    const scene = await loader.loadAsync(url);
+    if (load !== loads) {
+      scene.dispose();
+      return;
+    }
+    current?.dispose();
+    current = scene;
+    render(scene);
+  } catch (error) {
+    if (load === loads) fail(error);
+    return;
+  }
   if (!failed) console.log("ready");
-}, fail);
+}
 
-async function render(): Promise<void> {
-  const url = new URLSearchParams(location.search).get("url");
-  if (!url) throw new Error("Missing the asset URL: open this page with ?url=<asset.glts>.");
-
-  const renderer = new THREE.WebGLRenderer({
-    ...GLTSRenderer.parameters,
-    antialias: true,
-    // Keeps the frame readable by screenshots after it was drawn.
-    preserveDrawingBuffer: true,
-  });
-  renderer.domElement.addEventListener("webglcontextlost", () =>
-    fail(new Error("The WebGL context was lost.")),
-  );
-  renderer.setPixelRatio(devicePixelRatio);
-  renderer.setSize(innerWidth, innerHeight, false);
-  renderer.setClearColor(0x111111);
-  document.body.append(renderer.domElement);
-
-  const loader = new GLTSLoader(new THREE.LoadingManager(), { isPreview: true });
-  const scene = await loader.loadAsync(url);
+function render(scene: GLTSScene): void {
   scene.updateWorldMatrix(true, true);
   scene.update(delta);
-
   const camera = previewCamera(scene, innerWidth / innerHeight);
-  new GLTSRenderer(renderer).render(scene, camera, delta);
+  glts.render(scene, camera, delta);
+}
+
+function element<T extends Element>(selector: string, type: new () => T): T {
+  const found = document.querySelector(selector);
+  if (!(found instanceof type)) throw new Error(`The preview page is missing ${selector}.`);
+  return found;
+}
+
+/** Makes the whole page a drop target for one .glts file. */
+function bindDrop(): void {
+  // Counts nested dragenter/dragleave pairs so crossing child elements keeps the highlight.
+  let depth = 0;
+  const files = (event: DragEvent) =>
+    event.dataTransfer?.types.includes("Files") ? event.dataTransfer.files : undefined;
+
+  addEventListener("dragenter", (event) => {
+    if (!files(event)) return;
+    event.preventDefault();
+    depth += 1;
+    document.body.dataset.dragging = "";
+  });
+  addEventListener("dragover", (event) => {
+    if (!files(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  });
+  addEventListener("dragleave", (event) => {
+    if (!files(event)) return;
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) delete document.body.dataset.dragging;
+  });
+  addEventListener("drop", (event) => {
+    const dropped = files(event);
+    if (!dropped) return;
+    event.preventDefault();
+    depth = 0;
+    delete document.body.dataset.dragging;
+    const file = dropped.item(0);
+    if (dropped.length !== 1 || !file) {
+      fail(new Error("Drop one self-contained .glts file at a time."));
+      return;
+    }
+    void showFile(file);
+  });
 }
 
 function previewCamera(scene: GLTSScene, aspect: number): THREE.Camera {
@@ -74,11 +163,12 @@ function fitCamera(scene: THREE.Object3D): THREE.PerspectiveCamera {
   return camera;
 }
 
+/** Shows the first error until the next load; later errors only reach the console. */
 function fail(error: unknown): void {
+  console.error(error);
   if (failed) return;
   failed = true;
-  console.error(error);
-  const output = document.createElement("pre");
+  output = document.createElement("pre");
   output.textContent = describe(error);
   document.body.append(output);
 }

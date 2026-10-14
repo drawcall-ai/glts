@@ -4,7 +4,10 @@ import MagicString from "magic-string";
 import { GLTSError, type GLTSPhase } from "../errors.js";
 
 const staticImport = 1;
+const dynamicImport = 2;
 const importMeta = 3;
+/** Stands in for the `import` keyword of a module's dynamic imports. */
+const dynamicImportBinding = "__glts_import";
 
 /** A module's source, with the URL and import chain its errors report. */
 export interface ModuleSource {
@@ -19,8 +22,16 @@ interface StaticImport {
   readonly end: number;
 }
 
+interface DynamicImport {
+  /** The literal specifier, or undefined when it is computed. */
+  readonly specifier: string | undefined;
+  /** Where the `import` keyword starts. */
+  readonly start: number;
+}
+
 interface ParsedModule {
   readonly imports: readonly StaticImport[];
+  readonly dynamicImports: readonly DynamicImport[];
   readonly usesImportMeta: boolean;
 }
 
@@ -43,13 +54,22 @@ function parseModule({ source, url, importChain }: ModuleSource): ParsedModule {
   }
 
   const imports: StaticImport[] = [];
+  const dynamicImports: DynamicImport[] = [];
   for (const entry of entries) {
     if (entry.t === importMeta) {
       continue;
     }
 
+    if (entry.t === dynamicImport) {
+      if (entry.a !== -1) {
+        throw failure(`Import attributes are not supported (${locationAt(source, entry.ss)})`, "transform");
+      }
+      dynamicImports.push({ specifier: entry.n, start: entry.ss });
+      continue;
+    }
+
     if (entry.t !== staticImport) {
-      throw failure(`Dynamic and source-phase imports are not supported (${locationAt(source, entry.ss)})`, "transform");
+      throw failure(`Source- and defer-phase imports are not supported (${locationAt(source, entry.ss)})`, "transform");
     }
 
     if (entry.at) {
@@ -63,19 +83,25 @@ function parseModule({ source, url, importChain }: ModuleSource): ParsedModule {
     imports.push({ specifier: entry.n, start: entry.s, end: entry.e });
   }
 
-  return { imports, usesImportMeta: entries.some((entry) => entry.t === importMeta) };
+  return { imports, dynamicImports, usesImportMeta: entries.some((entry) => entry.t === importMeta) };
 }
 
-/** The specifiers of a module's static imports, in source order. */
+/** The specifiers of a module's static imports and literal dynamic imports. */
 export function importSpecifiers(module: ModuleSource): string[] {
-  return parseModule(module).imports.map(({ specifier }) => specifier);
+  const { imports, dynamicImports } = parseModule(module);
+  return [...imports, ...dynamicImports].flatMap(({ specifier }) => specifier ?? []);
 }
 
+/**
+ * Links a module's static imports through `resolveImport`. Its dynamic imports call the function whose source
+ * `importFunction` returns instead, which resolves each specifier when the import runs.
+ */
 export async function rewriteModule(
   module: ModuleSource,
   resolveImport: (specifier: string) => Promise<string>,
+  importFunction: () => string,
 ): Promise<string> {
-  const { imports, usesImportMeta } = parseModule(module);
+  const { imports, dynamicImports, usesImportMeta } = parseModule(module);
   const rewritten = new MagicString(module.source, { filename: module.url });
 
   // Resolve depth-first so a failed graph leaves no sibling work allocating
@@ -84,11 +110,18 @@ export async function rewriteModule(
     rewritten.overwrite(start, end, await resolveImport(specifier));
   }
 
-  if (usesImportMeta) {
+  const prologue: string[] = [];
+  if (usesImportMeta) prologue.push(`import.meta.url = ${JSON.stringify(module.url)};\n`);
+  if (dynamicImports.length > 0) {
+    // An identifier, unlike an inline expression, cannot join the previous line in code without semicolons.
+    prologue.push(`const ${dynamicImportBinding} = ${importFunction()};\n`);
+    for (const { start } of dynamicImports) rewritten.overwrite(start, start + "import".length, dynamicImportBinding);
+  }
+  if (prologue.length > 0) {
     const start = module.source.match(
       /^#![^\r\n\u2028\u2029]*(?:\r\n|[\r\n\u2028\u2029])/
     )?.[0].length ?? 0;
-    rewritten.appendLeft(start, `import.meta.url = ${JSON.stringify(module.url)};\n`);
+    rewritten.appendLeft(start, prologue.join(""));
   }
 
   const safeURL = module.url.replace(/[\n\r\u2028\u2029]/g, "");
