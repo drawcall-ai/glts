@@ -66,9 +66,9 @@ renderer.setAnimationLoop((time) => {
 Render a `.glts` asset to PNG or export it to GLB (Node.js 22.18+ or 24.11+):
 
 ```sh
-npx @drawcall/glts render asset.glts -o preview.png
-npx @drawcall/glts render asset.glts -o views.png --views '[[{"camera":"+x"},{"camera":"persp"}]]'
-npx @drawcall/glts export asset.glts -o asset.glb
+npx drawcall glts render asset.glts -o preview.png
+npx drawcall glts render asset.glts -o views.png --views '[[{"camera":"+x"},{"camera":"persp"}]]'
+npx drawcall glts export asset.glts -o asset.glb
 ```
 
 Rendering includes preview staging. Export excludes it and writes supported
