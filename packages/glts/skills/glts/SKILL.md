@@ -341,15 +341,15 @@ Type checking: the plugin type checks the public `.glts` files and their helpers
 
 ## CLI inspection and export
 
-Use the packaged `glts` command for headless image checks and GLB export, without
+Use the `drawcall glts` command for headless image checks and GLB export, without
 creating a viewer app. It needs Node.js 22.18+ or 24.11+; native dependencies install
 with the package. The browser entry does not import them.
 
 ```sh
-npx @drawcall/glts render dragon.glts -o dragon.png
-npx @drawcall/glts render dragon.glts -o inspection.png --size 512 --time 0.5 \
+npx drawcall glts render dragon.glts -o dragon.png
+npx drawcall glts render dragon.glts -o inspection.png --size 512 --time 0.5 \
   --views '[[{"camera":"+x"},{"camera":"persp"}],[{"camera":"+y","focus":{"center":[0,1,0],"radius":0.3},"title":"Detail"}]]'
-npx @drawcall/glts export dragon.glts -o dragon.glb
+npx drawcall glts export dragon.glts -o dragon.glb
 ```
 
 Views are inline JSON rows. Axis cameras are orthographic and look from the named
