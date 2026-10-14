@@ -22,7 +22,7 @@ function views(value: string): View[][] {
 interface RenderOptions { output: string; size: number; time: number; views?: View[][] }
 interface ExportOptions { output: string }
 
-const program = new Command().name("glts").description("Render GLTS assets to PNG or export them to GLB.");
+const program = new Command().name(process.env.DRAWCALL_INVOCATION || "glts").description("Render GLTS assets to PNG or export them to GLB.");
 
 program.command("render")
   .description("Render an asset or a contact sheet using inline JSON views.")
