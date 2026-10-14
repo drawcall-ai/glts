@@ -4,6 +4,12 @@ import { GLTSError } from "../../src/errors.js";
 import { importSpecifiers, rewriteModule } from "../../src/modules/rewrite.js";
 
 describe("rewriteModule", () => {
+  it("quotes linked data URLs safely inside single-quoted imports", async () => {
+    const linked = `data:text/javascript,export const name = 'dragon';`;
+    const transformed = await rewriteModule({ source: "import { name } from 'asset'; export { name };", url: "file:///dragon.glts", importChain: [] }, async () => linked, () => "load");
+    const result: unknown = await import(`data:text/javascript,${encodeURIComponent(transformed)}`);
+    expect(result).toMatchObject({ name: "dragon" });
+  });
   it("rewrites static specifiers and initializes import.meta.url", async () => {
     const sourceURL = "https://example.test/assets/tree.glts";
     const transformed = await rewriteModule({

@@ -86,7 +86,7 @@ async function show(url: string): Promise<void> {
 function render(scene: GLTSScene): void {
   scene.updateWorldMatrix(true, true);
   scene.update(delta);
-  const camera = previewCamera(scene, innerWidth / innerHeight);
+  const camera = scene.defaultCamera ?? fitCamera(scene);
   glts.render(scene, camera, delta);
 }
 
@@ -132,15 +132,6 @@ function bindDrop(): void {
     }
     void showFile(file);
   });
-}
-
-function previewCamera(scene: GLTSScene, aspect: number): THREE.Camera {
-  const camera = scene.defaultCamera ?? fitCamera(scene);
-  if (camera instanceof THREE.PerspectiveCamera) {
-    camera.aspect = aspect;
-    camera.updateProjectionMatrix();
-  }
-  return camera;
 }
 
 /** Frames the scene's bounds from a three-quarter view. */

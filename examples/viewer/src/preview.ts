@@ -56,16 +56,6 @@ export function createPreview(
     const width = window.innerWidth;
     const height = window.innerHeight;
     renderer.setSize(width, height, false);
-    if (camera instanceof THREE.PerspectiveCamera) {
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-    } else if (camera instanceof THREE.OrthographicCamera) {
-      const center = (camera.left + camera.right) / 2;
-      const halfWidth = (camera.top - camera.bottom) * width / height / 2;
-      camera.left = center - halfWidth;
-      camera.right = center + halfWidth;
-      camera.updateProjectionMatrix();
-    }
   }
 
   window.addEventListener("resize", resize);

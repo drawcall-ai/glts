@@ -52,7 +52,7 @@ Rules:
 
 - Use native scene properties directly: `background`, `environment`, `fog`, `overrideMaterial`, and the normal `Object3D` API.
 - The host owns the root transform. Put authored placement on a child group; never set `scene.position`, `rotation`, `quaternion`, `scale`, or `matrix`.
-- Assign `scene.defaultCamera` when the asset has a useful view. The host may override it and sets its aspect; GLTS never changes camera projection or searches the hierarchy for cameras. Add it to the scene graph only if it depends on an authored parent.
+- Assign `scene.defaultCamera` when the asset has a useful view. The host may override it; GLTSRenderer sizes its projection to the active viewport. GLTS never searches the hierarchy for cameras. Add it to the scene graph only if it depends on an authored parent.
 - Do not create a renderer, canvas, resize handler, animation loop, controls, or `PMREMGenerator`. The app owns those.
 - For image-based lighting, assign a correctly mapped `Texture` or `CubeTexture` to `scene.environment` and dispose it yourself.
 - Visible shadows need all three: `scene.rendering.shadows = true`, `castShadow` on a shadow-capable light and on the casting meshes, and `receiveShadow` on receivers.
@@ -293,7 +293,7 @@ gltsRenderer.dispose()
 - Create one `GLTSRenderer` per `WebGLRenderer` (a second throws) and never call `setEffects()` elsewhere.
 - Construct the `WebGLRenderer` with `GLTSRenderer.parameters` when roots use effects.
 - Effects and tone mapping need the default framebuffer, a full viewport, and scissor testing off.
-- The app still owns the canvas, output color space, shadow-map type, viewport, camera projection, controls, and frame loop.
+- The app still owns the canvas, output color space, shadow-map type, viewport, controls, and frame loop.
 - `renderer.render(asset, camera)` and custom pipelines also work, because the asset is a native scene; they ignore `rendering`.
 
 ## Packages
@@ -338,6 +338,41 @@ Type checking: the plugin type checks the public `.glts` files and their helpers
 
 - Type errors fail `vite build`. During development they print in the terminal and hot reload continues.
 - Only installed packages are typed: CDN packages and `https://` imports are untyped and cannot be used as types. Imports used only as types are never fetched, so they need the package installed.
+
+## CLI inspection and export
+
+Use the packaged `glts` command for headless image checks and GLB export, without
+creating a viewer app. It needs Node.js 22.18+ or 24.11+; native dependencies install
+with the package. The browser entry does not import them.
+
+```sh
+npx @drawcall/glts render dragon.glts -o dragon.png
+npx @drawcall/glts render dragon.glts -o inspection.png --size 512 --time 0.5 \
+  --views '[[{"camera":"+x"},{"camera":"persp"}],[{"camera":"+y","focus":{"center":[0,1,0],"radius":0.3},"title":"Detail"}]]'
+npx @drawcall/glts export dragon.glts -o dragon.glb
+```
+
+Views are inline JSON rows. Axis cameras are orthographic and look from the named
+side toward the subject; `persp` fits a three-quarter perspective view. Omit views
+to use `scene.defaultCamera`, or a fitted perspective view when none is authored.
+Use `focus: "part-name"` to frame a uniquely named object's subtree while keeping
+surroundings; use `isolate: "part-name"` to show only that subtree. Bone joints
+have no mesh bounds, so inspect them with a world-space sphere focus.
+
+Rendering loads with `isPreview: true` and advances frame callbacks in fixed steps
+to the requested time, then holds that state for every view. Lights, backgrounds,
+and effects belong in the asset's existing preview staging.
+
+Export loads with `isPreview: false` and does not call frame callbacks. Assign
+explicit `THREE.AnimationClip`s to `scene.animations` to include animation. Use
+standard/physical or basic materials for GLB output; unsupported content fails
+instead of being silently discarded. Rendering profiles, environments, fog, and
+procedural behavior do not become GLB features. Export creates a new self-contained
+GLB from the constructed scene; it does not preserve an imported file byte for byte.
+
+Bare packages resolve from the asset's project, and Three.js is shared with the
+host. Install additional packages in that project. Helpers and adjacent resource
+URLs work from disk; keep using `new URL("./resource", import.meta.url)`.
 
 ## Verify
 

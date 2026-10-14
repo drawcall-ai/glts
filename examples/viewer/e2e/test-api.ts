@@ -6,6 +6,7 @@ import {
   InstancedMesh,
   LoadingManager,
   Matrix4,
+  OrthographicCamera,
   PerspectiveCamera,
   Scene,
   Sphere,
@@ -28,6 +29,7 @@ declare global {
     readonly InstancedMesh: typeof InstancedMesh;
     readonly LoadingManager: typeof LoadingManager;
     readonly Matrix4: typeof Matrix4;
+    readonly OrthographicCamera: typeof OrthographicCamera;
     readonly PerspectiveCamera: typeof PerspectiveCamera;
     readonly Scene: typeof Scene;
     readonly Sphere: typeof Sphere;
@@ -47,6 +49,7 @@ Object.defineProperties(window, {
   InstancedMesh: { value: InstancedMesh },
   LoadingManager: { value: LoadingManager },
   Matrix4: { value: Matrix4 },
+  OrthographicCamera: { value: OrthographicCamera },
   PerspectiveCamera: { value: PerspectiveCamera },
   Scene: { value: Scene },
   Sphere: { value: Sphere },

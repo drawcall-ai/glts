@@ -107,7 +107,7 @@ export async function rewriteModule(
   // Resolve depth-first so a failed graph leaves no sibling work allocating
   // resources after execution cleanup.
   for (const { specifier, start, end } of imports) {
-    rewritten.overwrite(start, end, await resolveImport(specifier));
+    rewritten.overwrite(start - 1, end + 1, JSON.stringify(await resolveImport(specifier)));
   }
 
   const prologue: string[] = [];

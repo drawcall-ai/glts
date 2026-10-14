@@ -40,6 +40,7 @@ export class GLTSRenderer {
     this.#effects = new Effects(renderer);
   }
 
+  /** Sizes camera projection to the active viewport, preserving orthographic height and zoom. */
   render(scene: GLTSScene, camera?: THREE.Camera, delta = 0): void {
     if (this.#disposed) {
       throw new Error("GLTSRenderer has been disposed");
@@ -59,6 +60,7 @@ export class GLTSRenderer {
     const renderer = this.#renderer;
     const rendering = scene.rendering;
     const renderTarget = this.#checkFramebuffer(scene);
+    this.#resizeCamera(selectedCamera);
 
     const localClippingEnabled = renderer.localClippingEnabled;
     const activeCubeFace = renderer.getActiveCubeFace();
@@ -85,6 +87,32 @@ export class GLTSRenderer {
       if (shadowChange) invalidateMaterials(scene);
       this.#rendering = false;
     }
+  }
+
+  #resizeCamera(camera: THREE.Camera): void {
+    if (!(camera instanceof THREE.PerspectiveCamera) && !(camera instanceof THREE.OrthographicCamera)) {
+      return;
+    }
+    const renderer = this.#renderer;
+    const viewport = renderer.getRenderTarget()
+      ? renderer.getCurrentViewport(this.#viewport)
+      : renderer.getViewport(this.#viewport);
+    if (
+      !Number.isFinite(viewport.z) || !Number.isFinite(viewport.w) ||
+      viewport.z <= 0 || viewport.w <= 0
+    ) {
+      throw new RangeError("GLTS camera projection requires a positive finite viewport size");
+    }
+    const aspect = viewport.z / viewport.w;
+    if (camera instanceof THREE.PerspectiveCamera) {
+      camera.aspect = aspect;
+    } else {
+      const center = (camera.left + camera.right) / 2;
+      const halfWidth = (camera.top - camera.bottom) * aspect / 2;
+      camera.left = center - halfWidth;
+      camera.right = center + halfWidth;
+    }
+    camera.updateProjectionMatrix();
   }
 
   #checkFramebuffer(scene: GLTSScene) {

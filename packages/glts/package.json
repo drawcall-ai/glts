@@ -2,6 +2,12 @@
   "name": "@drawcall/glts",
   "version": "0.7.1",
   "type": "module",
+  "bin": {
+    "glts": "./dist/cli/index.js"
+  },
+  "engines": {
+    "node": "^22.18.0 || >=24.11.0"
+  },
   "description": "Like glTF, but for procedural Three.js assets.",
   "license": "MIT",
   "repository": {
@@ -54,8 +60,12 @@
     "@babel/generator": "^8.0.6",
     "@babel/parser": "^8.0.4",
     "@babel/types": "^8.0.4",
+    "@drawcall/webgl": "^0.1.0",
+    "@napi-rs/canvas": "^1.0.11",
+    "commander": "^15.0.0",
     "es-module-lexer": "^2.0.0",
     "magic-string": "^0.30.21",
+    "sharp": "^0.34.5",
     "sucrase": "3.35.1"
   },
   "peerDependencies": {

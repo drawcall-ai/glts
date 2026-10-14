@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { routeGLTS, routeGLTSRevisions } from "./routes.js";
 
-test("applies authored rendering without taking ownership of the host renderer or camera", async ({
+test("applies authored rendering while preserving host renderer settings", async ({
   page
 }) => {
   await routeGLTS(page, "**/assets/rendering.glts", `
@@ -402,4 +402,52 @@ test("rebuilds effects after reload, recovers after a pass throws, and frees the
     firstError: "probe effect failed",
     invalidError: "GLTS effect factories must return a Three.js Pass"
   });
+});
+
+
+test("sizes camera projection to the active viewport", async ({ page }) => {
+  await routeGLTS(page, "**/assets/projection.glts", `
+    import * as THREE from "three"
+    import { scene } from "@drawcall/glts"
+    scene.defaultCamera = new THREE.PerspectiveCamera(50, 1.7, 0.2, 200)
+  `);
+  await page.goto("/test-harness.html");
+  const result = await page.evaluate(async () => {
+    const renderer = new window.WebGLRenderer();
+    renderer.setPixelRatio(1.25);
+    renderer.setSize(320, 160, false);
+    const loader = new window.GLTSLoader(new window.LoadingManager());
+    const scene = await loader.loadAsync("/assets/projection.glts");
+    const camera = scene.defaultCamera;
+    if (!(camera instanceof window.PerspectiveCamera)) throw new Error("Expected perspective camera");
+    const pipeline = new window.GLTSRenderer(renderer);
+    const target = new window.WebGLRenderTarget(96, 32);
+    try {
+      pipeline.render(scene);
+      const landscape = camera.aspect;
+      renderer.setSize(160, 320, false);
+      pipeline.render(scene);
+      const portrait = camera.aspect;
+      const ortho = new window.OrthographicCamera(1, 5, 6, -2, 0.1, 100);
+      ortho.zoom = 1.7;
+      pipeline.render(scene, ortho);
+      const narrow = [ortho.left, ortho.right];
+      renderer.setViewport(0, 0, 120, 120);
+      pipeline.render(scene, ortho);
+      const square = [ortho.left, ortho.right, ortho.top, ortho.bottom, ortho.zoom];
+      renderer.setRenderTarget(target);
+      pipeline.render(scene);
+      const targetAspect = camera.aspect;
+      renderer.setViewport(0, 0, 20, 40);
+      pipeline.render(scene);
+      return { landscape, portrait, narrow, square, target: targetAspect, targetViewport: camera.aspect, lens: [camera.fov, camera.near, camera.far] };
+    } finally {
+      renderer.setRenderTarget(null);
+      pipeline.dispose();
+      loader.dispose();
+      target.dispose();
+      renderer.dispose();
+    }
+  });
+  expect(result).toEqual({ landscape: 2, portrait: 0.5, narrow: [1, 5], square: [-1, 7, 6, -2, 1.7], target: 3, targetViewport: 0.5, lens: [50, 0.2, 200] });
 });
