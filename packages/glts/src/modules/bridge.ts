@@ -93,8 +93,10 @@ export class ModuleBridge {
   async import(id: number, specifier: unknown): Promise<unknown> {
     const resolve = this.#importers[id];
     if (!resolve) throw new Error(`GLTS dynamic import resolver is unavailable: ${id}`);
+    // Outside the import, as Vite wraps it in a function that is not async.
+    const url = await resolve(String(specifier));
     // Module URLs are resolved at runtime, never by a bundler.
-    return import(/* @vite-ignore */ /* webpackIgnore: true */ await resolve(String(specifier)));
+    return import(/* @vite-ignore */ /* webpackIgnore: true */ url);
   }
 
   getHostModuleURL(specifier: string): string | undefined {
