@@ -4,18 +4,62 @@ import {
   Object3D,
 } from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
-import { ImageData } from "@napi-rs/canvas";
+import { Canvas, ImageData } from "@napi-rs/canvas";
 import type { GLTSScene } from "../types.js";
-import { ExportCanvas, installExportGlobals } from "./export/globals.js";
+import { writeHeadless } from "./headless.js";
 
-/** Export the constructed asset and explicit clips; frame callbacks and rendering settings are not baked. */
+export interface ExportOptions {
+  output: string;
+}
+
+export async function exportFile(file: string, { output }: ExportOptions): Promise<void> {
+  await writeHeadless(file, output, false, exportScene);
+}
+
+class ExportCanvas extends Canvas {
+  constructor(width: number, height: number) {
+    super(width, height);
+    // Canvas.data() otherwise makes GLTFExporter mistake the canvas for a DataTexture.
+    Object.defineProperty(this, "data", { value: undefined });
+  }
+}
+
+class BlobReader {
+  result: ArrayBuffer | undefined;
+  onloadend: (() => void) | undefined;
+
+  readAsArrayBuffer(blob: Blob): void {
+    void blob.arrayBuffer().then((buffer) => {
+      this.result = buffer;
+      this.onloadend?.();
+    });
+  }
+}
+
+/** GLTFExporter uses browser globals; these adapters are installed only while exporting, and the returned function restores the originals. */
+function installExportGlobals(): () => void {
+  const globals = { document: undefined, OffscreenCanvas: ExportCanvas, ImageData, FileReader: BlobReader };
+  const descriptors = Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
+  for (const [key, value] of Object.entries(globals)) {
+    Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+  }
+  return () => {
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  };
+}
+
+
+/** Export the scene the script constructs and its explicit clips; frame callbacks and rendering settings are not baked. */
 export async function exportScene(scene: GLTSScene): Promise<Uint8Array> {
   const materials = new Set<Material>();
   const visible = new Set<Object3D>();
   for (const child of scene.children) child.traverseVisible((object) => visible.add(object));
   for (const object of visible) {
     if (object instanceof Sprite || (object instanceof Light && !(object instanceof DirectionalLight || object instanceof PointLight || object instanceof SpotLight))) {
-      throw new Error(`Cannot export ${object.type} "${object.name}" to GLB; keep preview helpers inside isPreview.`);
+      throw new Error(`Cannot export ${object.type} "${object.name}" to GLB; keep preview-only objects inside isPreview.`);
     }
     if (object instanceof SkinnedMesh && object.skeleton.bones.some(bone => !visible.has(bone))) {
       throw new Error(`Cannot export skin "${object.name}": every skeleton bone must be visible and attached to the scene.`);
@@ -57,7 +101,7 @@ export async function exportScene(scene: GLTSScene): Promise<Uint8Array> {
     }
   }
 
-  const sources = new Map<Texture, Source<unknown>>();
+  const originalSources = new Map<Texture, Source<unknown>>();
   const restore = installExportGlobals();
   try {
     for (const texture of textures) {
@@ -74,14 +118,14 @@ export async function exportScene(scene: GLTSScene): Promise<Uint8Array> {
       // Exporter combines PBR maps with drawImage, which requires a drawable canvas.
       const canvas = new ExportCanvas(image.width, image.height);
       canvas.getContext("2d").putImageData(new ImageData(Uint8ClampedArray.from(data), image.width, image.height), 0, 0);
-      sources.set(texture, texture.source);
+      originalSources.set(texture, texture.source);
       texture.source = new Source(canvas);
     }
     const result = await new GLTFExporter().parseAsync(scene, { binary: true, animations: scene.animations });
     if (!(result instanceof ArrayBuffer)) throw new Error("GLTFExporter did not produce a binary GLB.");
     return new Uint8Array(result);
   } finally {
-    for (const [texture, source] of sources) texture.source = source;
+    for (const [texture, source] of originalSources) texture.source = source;
     restore();
   }
 }

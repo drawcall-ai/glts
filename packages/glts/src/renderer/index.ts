@@ -1,11 +1,12 @@
 import * as THREE from "three";
 
+import { assertDelta, assertUndisposed } from "../node.js";
 import type { GLTSScene } from "../types.js";
 import { Effects } from "./effects.js";
 
 const claimedRenderers = new WeakSet<THREE.WebGLRenderer>();
 
-function invalidateMaterials(scene: THREE.Scene): void {
+function markMaterialsForUpdate(scene: THREE.Scene): void {
   scene.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) {
       return;
@@ -29,7 +30,7 @@ export class GLTSRenderer {
   readonly #size = new THREE.Vector2();
   readonly #viewport = new THREE.Vector4();
   #disposed = false;
-  #rendering = false;
+  #busy = false;
 
   constructor(renderer: THREE.WebGLRenderer) {
     if (claimedRenderers.has(renderer)) {
@@ -40,17 +41,20 @@ export class GLTSRenderer {
     this.#effects = new Effects(renderer);
   }
 
-  /** Sizes camera projection to the active viewport, preserving orthographic height and zoom. */
+  /**
+   * Renders `scene` with `camera`, or its defaultCamera, applying its rendering profile and effects only for this
+   * render; `delta` advances the effects. Sizes camera projection to the active viewport, preserving orthographic
+   * height and zoom.
+   */
   render(scene: GLTSScene, camera?: THREE.Camera, delta = 0): void {
     if (this.#disposed) {
       throw new Error("GLTSRenderer has been disposed");
     }
-    if (this.#rendering) {
+    if (this.#busy) {
       throw new Error("GLTSRenderer cannot render recursively");
     }
-    if (!Number.isFinite(delta) || delta < 0) {
-      throw new RangeError("GLTS render delta must be a non-negative finite number");
-    }
+    assertUndisposed(scene);
+    assertDelta(delta);
     const selectedCamera = camera === undefined ? scene.defaultCamera : camera;
     if (selectedCamera?.isCamera !== true) {
       throw new TypeError(
@@ -58,8 +62,9 @@ export class GLTSRenderer {
       );
     }
     const renderer = this.#renderer;
-    const rendering = scene.rendering;
-    const renderTarget = this.#checkFramebuffer(scene);
+    const profile = scene.rendering;
+    const renderTarget = renderer.getRenderTarget();
+    this.#assertFullFramebuffer(scene);
     this.#resizeCamera(selectedCamera);
 
     const localClippingEnabled = renderer.localClippingEnabled;
@@ -68,24 +73,25 @@ export class GLTSRenderer {
     const shadows = renderer.shadowMap.enabled;
     const toneMapping = renderer.toneMapping;
     const toneMappingExposure = renderer.toneMappingExposure;
-    const shadowChange = shadows !== rendering.shadows;
-    this.#rendering = true;
+    const shadowsChanged = shadows !== profile.shadows;
+    this.#busy = true;
     try {
-      this.#effects.render(scene, selectedCamera, delta, () => {
-        renderer.localClippingEnabled = rendering.localClippingEnabled;
-        renderer.shadowMap.enabled = rendering.shadows;
-        renderer.toneMapping = rendering.toneMapping;
-        renderer.toneMappingExposure = rendering.toneMappingExposure;
-        if (shadowChange) invalidateMaterials(scene);
-      });
+      // Factories observe host state before the profile is applied.
+      const passes = this.#effects.prepare(scene, selectedCamera);
+      renderer.localClippingEnabled = profile.localClippingEnabled;
+      renderer.shadowMap.enabled = profile.shadows;
+      renderer.toneMapping = profile.toneMapping;
+      renderer.toneMappingExposure = profile.toneMappingExposure;
+      if (shadowsChanged) markMaterialsForUpdate(scene);
+      this.#effects.render(scene, selectedCamera, passes, delta);
     } finally {
       renderer.setRenderTarget(renderTarget, activeCubeFace, activeMipmapLevel);
       renderer.localClippingEnabled = localClippingEnabled;
       renderer.shadowMap.enabled = shadows;
       renderer.toneMapping = toneMapping;
       renderer.toneMappingExposure = toneMappingExposure;
-      if (shadowChange) invalidateMaterials(scene);
-      this.#rendering = false;
+      if (shadowsChanged) markMaterialsForUpdate(scene);
+      this.#busy = false;
     }
   }
 
@@ -115,37 +121,27 @@ export class GLTSRenderer {
     camera.updateProjectionMatrix();
   }
 
-  #checkFramebuffer(scene: GLTSScene) {
+  /** Throws unless effects and tone mapping, which composite the whole canvas, can render `scene`. */
+  #assertFullFramebuffer(scene: GLTSScene): void {
+    const { effects, toneMapping } = scene.rendering;
+    if (effects.length === 0 && toneMapping === THREE.NoToneMapping) return;
     const renderer = this.#renderer;
-    const rendering = scene.rendering;
-    const renderTarget = renderer.getRenderTarget();
-    const needsOutput =
-      rendering.effects.length > 0 ||
-      rendering.toneMapping !== THREE.NoToneMapping;
-    if (renderTarget && needsOutput) {
-      throw new Error(
-        "GLTS effects and tone mapping require the default WebGL framebuffer"
-      );
+    if (renderer.getRenderTarget()) {
+      throw new Error("GLTS effects and tone mapping require the default WebGL framebuffer");
     }
-    if (needsOutput) {
-      const size = renderer.getSize(this.#size);
-      const viewport = renderer.getViewport(this.#viewport);
-      if (
-        renderer.getScissorTest() ||
-        viewport.x !== 0 ||
-        viewport.y !== 0 ||
-        viewport.z !== size.width ||
-        viewport.w !== size.height
-      ) {
-        throw new Error(
-          "GLTS effects and tone mapping require a full viewport with scissor testing disabled"
-        );
-      }
-      // A previous render target can leave Three's current viewport stale.
-      renderer.setViewport(viewport);
+    const size = renderer.getSize(this.#size);
+    const viewport = renderer.getViewport(this.#viewport);
+    if (
+      renderer.getScissorTest() ||
+      viewport.x !== 0 ||
+      viewport.y !== 0 ||
+      viewport.z !== size.width ||
+      viewport.w !== size.height
+    ) {
+      throw new Error("GLTS effects and tone mapping require a full viewport with scissor testing disabled");
     }
-
-    return renderTarget;
+    // A previous render target can leave Three's current viewport stale.
+    renderer.setViewport(viewport);
   }
 
   dispose(): void {

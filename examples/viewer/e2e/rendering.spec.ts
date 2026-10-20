@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-import { routeGLTS, routeGLTSRevisions } from "./routes.js";
+import { routeScript, routeScriptRevisions } from "./routes.js";
 
 test("applies authored rendering while preserving host renderer settings", async ({
   page
 }) => {
-  await routeGLTS(page, "**/assets/rendering.glts", `
+  await routeScript(page, "**/assets/rendering.glts", `
     import * as THREE from "three"
     import { scene } from "@drawcall/glts"
     import { Pass } from "three/addons/postprocessing/Pass.js"
@@ -252,7 +252,7 @@ test("applies authored rendering while preserving host renderer settings", async
 });
 
 test("reloads native scene presentation into the stable root", async ({ page }) => {
-  await routeGLTSRevisions(page, "**/assets/presentation.glts", [
+  await routeScriptRevisions(page, "**/assets/presentation.glts", [
     `
       import * as THREE from "three"
       import { scene } from "@drawcall/glts"
@@ -341,8 +341,8 @@ test("rebuilds effects after reload, recovers after a pass throws, and frees the
     }
     scene.rendering.effects.push(globalThis.__stableEffectFactory)
   `;
-  await routeGLTSRevisions(page, "**/assets/stable-effect.glts", [source, source]);
-  await routeGLTS(page, "**/assets/invalid-effect.glts", `
+  await routeScriptRevisions(page, "**/assets/stable-effect.glts", [source, source]);
+  await routeScript(page, "**/assets/invalid-effect.glts", `
     import { scene } from "@drawcall/glts"
     scene.rendering.effects.push(() => null)
   `);
@@ -378,6 +378,14 @@ test("rebuilds effects after reload, recovers after a pass throws, and frees the
     };
     scene.dispose();
     const finalDisposals = Reflect.get(globalThis, "__stableEffectDisposals");
+    // Without effects, a disposed node still fails to render.
+    scene.rendering.effects = [];
+    let disposedError = "";
+    try {
+      gltsRenderer.render(scene, camera);
+    } catch (error) {
+      disposedError = error instanceof Error ? error.message : String(error);
+    }
 
     const invalid = await loader.loadAsync("/assets/invalid-effect.glts");
     let invalidError = "";
@@ -390,7 +398,7 @@ test("rebuilds effects after reload, recovers after a pass throws, and frees the
     gltsRenderer.dispose();
     loader.dispose();
     renderer.dispose();
-    return { ...snapshot, finalDisposals, invalidError };
+    return { ...snapshot, disposedError, finalDisposals, invalidError };
   });
 
   expect(result).toEqual({
@@ -398,6 +406,7 @@ test("rebuilds effects after reload, recovers after a pass throws, and frees the
     creations: 2,
     deltas: [0.1, 0.1, 0.1],
     disposals: 1,
+    disposedError: expect.stringContaining("GLTS node has been disposed"),
     finalDisposals: 2,
     firstError: "probe effect failed",
     invalidError: "GLTS effect factories must return a Three.js Pass"
@@ -406,7 +415,7 @@ test("rebuilds effects after reload, recovers after a pass throws, and frees the
 
 
 test("sizes camera projection to the active viewport", async ({ page }) => {
-  await routeGLTS(page, "**/assets/projection.glts", `
+  await routeScript(page, "**/assets/projection.glts", `
     import * as THREE from "three"
     import { scene } from "@drawcall/glts"
     scene.defaultCamera = new THREE.PerspectiveCamera(50, 1.7, 0.2, 200)
@@ -420,30 +429,30 @@ test("sizes camera projection to the active viewport", async ({ page }) => {
     const scene = await loader.loadAsync("/assets/projection.glts");
     const camera = scene.defaultCamera;
     if (!(camera instanceof window.PerspectiveCamera)) throw new Error("Expected perspective camera");
-    const pipeline = new window.GLTSRenderer(renderer);
+    const gltsRenderer = new window.GLTSRenderer(renderer);
     const target = new window.WebGLRenderTarget(96, 32);
     try {
-      pipeline.render(scene);
+      gltsRenderer.render(scene);
       const landscape = camera.aspect;
       renderer.setSize(160, 320, false);
-      pipeline.render(scene);
+      gltsRenderer.render(scene);
       const portrait = camera.aspect;
       const ortho = new window.OrthographicCamera(1, 5, 6, -2, 0.1, 100);
       ortho.zoom = 1.7;
-      pipeline.render(scene, ortho);
+      gltsRenderer.render(scene, ortho);
       const narrow = [ortho.left, ortho.right];
       renderer.setViewport(0, 0, 120, 120);
-      pipeline.render(scene, ortho);
+      gltsRenderer.render(scene, ortho);
       const square = [ortho.left, ortho.right, ortho.top, ortho.bottom, ortho.zoom];
       renderer.setRenderTarget(target);
-      pipeline.render(scene);
+      gltsRenderer.render(scene);
       const targetAspect = camera.aspect;
       renderer.setViewport(0, 0, 20, 40);
-      pipeline.render(scene);
+      gltsRenderer.render(scene);
       return { landscape, portrait, narrow, square, target: targetAspect, targetViewport: camera.aspect, lens: [camera.fov, camera.near, camera.far] };
     } finally {
       renderer.setRenderTarget(null);
-      pipeline.dispose();
+      gltsRenderer.dispose();
       loader.dispose();
       target.dispose();
       renderer.dispose();

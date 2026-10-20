@@ -58,7 +58,7 @@ it("runs the packaged commands through npx @drawcall/glts", async () => {
   expect((await readFile(join(project, "npx.glb"))).subarray(0, 4).toString()).toBe("glTF");
 }, 30_000);
 
-it("renders single-quoted assets/helpers, frames views at a simulation time, and isolates nested meshes", async () => {
+it("renders single-quoted scripts/helpers, frames views at a simulation time, and isolates nested meshes", async () => {
   await run("render", "asset.glts", "-o", "hero.png", "--size", "64");
   expect(await sharp(join(project, "hero.png")).metadata()).toMatchObject({ width: 64, height: 64, format: "png" });
   await run("render", "asset.glts", "-o", "sheet.png", "--size", "64", "--time", "0.5", "--views", JSON.stringify([[{camera:"+z", isolate:"detail"}, {camera:"persp", focus:{center:[.5,0,.75], radius:.5}, title:"Region"}]]));
@@ -89,13 +89,13 @@ it("reports invalid views and load failures without replacing an existing output
   const output = join(project, "existing.png");
   await writeFile(output, "original");
   await expect(run("render", "asset.glts", "-o", "existing.png", "--views", '[[{"camera":"front"}]]')).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("View camera must be") });
-  await expect(run("render", "missing.glts", "-o", "existing.png")).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("Unable to fetch source") });
+  await expect(run("render", "missing.glts", "-o", "existing.png")).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("Request failed with 404") });
   expect(await readFile(output, "utf8")).toBe("original");
   await writeFile(join(project, "broken.glts"), "import {scene,onDispose} from '@drawcall/glts'; import {Mesh,ShaderMaterial} from 'three'; scene.add(new Mesh(undefined,new ShaderMaterial())); onDispose(()=>{throw new Error('cleanup failed')});");
   await expect(run("export", "broken.glts", "-o", "broken.glb")).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("Cannot export ShaderMaterial") });
 });
 
-it("keeps native dependencies outside browser builds of the package root", async () => {
+it("keeps native packages outside browser builds of the package root", async () => {
   await writeFile(join(project, "browser.js"), `export { GLTSLoader } from ${JSON.stringify(join(packageDir, "src/index.ts"))};`);
   const modules: string[] = [];
   await build({ configFile: false, logLevel: "silent", root: project, plugins: [{ name:"check-modules", moduleParsed(info) { modules.push(info.id); } }], build: { write: false, lib: { entry: join(project, "browser.js"), formats: ["es"] }, minify: false } });

@@ -7,7 +7,7 @@ import { build } from "vite";
 import { afterAll, beforeAll, expect, it } from "vitest";
 
 import { glts } from "../../src/vite/index.js";
-import { get, linkThree, writeFiles } from "./fixture.js";
+import { get, symlinkThree, writeFiles } from "./fixture.js";
 
 const cdnFiles: Readonly<Record<string, string>> = {
   "/y": `export * from "/y@1.0.0/es2022/y.mjs";`,
@@ -59,7 +59,7 @@ beforeAll(async () => {
     ].join("\n"),
     "web/main.js": `export { default } from "virtual:glts-modules";`,
   });
-  await linkThree(temp);
+  await symlinkThree(temp);
   await build({
     configFile: false,
     logLevel: "silent",

@@ -9,6 +9,8 @@ import {
   onFrame,
   isPreview,
   scene,
+  type GLTSEffect,
+  type GLTSEffectContext,
   type GLTSInstances,
   type GLTSRenderingProfile,
   type GLTSScene
@@ -26,6 +28,7 @@ it("exports the host and contextual script APIs", () => {
     .toEqualTypeOf<THREE.Camera | undefined>();
   expectTypeOf<GLTSScene["rendering"]>()
     .toEqualTypeOf<GLTSRenderingProfile>();
+  expectTypeOf<Parameters<GLTSEffect>[0]>().toEqualTypeOf<GLTSEffectContext>();
   expectTypeOf<ReturnType<GLTSInstances["getMatrixAt"]>>()
     .toEqualTypeOf<THREE.Matrix4>();
   expectTypeOf<ReturnType<GLTSInstances["setMatrixAt"]>>()

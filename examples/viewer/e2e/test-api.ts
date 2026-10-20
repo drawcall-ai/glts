@@ -1,4 +1,6 @@
-import { GLTSLoader, GLTSRenderer } from "@drawcall/glts";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+import { getGLTSContext, GLTSLoader, GLTSRenderer } from "@drawcall/glts";
 import {
   ArrayCamera,
   Group,
@@ -22,6 +24,8 @@ function readErrorField(error: unknown, key: PropertyKey): unknown {
 declare global {
   interface Window {
     readonly ArrayCamera: typeof ArrayCamera;
+    readonly getGLTSContext: typeof getGLTSContext;
+    readonly GLTFLoader: typeof GLTFLoader;
     readonly GLTSLoader: typeof GLTSLoader;
     readonly GLTSRenderer: typeof GLTSRenderer;
     readonly Group: typeof Group;
@@ -42,6 +46,8 @@ declare global {
 
 Object.defineProperties(window, {
   ArrayCamera: { value: ArrayCamera },
+  getGLTSContext: { value: getGLTSContext },
+  GLTFLoader: { value: GLTFLoader },
   GLTSLoader: { value: GLTSLoader },
   GLTSRenderer: { value: GLTSRenderer },
   Group: { value: Group },

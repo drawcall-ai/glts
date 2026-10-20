@@ -17,7 +17,8 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 }
   },
   webServer: {
-    command: `pnpm --filter @drawcall/glts-example-viewer dev --host 127.0.0.1 --port ${port} --strictPort`,
+    // --force: Vite's prebundle cache would otherwise keep serving the GLTS build it first saw.
+    command: `pnpm --filter @drawcall/glts-example-viewer dev --host 127.0.0.1 --port ${port} --strictPort --force`,
     url: baseURL,
     reuseExistingServer: false,
     timeout: 30_000

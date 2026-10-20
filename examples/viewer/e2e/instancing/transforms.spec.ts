@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 
-import { routeGLTS } from "../routes.js";
+import { routeScript } from "../routes.js";
 
 test("protects stored matrices from native callbacks", async ({ page }) => {
-  await routeGLTS(page, "**/assets/mutating-native.glts", `
+  await routeScript(page, "**/assets/mutating-native.glts", `
     import { onMatrixUpdateAt } from "@drawcall/glts"
     onMatrixUpdateAt((_index, matrix) => {
       matrix.elements[12] += 100
@@ -27,7 +27,7 @@ test("protects stored matrices from native callbacks", async ({ page }) => {
 });
 
 test("preserves ancestor visibility during automatic instancing", async ({ page }) => {
-  await routeGLTS(page, "**/assets/hidden-automatic.glts", `
+  await routeScript(page, "**/assets/hidden-automatic.glts", `
     import * as THREE from "three"
     import { scene } from "@drawcall/glts"
     const hidden = new THREE.Group()

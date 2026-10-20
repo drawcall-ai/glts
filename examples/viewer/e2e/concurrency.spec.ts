@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 import { deferred } from "./deferred.js";
-import { fulfillGLTS, routeGLTS, routeGLTSRevisions } from "./routes.js";
+import { fulfillScript, routeScript, routeScriptRevisions } from "./routes.js";
 
 test("completes concurrent loads of the same URL", async ({ page }) => {
-  await routeGLTS(page, "**/assets/concurrent.glts", `
+  await routeScript(page, "**/assets/concurrent.glts", `
     import { scene } from "@drawcall/glts"
     scene.name = "concurrent"
   `);
@@ -39,7 +39,7 @@ test("loads the active revision after an overlapping reload", async ({ page }) =
       reloadRequested.resolve();
       await releaseReload.promise;
     }
-    await fulfillGLTS(route, `
+    await fulfillScript(route, `
       import { scene } from "@drawcall/glts"
       scene.name = ${JSON.stringify(revision)}
     `);
@@ -75,7 +75,7 @@ test("loads the active revision after an overlapping reload", async ({ page }) =
 });
 
 test("keeps a host load behind a cross-URL queued reload", async ({ page }) => {
-  await routeGLTSRevisions(page, "**/assets/queued-target.glts", [
+  await routeScriptRevisions(page, "**/assets/queued-target.glts", [
     'import { scene } from "@drawcall/glts"; scene.name = "first"',
     'import { scene } from "@drawcall/glts"; scene.name = "second"'
   ]);
@@ -88,7 +88,7 @@ test("keeps a host load behind a cross-URL queued reload", async ({ page }) => {
       blockerRequested.resolve();
       await releaseBlocker.promise;
     }
-    await fulfillGLTS(route, 'import { scene } from "@drawcall/glts"');
+    await fulfillScript(route, 'import { scene } from "@drawcall/glts"');
   });
 
   await page.goto("/test-harness.html");
@@ -127,12 +127,12 @@ test("keeps a host load behind a cross-URL queued reload", async ({ page }) => {
   expect(name).toBe("second");
 });
 
-test("rejects concurrent cyclic roots instead of deadlocking", async ({ page }) => {
-  await routeGLTS(page, "**/assets/cycle-a.glts", `
+test("rejects concurrent host loads of cyclic nested scripts instead of deadlocking", async ({ page }) => {
+  await routeScript(page, "**/assets/cycle-a.glts", `
     import { gltsLoader, scene } from "@drawcall/glts"
     scene.add(await gltsLoader.loadAsync(new URL("./cycle-b.glts", import.meta.url)))
   `);
-  await routeGLTS(page, "**/assets/cycle-b.glts", `
+  await routeScript(page, "**/assets/cycle-b.glts", `
     import { gltsLoader, scene } from "@drawcall/glts"
     scene.add(await gltsLoader.loadAsync(new URL("./cycle-a.glts", import.meta.url)))
   `);
@@ -158,17 +158,20 @@ test("rejects concurrent cyclic roots instead of deadlocking", async ({ page }) 
 });
 
 test("serializes mutually recursive reloads without deadlocking", async ({ page }) => {
-  await routeGLTSRevisions(page, "**/assets/reload-cycle-a.glts", [
+  const a2 = `
+    import { gltsLoader, scene } from "@drawcall/glts"
+    scene.name = "a2"
+    scene.add(await gltsLoader.loadAsync(
+      new URL("./reload-cycle-b.glts", import.meta.url),
+    ))
+  `;
+  // The failed reload of a invalidates its source, so the reload of b fetches it again.
+  await routeScriptRevisions(page, "**/assets/reload-cycle-a.glts", [
     'import { scene } from "@drawcall/glts"; scene.name = "a1"',
-    `
-      import { gltsLoader, scene } from "@drawcall/glts"
-      scene.name = "a2"
-      scene.add(await gltsLoader.loadAsync(
-        new URL("./reload-cycle-b.glts", import.meta.url),
-      ))
-    `
+    a2,
+    a2
   ]);
-  await routeGLTSRevisions(page, "**/assets/reload-cycle-b.glts", [
+  await routeScriptRevisions(page, "**/assets/reload-cycle-b.glts", [
     'import { scene } from "@drawcall/glts"; scene.name = "b1"',
     `
       import { gltsLoader, scene } from "@drawcall/glts"
@@ -202,12 +205,11 @@ test("serializes mutually recursive reloads without deadlocking", async ({ page 
     return result;
   });
 
-  expect(statuses).not.toEqual(["timeout"]);
-  expect(statuses).toContain("rejected");
+  expect(statuses).toEqual(["rejected", "rejected"]);
 });
 
 test("does not deadlock a mutually recursive load and reload", async ({ page }) => {
-  await routeGLTSRevisions(page, "**/assets/mixed-cycle-a.glts", [
+  await routeScriptRevisions(page, "**/assets/mixed-cycle-a.glts", [
     'import { scene } from "@drawcall/glts"; scene.name = "a1"',
     `
       import { gltsLoader, scene } from "@drawcall/glts"
@@ -218,7 +220,7 @@ test("does not deadlock a mutually recursive load and reload", async ({ page }) 
     // The failed reload invalidated a's source, so b's nested load fetches it again.
     'import { scene } from "@drawcall/glts"; scene.name = "a3"'
   ]);
-  await routeGLTS(page, "**/assets/mixed-cycle-b.glts", `
+  await routeScript(page, "**/assets/mixed-cycle-b.glts", `
     import { gltsLoader, scene } from "@drawcall/glts"
     scene.add(await gltsLoader.loadAsync(
       new URL("./mixed-cycle-a.glts", import.meta.url),

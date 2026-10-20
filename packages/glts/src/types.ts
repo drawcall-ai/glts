@@ -1,12 +1,15 @@
 import type * as THREE from "three";
-import type { GLTSScriptScene } from "./scene/root.js";
+import type { Pass } from "three/addons/postprocessing/Pass.js";
 
 export type GLTSURL = string | URL;
 
 /** Host namespaces by exact bare specifier, imported by scripts instead of the CDN. */
 export type GLTSModules = Readonly<Record<string, object>>;
 
-/** Resolves a bare specifier to a URL the host can import, such as the host's `import.meta.resolve`. */
+/**
+ * Resolves a bare specifier to a specifier or URL the host's `import()` resolves, such as with the host's
+ * `import.meta.resolve`; linked modules import what it returns natively.
+ */
 export type GLTSResolve = (specifier: string) => string;
 
 export interface GLTSLoaderOptions {
@@ -15,6 +18,35 @@ export interface GLTSLoaderOptions {
   modules?: GLTSModules;
   resolve?: GLTSResolve;
 }
+
+export interface GLTSEffectContext {
+  readonly camera: THREE.Camera;
+  readonly height: number;
+  readonly scene: GLTSScriptScene;
+  readonly width: number;
+}
+
+export type GLTSEffect = (context: GLTSEffectContext) => Pass;
+
+/** How GLTSRenderer configures the renderer for a scene. */
+export interface GLTSRenderingProfile {
+  effects: GLTSEffect[];
+  localClippingEnabled: boolean;
+  shadows: boolean;
+  toneMapping: THREE.ToneMapping;
+  toneMappingExposure: number;
+}
+
+/** What a script's root adds to a THREE.Scene. */
+export interface RootState {
+  defaultCamera: THREE.Camera | undefined;
+  readonly rendering: GLTSRenderingProfile;
+}
+
+/** The `scene` scripts build, whose `clone()` makes a plain scene. */
+export type GLTSScriptScene = Omit<THREE.Scene, "clone"> & RootState & {
+  clone(recursive?: boolean): THREE.Scene;
+};
 
 interface GLTSSceneMethods {
   readonly url: string;
@@ -57,11 +89,23 @@ export type GLTSMatrixUpdateCallback = (
 
 export type GLTSFrameCallback = (delta: number) => void;
 export type GLTSDisposeCallback = () => void;
-export type GLTSLoadCallback = (scene: GLTSScene) => void;
-export type GLTSProgressCallback = (event: ProgressEvent<EventTarget>) => void;
-export type GLTSErrorCallback = (error: unknown) => void;
 
-export interface GLTSScriptLoader {
+export interface GLTSContextLoader {
   loadAsync(url: GLTSURL): Promise<GLTSScene>;
   loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances>;
+}
+
+/** The capabilities of one script execution, returned by the exposed but undocumented `getGLTSContext()`. */
+export interface GLTSContext {
+  readonly url: string;
+  /** Observed helper files, nested scripts, and resources requested through `loadingManager`; a frozen snapshot on each read. */
+  readonly dependencies: readonly string[];
+  readonly gltsLoader: GLTSContextLoader;
+  readonly instanceCount: number;
+  readonly loadingManager: THREE.LoadingManager;
+  readonly onDispose: (callback: GLTSDisposeCallback) => void;
+  readonly onFrame: (callback: GLTSFrameCallback) => void;
+  readonly onMatrixUpdateAt: (callback: GLTSMatrixUpdateCallback) => void;
+  readonly isPreview: boolean;
+  readonly scene: GLTSScriptScene;
 }

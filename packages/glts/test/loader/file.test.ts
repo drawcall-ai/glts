@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import MagicString from "magic-string";
+import { init } from "es-module-lexer";
 import { LoadingManager, Mesh } from "three";
 import { expect, it } from "vitest";
 
@@ -52,14 +52,14 @@ it("imports bare specifiers through the host's resolve, sharing its instances, a
   const directory = await mkdtemp(join(tmpdir(), "glts-"));
   const url = (name: string): URL => pathToFileURL(join(directory, name));
   await writeFile(url("scene.glts"), `
-    import MagicString from "magic-string";
+    import { init } from "es-module-lexer";
     import { scene } from "@drawcall/glts";
-    scene.userData.MagicString = MagicString;
+    scene.userData.init = init;
   `);
   await writeFile(url("missing.glts"), 'import "glts-missing-package";');
   const loader = new GLTSLoader(new LoadingManager(), { resolve: import.meta.resolve });
   try {
-    expect((await loader.loadAsync(url("scene.glts"))).userData.MagicString).toBe(MagicString);
+    expect((await loader.loadAsync(url("scene.glts"))).userData.init).toBe(init);
     await expect(loader.loadAsync(url("missing.glts"))).rejects.toMatchObject({ phase: "resolve" });
   } finally {
     loader.dispose();
@@ -79,8 +79,8 @@ it("resolves dynamic imports when they run, like static ones, and tracks the hel
     scene.userData.parent = (await parent.load()) === parent;
     const missing = () => import("glts-missing-package");
     scene.name = (await import("./name.ts")).name;
-    scene.userData.MagicString = (await import("magic-" + "string")).default;
-    scene.userData.context = await import("@drawcall/glts").then(() => "", (error) => error.cause.message);
+    scene.userData.init = (await import("es-module-" + "lexer")).init;
+    scene.userData.context = await import("@drawcall/glts").then(() => "", (error) => error.message);
     scene.userData.load = () => import("./name.ts");
     scene.userData.missing = await import("./missing.ts").then(() => "", (error) => error.message);
   `);
@@ -89,8 +89,11 @@ it("resolves dynamic imports when they run, like static ones, and tracks the hel
     const scene = await loader.loadAsync(url("scene.glts"));
     expect(scene.name).toBe("first");
     expect(scene.userData.parent).toBe(true);
-    expect(scene.userData.missing).toContain(`[GLTS:resolve] Unable to import ./missing.ts\nURL: ${url("scene.glts").href}`);
-    expect(scene.userData.MagicString).toBe(MagicString);
+    expect(scene.userData.missing).toMatch(/^\[GLTS:fetch\] Request failed with 404/);
+    expect(scene.userData.missing).toContain(
+      `URL: ${url("missing.ts").href}\nImport chain: ${url("scene.glts").href} -> ${url("missing.ts").href}`,
+    );
+    expect(scene.userData.init).toBe(init);
     expect(scene.userData.context).toContain("Dynamic imports cannot bind @drawcall/glts");
 
     await writeFile(url("name.ts"), 'export const name = "second";');

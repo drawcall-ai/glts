@@ -101,7 +101,8 @@ When the asset is nested, its background, environment, fog, override material, d
 
 ## Resources and cleanup
 
-- Pass the contextual `loadingManager` to every Three.js loader during evaluation. GLTS waits for every request reported through it, including loads you did not await, and fails the load if one fails.
+- Use top-level `await` for asynchronous work the asset depends on, including resource loads and async helpers, so the script finishes with the asset ready. Prefer Three.js `loadAsync()`; use `await Promise.all(...)` for independent loads.
+- Pass the contextual `loadingManager` to every Three.js loader during evaluation. It tracks resources but does not replace awaiting their completion; unawaited callbacks or background tasks can leave the asset unfinished when the script returns.
 - Loading closes when evaluation finishes: never start loads from `onFrame`, `onMatrixUpdateAt`, effect factories, timers, or event callbacks.
 - Three.js loaders resolve relative URLs against the page; resolve them against the script instead: `new URL("./bark.png", import.meta.url).href`.
 - Register LoadingManager handlers (`addHandler`) on the contextual `loadingManager`, with handler loaders constructed with it. A handler registered only on the host's manager makes the load fail.
@@ -139,7 +140,7 @@ onDispose(() => {
 - A helper may export anything and import what a script can, including other helpers.
 - Helpers cannot import runtime values from `@drawcall/glts`; types are fine. Pass what a helper needs, such as `loadingManager`, from the script.
 - A helper has no `onDispose`. Return what it creates and dispose it in the script.
-- Keep no module-level state in helpers; it outlives disposal and is not shared between scripts.
+- Keep no module-level state in helpers: a loader runs each helper once, so its state is shared by every script the loader runs and outlives their disposal.
 - `import.meta.url` in a helper is the helper's own URL.
 - Cyclic helper imports fail.
 - An asset is its `.glts` file plus the helpers and files it references. Copy them together.
@@ -219,7 +220,7 @@ loader.dispose() // also disposes every scene it loaded
 ```
 
 - `load()` (Three.js callback style), `loadAsync()`, `loadInstancesAsync()`, and `reload()` take a string or `URL`. Strings resolve against `loader.path` and then the page's `document.baseURI`; the manager's URL modifier applies. Without a page, pass absolute URLs.
-- In Node.js 22.3 or later, load scripts from disk with `file:` URLs, such as `pathToFileURL("scene.glts")`; their helpers and nested scripts are read from disk too, and `reload()` re-reads them.
+- In Node.js, load scripts from disk with `file:` URLs, such as `pathToFileURL("scene.glts")`; their helpers and nested scripts are read from disk too, and `reload()` of an edited file re-reads it. Resources that scripts load with Three.js loaders go through the global `fetch`, which in Node.js does not read `file:` URLs; install one that does to load them from disk.
 - Per-load progress callbacks are rejected. Track progress with `manager.onProgress`; nested scripts and their resources report through the same manager.
 - `setRequestHeader()` and `setWithCredentials()` apply to script and package requests.
 - Serve cross-origin scripts and packages with CORS, and allow `data:` ES modules in the page's CSP.
@@ -243,7 +244,7 @@ Options, `new GLTSLoader(manager, options)`:
 | `isPreview` | `false` | Value of `isPreview` for scripts this loader's `loadAsync()` loads directly. |
 | `modules` | `{}` | Host packages scripts import instead of the CDN (see Packages). |
 | `cdnURL` | `https://esm.sh/` | Where scripts' other packages come from. |
-| `resolve` | none | Resolves bare imports to URLs the app imports natively, such as `import.meta.resolve` (see Packages). |
+| `resolve` | none | Resolves bare imports to a specifier or URL the app's `import()` resolves natively, such as `import.meta.resolve` (see Packages). |
 
 ## Instances
 
@@ -260,7 +261,7 @@ The result is a `GLTSInstances` with a fixed `count`, `getMatrixAt(index, target
 
 ## Reload and errors
 
-- `loader.reload(url)` invalidates the cached source and reloads every undisposed node loaded from that URL; with none, it fetches nothing and the next load gets fresh source. Pending loads of that URL finish first. For a helper's URL, it does the same for every script that imports the helper, directly or through other helpers.
+- `loader.reload(url)` invalidates the cached source and reloads every undisposed node loaded from that URL; with none, it fetches nothing and the next load gets fresh source. Pending loads of that URL finish first. For a helper's URL, it also re-reads the helpers importing it and does the same for every script that imports the helper, directly or through other helpers.
 - A reload builds the replacement before touching the live node. Any failure leaves the current content in place.
 - A reload keeps the node's identity, host transform, and instance matrices, and refreshes its root properties, `defaultCamera`, and `rendering`.
 - A reload replaces the asset's children; look them up again instead of keeping references.
@@ -326,12 +327,13 @@ import { glts } from "@drawcall/glts/vite"
 export default defineConfig({ plugins: [glts()] })
 ```
 
-Needs `vite` 6 or later and Node.js 22.17 or later. It works on the `.glts` files in Vite's public directory, which the app loads by their served URL (for example `public/tree.glts` as `/tree.glts`).
+Needs `vite` 6 or later and Node.js 22.18+ or 24.11+. It works on the `.glts` files in Vite's public directory, which the app loads by their served URL (for example `public/tree.glts` as `/tree.glts`).
 
 - Every `GLTSLoader` in the app receives, as `modules`, the packages those scripts and their helpers import; the app's own `modules` entries take precedence.
 - `three` and packages in the `dependencies` or `devDependencies` of the app's nearest `package.json` are the app's own instances.
 - Other packages, and versioned imports such as `pkg@2`, are fetched from the CDN during development and builds and bundled with the app. Each package that scripts import or the app declares exists once.
 - Every loader gets the plugin's `cdnURL` option (default `https://esm.sh/`) as its default `cdnURL`. Scripts outside the public directory and `https://` imports still load packages at runtime.
+- Keep helpers in the public directory too; a helper import that leaves it fails the dev server's check and the build, since the app does not serve it as source.
 - Editing or creating a public script or helper hot reloads the nodes loaded from it; changing which packages scripts import reloads the page.
 
 Type checking: the plugin type checks the public `.glts` files and their helpers strictly, independently of the app's `tsconfig.json`, using the app's `typescript` 5 or 6; install it as a dev dependency, or `vite build` fails.

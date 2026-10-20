@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { routeGLTS, routeGLTSRevisions } from "../routes.js";
+import { routeScript, routeScriptRevisions } from "../routes.js";
 
 test("executes native instancing once and preserves matrices across reload", async ({ page }) => {
   const source = (revision: string) => `
@@ -29,7 +29,7 @@ test("executes native instancing once and preserves matrices across reload", asy
       globalThis.__instanceDisposals = (globalThis.__instanceDisposals ?? 0) + 1
     })
   `;
-  await routeGLTSRevisions(page, "**/assets/native.glts", [
+  await routeScriptRevisions(page, "**/assets/native.glts", [
     source("first"),
     source("second")
   ]);
@@ -85,7 +85,7 @@ test("executes native instancing once and preserves matrices across reload", asy
 });
 
 test("automatically instances an ordinary mesh hierarchy", async ({ page }) => {
-  await routeGLTS(page, "**/assets/automatic.glts", `
+  await routeScript(page, "**/assets/automatic.glts", `
     import * as THREE from "three"
     import { scene } from "@drawcall/glts"
     const mesh = new THREE.Mesh(
@@ -133,7 +133,7 @@ test("automatically instances an ordinary mesh hierarchy", async ({ page }) => {
 });
 
 test("attempts every automatic target disposal after one fails", async ({ page }) => {
-  await routeGLTS(page, "**/assets/disposal.glts", `
+  await routeScript(page, "**/assets/disposal.glts", `
     import * as THREE from "three"
     import { scene } from "@drawcall/glts"
     scene.add(
@@ -176,13 +176,13 @@ test("attempts every automatic target disposal after one fails", async ({ page }
 });
 
 test("rejects automatic instancing of composed GLTS scenes", async ({ page }) => {
-  await routeGLTS(page, "**/assets/composed-child.glts", `
+  await routeScript(page, "**/assets/composed-child.glts", `
     import * as THREE from "three"
     import { onDispose, scene } from "@drawcall/glts"
     scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()))
     onDispose(() => { globalThis.__composedChildDisposals = 1 })
   `);
-  await routeGLTS(page, "**/assets/composed-parent.glts", `
+  await routeScript(page, "**/assets/composed-parent.glts", `
     import { gltsLoader, scene } from "@drawcall/glts"
     scene.add(await gltsLoader.loadAsync(new URL("./composed-child.glts", import.meta.url)))
   `);
