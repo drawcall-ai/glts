@@ -18,7 +18,11 @@ export default defineConfig({
     launchOptions: {
       args: [
         "--enable-gpu", "--ignore-gpu-blocklist", "--enable-unsafe-webgpu",
-        ...(process.platform === "linux" ? ["--use-webgpu-adapter=swiftshader"] : [])
+        // Headless Linux needs software rendering for both WebGPU and the compositor.
+        ...(process.platform === "linux" ? [
+          "--enable-features=Vulkan", "--use-angle=swiftshader", "--use-vulkan=swiftshader",
+          "--use-webgpu-adapter=swiftshader", "--disable-vulkan-surface"
+        ] : [])
       ]
     }
   },
