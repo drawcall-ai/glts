@@ -80,11 +80,14 @@ export class NodeRegistry {
   add(execution: Execution, request: LoadRequest): Managed {
     const scene: Managed = Object.assign(execution.root, {
       url: request.requestedURL,
+      source: execution.source,
       dispose: (): void => this.#dispose(record),
       update: (delta: number): void => this.#update(recordOf(scene), delta)
     });
     const node = request.instanced ? addInstanceMethods(scene, request.matrices.length) : scene;
     const record: NodeRecord = { ...request, execution, node, disposeListeners: new Set() };
+    // Object.assign gives the node its type; the getter follows replacement executions.
+    Object.defineProperty(node, "source", { get: () => record.execution.source });
     byNode.set(node, record);
     this.#records.add(record);
     return node;

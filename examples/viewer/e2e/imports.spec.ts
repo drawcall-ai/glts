@@ -178,12 +178,12 @@ test("resolves nested URLs against their script while reading current host reque
   ]);
 });
 
-test("releases script state, context, and scene after disposal", async ({ page }) => {
+test("releases script state, source metadata, and scene after disposal", async ({ page }) => {
   await routeScript(page, "**/assets/retained.glts", `
-    import { getGLTSContext, onFrame, scene } from "@drawcall/glts"
+    import { getGLTSSource, onFrame, scene } from "@drawcall/glts"
 
     const state = { elapsed: 0 }
-    globalThis.__retainedState = [state, getGLTSContext(), scene].map(value => new WeakRef(value))
+    globalThis.__retainedState = [state, getGLTSSource(), scene].map(value => new WeakRef(value))
     function advance(delta) {
       state.elapsed += delta
     }
@@ -218,12 +218,12 @@ test("releases script state, context, and scene after disposal", async ({ page }
 test("releases nested scenes, instances, and helper imports across load and dispose cycles", async ({ page }) => {
   const script = (nested: string) => `
     import { uniform } from "three/tsl"
-    import { getGLTSContext, gltsLoader, onDispose, onFrame, onMatrixUpdateAt, scene } from "@drawcall/glts"
+    import { getGLTSSource, gltsLoader, onDispose, onFrame, onMatrixUpdateAt, scene } from "@drawcall/glts"
     import { settle, track } from "./track.ts"
 
     const state = { frames: 0, matrices: [] }
     await settle()
-    track(state, getGLTSContext(), scene)
+    track(state, getGLTSSource(), scene)
     onFrame(() => { state.frames += 1 })
     onDispose(() => { state.frames = -1 })
     ${nested}
@@ -245,12 +245,12 @@ test("releases nested scenes, instances, and helper imports across load and disp
     "/assets/leak/failing.glts": script(`throw new Error("expected failure")`),
     "/assets/leak/mesh.glts": `
       import * as THREE from "three"
-      import { getGLTSContext, scene } from "@drawcall/glts"
+      import { getGLTSSource, scene } from "@drawcall/glts"
       import { track } from "./track.ts"
 
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial())
       scene.add(mesh)
-      track(mesh, getGLTSContext(), scene)
+      track(mesh, getGLTSSource(), scene)
     `,
     "/assets/leak/track.ts": `
       export async function settle(): Promise<void> {
@@ -307,7 +307,7 @@ test("releases nested scenes, instances, and helper imports across load and disp
       return reference.deref() !== undefined;
     });
   });
-  // Per cycle: state, context, and scene of three scripts loaded and then reloaded, of a failing script and
+  // Per cycle: state, source metadata, and scene of three scripts loaded and then reloaded, of a failing script and
   // its parent, and of an automatically instanced mesh's script, plus one effect node.
   expect(retained).toHaveLength(4 * (3 * 3 * 2 + 3 * 2 + 3 + 1));
   expect(retained.flatMap((value, index) => value ? [index] : [])).toEqual([]);
@@ -326,7 +326,7 @@ test("host modules see the calling execution across concurrent script awaits", a
   await page.goto("/test-harness.html");
   const result = await page.evaluate(async () => {
     const loader = new window.GLTSLoader(new window.LoadingManager(), {
-      modules: { library: { capture: () => window.getGLTSContext().url } },
+      modules: { library: { capture: () => window.getGLTSSource().url } },
     });
     const scenes = await Promise.all([
       loader.loadAsync("/assets/scope-a.glts"),
@@ -334,7 +334,7 @@ test("host modules see the calling execution across concurrent script awaits", a
     ]);
     for (const scene of scenes) scene.update(0.1);
     let outside = "";
-    try { window.getGLTSContext(); } catch (error) {
+    try { window.getGLTSSource(); } catch (error) {
       if (!(error instanceof Error)) throw error;
       outside = error.message;
     }

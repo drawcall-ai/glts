@@ -60,9 +60,23 @@ export type GLTSScriptScene = Omit<THREE.Scene, "clone"> & RootState & {
   clone(recursive?: boolean): THREE.Scene;
 };
 
-interface GLTSSceneMethods {
-  /** Resolved source URL. */
+/** Source files observed by one script run, shared by getGLTSSource() and the loaded scene's source. */
+export interface GLTSSource {
+  /** Script source URL after redirects. */
   readonly url: string;
+  /**
+   * URLs observed so far for helpers, nested scripts, and resources requested through the script's
+   * loadingManager, transitively. Each read returns a frozen, sorted snapshot, following nested reloads.
+   * Excludes this script's own URLs, packages, and requests outside that manager.
+   */
+  readonly dependencyUrls: readonly string[];
+}
+
+interface GLTSSceneMethods {
+  /** Resolved URL originally requested from the loader, before redirects. */
+  readonly url: string;
+  /** The current run's source; replaced on root reload. Retained sources belong to their original run. */
+  readonly source: GLTSSource;
   add(...objects: THREE.Object3D[]): this;
   applyQuaternion(quaternion: THREE.Quaternion): this;
   attach(object: THREE.Object3D): this;
@@ -86,6 +100,7 @@ interface GLTSSceneMethods {
   update(delta: number): void;
 }
 
+/** A managed scene whose source metadata follows reloads and remains readable after disposal. */
 export type GLTSScene =
   Omit<GLTSScriptScene, keyof GLTSSceneMethods> & GLTSSceneMethods;
 
@@ -105,22 +120,7 @@ export type GLTSMatrixUpdateCallback = (
 export type GLTSFrameCallback = (delta: number) => void;
 export type GLTSDisposeCallback = () => void;
 
-export interface GLTSContextLoader {
+export interface GLTSScriptLoader {
   loadAsync(url: GLTSURL): Promise<GLTSScene>;
   loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances>;
-}
-
-/** The capabilities of one script execution, returned by the exposed but undocumented `getGLTSContext()`. */
-export interface GLTSContext {
-  readonly url: string;
-  /** Observed helper files, nested scripts, and resources requested through `loadingManager`; a frozen snapshot on each read. */
-  readonly dependencies: readonly string[];
-  readonly gltsLoader: GLTSContextLoader;
-  readonly instanceCount: number;
-  readonly loadingManager: THREE.LoadingManager;
-  readonly onDispose: (callback: GLTSDisposeCallback) => void;
-  readonly onFrame: (callback: GLTSFrameCallback) => void;
-  readonly onMatrixUpdateAt: (callback: GLTSMatrixUpdateCallback) => void;
-  readonly isPreview: boolean;
-  readonly scene: GLTSScriptScene;
 }

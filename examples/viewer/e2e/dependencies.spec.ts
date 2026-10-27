@@ -8,14 +8,13 @@ const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR
 test("each execution records shared in-flight files and subsequent cache hits", async ({ page }) => {
   await routeScript(page, "**/assets/shared-*.glts", `
     import { Cache, FileLoader } from "three"
-    import { getGLTSContext, loadingManager, scene } from "@drawcall/glts"
+    import { loadingManager } from "@drawcall/glts"
     import { started } from "checkpoint"
     import "./dependency-helper.ts"
     Cache.enabled = true
     const pending = new FileLoader(loadingManager).loadAsync(new URL("./shared.bin", import.meta.url).href)
     started()
     await pending
-    scene.userData.dependencies = getGLTSContext().dependencies
   `);
   await routeScript(page, "**/assets/dependency-helper.ts", "export const value = 1;");
   const release = deferred();
@@ -37,7 +36,7 @@ test("each execution records shared in-flight files and subsequent cache hits", 
         loader.loadAsync("/assets/shared-b.glts"),
       ]);
       scenes.push(await loader.loadAsync("/assets/shared-c.glts"));
-      return scenes.map((scene) => scene.userData.dependencies);
+      return scenes.map((scene) => scene.source.dependencyUrls);
     } finally {
       loader.dispose();
     }
@@ -53,35 +52,33 @@ test("each execution records shared in-flight files and subsequent cache hits", 
 test("tracks image elements, cube faces, and image cache reuse", async ({ page }) => {
   await routeScript(page, "**/assets/images.glts", `
     import { Cache, CubeTextureLoader, TextureLoader } from "three"
-    import { getGLTSContext, loadingManager, onDispose, scene } from "@drawcall/glts"
+    import { loadingManager, onDispose } from "@drawcall/glts"
     Cache.enabled = true
     const url = new URL("./pixel.png", import.meta.url).href
     const texture = await new TextureLoader(loadingManager).loadAsync(url)
     const cube = await new CubeTextureLoader(loadingManager).loadAsync([url, ...Array(5).fill(new URL("./face.png", import.meta.url).href)])
     onDispose(() => { texture.dispose(); cube.dispose() })
-    scene.userData.dependencies = getGLTSContext().dependencies
   `);
   await page.route(/\/assets\/(pixel|face)\.png$/, (route) => route.fulfill({ body: png, contentType: "image/png" }));
   await page.goto("/test-harness.html");
-  const dependencies = await page.evaluate(async () => {
+  const dependencyUrls = await page.evaluate(async () => {
     const loader = new window.GLTSLoader(new window.LoadingManager());
     try {
-      return (await loader.loadAsync("/assets/images.glts")).userData.dependencies;
+      return (await loader.loadAsync("/assets/images.glts")).source.dependencyUrls;
     } finally {
       loader.dispose();
     }
   });
-  expect(dependencies).toEqual(["face.png", "pixel.png"].map((file) => new URL(`/assets/${file}`, page.url()).href));
+  expect(dependencyUrls).toEqual(["face.png", "pixel.png"].map((file) => new URL(`/assets/${file}`, page.url()).href));
 });
 
 for (const brokenImage of [false, true]) {
   test(`composite GLTF ${brokenImage ? "rejects a swallowed texture failure" : "records its external buffer and image"}`, async ({ page }) => {
     await routeScript(page, "**/assets/model.glts", `
       import { GLTFLoader } from "loaders"
-      import { getGLTSContext, loadingManager, scene } from "@drawcall/glts"
+      import { loadingManager, scene } from "@drawcall/glts"
       const model = await new GLTFLoader(loadingManager).loadAsync(new URL("./model.gltf", import.meta.url).href)
       scene.add(model.scene)
-      scene.userData.dependencies = getGLTSContext().dependencies
     `);
     await page.route("**/assets/model.gltf", (route) => route.fulfill({ json: {
       asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
@@ -100,7 +97,7 @@ for (const brokenImage of [false, true]) {
         modules: { loaders: { GLTFLoader: window.GLTFLoader } },
       });
       try {
-        return { dependencies: (await loader.loadAsync("/assets/model.glts")).userData.dependencies };
+        return { dependencyUrls: (await loader.loadAsync("/assets/model.glts")).source.dependencyUrls };
       } catch (error) {
         if (!(error instanceof Error)) throw error;
         return { error: error.message };
@@ -113,6 +110,6 @@ for (const brokenImage of [false, true]) {
       expect(result.error).toContain("pixel.png");
       return;
     }
-    expect(result).toEqual({ dependencies: ["model.gltf", "pixel.png", "triangle.bin"].map((file) => new URL(`/assets/${file}`, page.url()).href) });
+    expect(result).toEqual({ dependencyUrls: ["model.gltf", "pixel.png", "triangle.bin"].map((file) => new URL(`/assets/${file}`, page.url()).href) });
   });
 }

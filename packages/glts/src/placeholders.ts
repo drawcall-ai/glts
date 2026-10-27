@@ -4,17 +4,10 @@ import type {
   GLTSDisposeCallback,
   GLTSFrameCallback,
   GLTSMatrixUpdateCallback,
-  GLTSContextLoader,
+  GLTSScriptLoader,
   GLTSScriptScene
 } from "./types.js";
 import { createRoot } from "./root.js";
-import type { ContextName } from "./imports.js";
-import type * as Placeholders from "./placeholders.js";
-
-// Compiles only while the exports are exactly the names scripts import as contextual values.
-type Same<A, B> = [A] extends [B] ? [B] extends [A] ? true : false : false;
-type Assert<T extends true> = T;
-type Checked = Assert<Same<keyof typeof Placeholders, ContextName>>;
 
 function unavailable(name: string): never {
   throw new Error(
@@ -35,7 +28,7 @@ export const loadingManager: LoadingManager = new Proxy(new LoadingManager(), {
 });
 
 /** Loads nested assets relative to this script. Attach each result beneath scene. */
-export const gltsLoader: GLTSContextLoader = {
+export const gltsLoader: GLTSScriptLoader = {
   loadAsync: () => unavailable("gltsLoader"),
   loadInstancesAsync: () => unavailable("gltsLoader")
 };

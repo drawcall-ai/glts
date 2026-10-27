@@ -1,13 +1,13 @@
 import { Matrix4 } from "three";
 import { expect, it, vi } from "vitest";
 
-import { getGLTSContext, runWithExecution } from "../../src/context.js";
-import type { GLTSContext } from "../../src/types.js";
+import { getGLTSSource, runWithExecution } from "../../src/execution/current.js";
+import type { GLTSSource } from "../../src/types.js";
 import { createExecution } from "./fixture.js";
 
 it("rejects retained lifecycle registrations after disposal and disposes reentrantly once", () => {
   const execution = createExecution();
-  const hooks = execution.context;
+  const hooks = execution.bindings;
   const disposed = vi.fn(() => execution.dispose());
   hooks.onDispose(disposed);
   execution.dispose();
@@ -21,29 +21,31 @@ it("rejects retained lifecycle registrations after disposal and disposes reentra
   expect(callback).not.toHaveBeenCalled();
 });
 
-it("binds lifecycle callbacks to their execution and restores the caller's context", () => {
+it("binds lifecycle callbacks to their execution and restores the caller's execution", () => {
   const execution = createExecution();
-  const hooks = execution.context;
+  const hooks = execution.bindings;
   const outer = createExecution({ matrices: [] });
-  const observed: GLTSContext[] = [];
-  const capture = () => { observed.push(getGLTSContext()); };
+  const observed: GLTSSource[] = [];
+  const capture = () => { observed.push(getGLTSSource()); };
   hooks.onFrame(capture);
   hooks.onMatrixUpdateAt(capture);
   hooks.onDispose(capture);
 
   runWithExecution(outer, () => {
+    const caller = getGLTSSource();
     execution.update(0.1);
     execution.setMatrixAt(0, new Matrix4());
     execution.dispose();
-    expect(getGLTSContext()).toBe(outer.context);
+    expect(getGLTSSource()).toBe(caller);
   });
-  expect(observed).toEqual([hooks, hooks, hooks, hooks]);
-  expect(() => getGLTSContext()).toThrow("No GLTS execution is active");
+  expect(observed).toHaveLength(4);
+  for (const source of observed) expect(source).toBe(execution.source);
+  expect(() => getGLTSSource()).toThrow("No GLTS execution is active");
 });
 
-it("restores the execution context when a lifecycle callback throws", () => {
+it("restores the current execution when a lifecycle callback throws", () => {
   const execution = createExecution({ matrices: [] });
-  execution.context.onFrame(() => { throw new Error("frame failed"); });
+  execution.bindings.onFrame(() => { throw new Error("frame failed"); });
   expect(() => execution.update(0.1)).toThrow("frame failed");
-  expect(() => getGLTSContext()).toThrow("No GLTS execution is active");
+  expect(() => getGLTSSource()).toThrow("No GLTS execution is active");
 });

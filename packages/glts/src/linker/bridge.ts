@@ -1,5 +1,5 @@
 import { toGLTSError } from "../errors.js";
-import { bindGenerator, currentExecution } from "../context.js";
+import { bindGenerator, currentExecution } from "../execution/current.js";
 import type { Dependencies } from "../dependencies.js";
 import { helperExports } from "../imports.js";
 import type { GLTSModules } from "../types.js";

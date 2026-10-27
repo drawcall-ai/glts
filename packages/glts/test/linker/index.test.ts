@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { afterEach, expect, it } from "vitest";
 
-import { getGLTSContext } from "../../src/context.js";
+import { getGLTSSource } from "../../src/execution/current.js";
 import { Linker } from "../../src/linker/index.js";
 import type { GLTSModules, GLTSResolve } from "../../src/types.js";
 import { createExecution } from "../execution/fixture.js";
@@ -19,7 +19,7 @@ function createLinker(fetch: (input: RequestInfo | URL) => Promise<Response>, op
 } = {}): Linker {
   linker = new Linker({
     cdnURL: new URL(options.cdnURL ?? "https://cdn.test/"),
-    modules: { ...options.modules, three: THREE, "@drawcall/glts": { getGLTSContext } },
+    modules: { ...options.modules, three: THREE, "@drawcall/glts": { getGLTSSource } },
     resolve: options.resolve,
     fetch,
   });

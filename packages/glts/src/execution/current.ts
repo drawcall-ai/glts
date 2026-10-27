@@ -1,9 +1,9 @@
-import type { Dependencies } from "./dependencies.js";
-import type { GLTSContext } from "./types.js";
+import type { Dependencies } from "../dependencies.js";
+import type { GLTSSource } from "../types.js";
 
 /** What code a script runs reaches of its execution. */
 export interface RunningExecution {
-  readonly context: GLTSContext;
+  readonly source: GLTSSource;
   /** The files the execution uses, which its dynamic imports add to. */
   readonly dependencies: Dependencies;
 }
@@ -18,17 +18,20 @@ export function currentExecution(): RunningExecution | undefined {
 }
 
 /**
- * The running script's context, for code that cannot import it: helpers, which may import only this from
- * `@drawcall/glts`, and npm or CDN packages. Exposed but deliberately undocumented in the README and skill.
+ * Source introspection and file-watching workflows are for host tooling. Keep this API and those workflows
+ * out of the README and user-facing skills; GLTS authors do not need them.
  *
- * Compiled scripts and helpers keep the context across their own `await`s. Native async code, such as a
+ * The active script's source files, for helpers and packages called by a script. Hosts read GLTSScene.source
+ * instead. A retained source belongs to this run, not its replacements.
+ *
+ * Compiled scripts and helpers keep their execution across their own `await`s. Native async code, such as a
  * package's, must call this before its first `await`; afterwards, and in independently scheduled callbacks,
  * it throws.
  */
-export function getGLTSContext(): GLTSContext {
+export function getGLTSSource(): GLTSSource {
   const execution = currentExecution();
   if (!execution) throw new Error("No GLTS execution is active");
-  return execution.context;
+  return execution.source;
 }
 
 export function runWithExecution<T>(execution: RunningExecution | undefined, callback: () => T): T {

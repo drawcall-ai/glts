@@ -109,17 +109,33 @@ it("rejects a cycle that reloading a nested script introduces", async () => {
   });
 });
 
-it("reloads a redirected script by the URL it was fetched from", async () => {
-  const fetched = `${base}redirected/scene.glts`;
+it("keeps the source URL when rebuilding fails and updates it when the replacement commits", async () => {
+  const initialURL = `${base}redirected/scene.glts`;
+  let fetched = initialURL;
+  let failed = false;
   let version = 1;
   const loader = serve({});
   vi.stubGlobal("fetch", async () => {
-    const response = new Response(`import { scene } from "@drawcall/glts"; scene.userData.version = ${version};`);
+    const response = new Response(failed
+      ? `throw new Error("rebuild failed");`
+      : `import { scene } from "@drawcall/glts"; scene.userData.version = ${version};`);
     Object.defineProperty(response, "url", { value: fetched });
     return response;
   });
   const node = await loader.loadAsync(`${base}original.glts`);
+  const source = node.source;
+  expect(node.source.url).toBe(initialURL);
+  fetched = `${base}replacement/scene.glts`;
   version = 2;
-  await loader.reload(fetched);
+  failed = true;
+  await expect(loader.reload(initialURL)).rejects.toMatchObject({ phase: "evaluate" });
+  expect(node.source).toBe(source);
+  expect(node.source.url).toBe(initialURL);
+  failed = false;
+  await loader.reload(initialURL);
+  expect(node.source).not.toBe(source);
   expect(node.userData.version).toBe(2);
+  expect(node.url).toBe(`${base}original.glts`);
+  expect(node.source.url).toBe(fetched);
+  expect(source.url).toBe(initialURL);
 });

@@ -100,6 +100,7 @@ export class GLTSLoader extends THREE.Loader {
   /**
    * Invalidates the source of the script at `url`, or of the helper at `url` and every helper and script
    * importing it, and reloads the scripts' undisposed nodes. Unloaded source is fetched on the next load.
+   * A failed build preserves the live scene; cleanup errors can reject after a replacement is committed.
    */
   async reload(url: GLTSURL): Promise<void> {
     const resolvedURL = this.#resolveURL(url);

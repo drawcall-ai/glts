@@ -1,7 +1,6 @@
 import { FileLoader, LoadingManager, Object3D } from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getGLTSContext } from "../../src/context.js";
 import { Dependencies } from "../../src/dependencies.js";
 import { LoadScope } from "../../src/loader/scope.js";
 import { base, deferred, serve } from "./fixture.js";
@@ -148,21 +147,20 @@ it.each(["loadAsync('./child.glts')", "loadInstancesAsync('./child.glts', 2)"])(
     const resourceStarted = deferred();
     let parentManager: LoadingManager | undefined;
     const loader = serve({
-      "parent.glts": `import { scene, gltsLoader } from "@drawcall/glts";
-        import { observe } from "library"; observe();
+      "parent.glts": `import { scene, gltsLoader, loadingManager } from "@drawcall/glts";
+        import { observe } from "library"; observe(loadingManager);
         scene.add(await gltsLoader.${load});`,
-      "child.glts": `import { onMatrixUpdateAt } from "@drawcall/glts";
-        import { resource } from "library"; onMatrixUpdateAt(() => {}); resource();`,
+      "child.glts": `import { onMatrixUpdateAt, loadingManager } from "@drawcall/glts";
+        import { resource } from "library"; onMatrixUpdateAt(() => {}); resource(loadingManager);`,
     }, {
-      observe: () => {
-        parentManager = getGLTSContext().loadingManager;
-        const start = parentManager.itemStart;
-        const end = parentManager.itemEnd;
-        parentManager.itemStart = (url) => { parentStarts.push(url); start(url); };
-        parentManager.itemEnd = (url) => { parentEnds.push(url); end(url); };
+      observe: (manager: LoadingManager) => {
+        parentManager = manager;
+        const start = manager.itemStart;
+        const end = manager.itemEnd;
+        manager.itemStart = (url) => { parentStarts.push(url); start(url); };
+        manager.itemEnd = (url) => { parentEnds.push(url); end(url); };
       },
-      resource: () => {
-        const manager = getGLTSContext().loadingManager;
+      resource: (manager: LoadingManager) => {
         manager.itemStart(`${base}texture.png`);
         finish = () => manager.itemEnd(`${base}texture.png`);
         resourceStarted.resolve();
@@ -191,11 +189,10 @@ it("balances failed nested loads once through the parent scope and host manager"
   const errors: string[] = [];
   const ends: string[] = [];
   const loader = serve({
-    "parent.glts": `import { gltsLoader } from "@drawcall/glts";
-      import { observe } from "library"; observe(); await gltsLoader.loadAsync('./missing.glts');`,
+    "parent.glts": `import { gltsLoader, loadingManager } from "@drawcall/glts";
+      import { observe } from "library"; observe(loadingManager); await gltsLoader.loadAsync('./missing.glts');`,
   }, {
-    observe: () => {
-      const manager = getGLTSContext().loadingManager;
+    observe: (manager: LoadingManager) => {
       manager.onError = (url) => { errors.push(url); };
       manager.onProgress = (url) => { ends.push(url); };
     },
@@ -224,15 +221,15 @@ it("balances a nested load of a reloading script when its parent fails", async (
   const parentCancelled = deferred();
   const sources = {
     "child.glts": "",
-    "parent.glts": `import { scene, gltsLoader } from "@drawcall/glts";
-      import { observe } from "library"; observe();
+    "parent.glts": `import { scene, gltsLoader, loadingManager } from "@drawcall/glts";
+      import { observe } from "library"; observe(loadingManager);
       void gltsLoader.loadAsync('./child.glts').then((child) => scene.add(child));
       throw new Error('parent failed');`,
   };
   const loader = serve(sources, {
     pause: () => { reloadEntered.resolve(); return reloadReleased.promise; },
-    observe: () => {
-      getGLTSContext().loadingManager.abortController.signal.addEventListener("abort", parentCancelled.resolve);
+    observe: (manager: LoadingManager) => {
+      manager.abortController.signal.addEventListener("abort", parentCancelled.resolve);
     },
   });
   await loader.loadAsync(`${base}child.glts`);

@@ -5,7 +5,7 @@ import { aggregate, GLTSError, runAll, toGLTSError } from "../errors.js";
 import type { ExecutionScope } from "../execution/index.js";
 import type { Script } from "../linker/index.js";
 import { nodeDependencies, type LoadRequest } from "../node.js";
-import type { GLTSContextLoader, GLTSInstances, GLTSScene, GLTSURL } from "../types.js";
+import type { GLTSScriptLoader, GLTSInstances, GLTSScene, GLTSURL } from "../types.js";
 import { canonicalize } from "../urls.js";
 import { Resources } from "./resources.js";
 
@@ -35,7 +35,7 @@ export interface LoadScopeOptions {
  * nested loads.
  */
 export class LoadScope implements ExecutionScope {
-  readonly gltsLoader: GLTSContextLoader;
+  readonly gltsLoader: GLTSScriptLoader;
   /**
    * The import path of the scope's nested loads, which they must not repeat: the URLs of the scripts that loaded
    * the execution and its own requested and fetched URLs.

@@ -1,14 +1,14 @@
 import type * as THREE from "three";
 
-import { runWithExecution } from "../context.js";
+import { runWithExecution } from "./current.js";
 import type { Dependencies } from "../dependencies.js";
 import { aggregate, cleanUpAndThrow, GLTSError, runAll, toGLTSError } from "../errors.js";
-import { importNamespace } from "../imports.js";
+import { importNamespace, type Bindings } from "../imports.js";
 import type { Script } from "../linker/index.js";
 import type { LoadRequest } from "../node.js";
 import type {
-  GLTSContext,
-  GLTSContextLoader,
+  GLTSSource,
+  GLTSScriptLoader,
   GLTSDisposeCallback,
   GLTSFrameCallback,
   GLTSMatrixUpdateCallback,
@@ -25,7 +25,7 @@ function assertCallback(value: unknown, name: string): void {
 
 /** An execution's loading window: where its contextual `gltsLoader` and `loadingManager` come from. */
 export interface ExecutionScope {
-  readonly gltsLoader: GLTSContextLoader;
+  readonly gltsLoader: GLTSScriptLoader;
   readonly manager: THREE.LoadingManager;
   /** The nested nodes the execution owns. */
   readonly nodes: readonly GLTSScene[];
@@ -46,7 +46,7 @@ export interface ExecutionOptions {
   readonly dependencies: Dependencies;
 }
 
-/** One run of a script: its context, the root it builds, and the callbacks it registers. */
+/** One run of a script: its source, the root it builds, and the callbacks it registers. */
 export class Execution {
   /** The script's own root, until this execution, replacing another on reload, adopts that one's node. */
   root = createRoot();
@@ -54,7 +54,8 @@ export class Execution {
   /** The URL of the linked module it runs. */
   readonly module: string;
   readonly dependencies: Dependencies;
-  readonly context: GLTSContext;
+  readonly source: GLTSSource;
+  readonly bindings: Bindings;
   readonly #onDispose: GLTSDisposeCallback[] = [];
   readonly #onFrame: GLTSFrameCallback[] = [];
   readonly #onMatrixUpdateAt: GLTSMatrixUpdateCallback[] = [];
@@ -65,20 +66,22 @@ export class Execution {
   #disposed = false;
 
   constructor(options: ExecutionOptions) {
-    const { script, request } = options;
+    const { script, request, dependencies } = options;
     this.url = script.url;
     this.module = script.module;
     this.#matrices = request.matrices;
     this.#instanced = request.instanced;
     this.#scope = options.scope;
-    this.dependencies = options.dependencies;
-    const execution = this;
-    this.context = Object.freeze({
+    this.dependencies = dependencies;
+    this.source = Object.freeze({
       url: script.url,
       // A parent lists a nested script's own URLs; the script itself does not.
-      get dependencies() {
-        return Object.freeze(execution.dependencies.snapshot().filter((url) => url !== script.requestedURL && url !== script.url));
+      get dependencyUrls() {
+        return Object.freeze(dependencies.snapshot().filter((url) => url !== script.requestedURL && url !== script.url));
       },
+    });
+    const execution = this;
+    this.bindings = Object.freeze({
       gltsLoader: options.scope.gltsLoader,
       instanceCount: this.#matrices.length,
       loadingManager: options.scope.manager,
@@ -131,7 +134,7 @@ export class Execution {
       const namespace: { default?: unknown } = await import(/* @vite-ignore */ /* webpackIgnore: true */ this.module);
       const entry = namespace.default;
       if (typeof entry !== "function") throw new Error("Compiled GLTS script has no entry point");
-      await runWithExecution(this, () => entry(importNamespace(this.context)));
+      await runWithExecution(this, () => entry(importNamespace(this.bindings)));
     } catch (error) {
       throw toGLTSError(error, "Unable to execute GLTS script", { importChain: [this.url], phase: "evaluate", url: this.url });
     }

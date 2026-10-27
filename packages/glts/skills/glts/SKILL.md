@@ -132,8 +132,8 @@ onDispose(() => {
 ```
 
 - A helper may export anything and import what a script can, including other helpers.
-- Helpers cannot import runtime values from `@drawcall/glts`; types are fine. Pass what a helper needs, such as `loadingManager`, from the script.
-- A helper has no `onDispose`. Return what it creates and dispose it in the script.
+- Pass script bindings such as `scene` and `loadingManager` to helpers instead of importing those bindings there.
+- Return what a helper creates and dispose it in the script.
 - Keep no module-level state in helpers: a loader runs each helper once, so its state is shared by every script the loader runs and outlives their disposal.
 - `import.meta.url` in a helper is the helper's own URL.
 - Cyclic helper imports fail.
@@ -242,7 +242,7 @@ The result is a `GLTSInstances` with a fixed `count`, `getMatrixAt(index, target
 ## Reload and errors
 
 - `loader.reload(url)` invalidates the cached source and reloads every undisposed node loaded from that URL; with none, it fetches nothing and the next load gets fresh source. Pending loads of that URL finish first. For a helper's URL, it also re-reads the helpers importing it and does the same for every script that imports the helper, directly or through other helpers.
-- A reload builds the replacement before touching the live node. Any failure leaves the current content in place.
+- A reload builds the replacement before touching the live node. Inspect the scene after a cleanup error, since the replacement may already be committed.
 - A reload keeps the node's identity, host transform, and instance matrices, and refreshes its root properties, `defaultCamera`, and `rendering`.
 - A reload replaces the asset's children; look them up again instead of keeping references.
 - Source requests use HTTP `no-cache`. Later loads of the same URL reuse the cached source until it is invalidated.

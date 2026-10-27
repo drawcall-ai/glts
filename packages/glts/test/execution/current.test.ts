@@ -1,34 +1,34 @@
 import { expect, it, vi } from "vitest";
 
-import { GLTSLoader } from "../src/loader/index.js";
-import { getGLTSContext } from "../src/context.js";
-import type { GLTSContext } from "../src/types.js";
-import { base, deferred, serve } from "./loader/fixture.js";
+import { GLTSLoader } from "../../src/loader/index.js";
+import { getGLTSSource } from "../../src/execution/current.js";
+import type { GLTSSource } from "../../src/types.js";
+import { base, deferred, serve } from "../loader/fixture.js";
 
-it("keeps concurrent scripts distinct across awaits without leaking context to their caller", async () => {
+it("keeps concurrent scripts distinct across awaits without leaking their execution to the caller", async () => {
   const started = deferred();
   const release = deferred();
   const observed: string[] = [];
   let entries = 0;
   const library = {
     enter: () => {
-      observed.push(getGLTSContext().url);
+      observed.push(getGLTSSource().url);
       entries += 1;
       if (entries === 2) started.resolve();
       return release.promise;
     },
-    capture: () => { observed.push(getGLTSContext().url); },
+    capture: () => { observed.push(getGLTSSource().url); },
   };
   const source = `import { enter, capture } from "library"; await enter(); capture();`;
   const loader = serve({ "a.glts": source, "b.glts": source }, library);
   const loads = Promise.all([loader.loadAsync(`${base}a.glts`), loader.loadAsync(`${base}b.glts`)]);
   await started.promise;
-  expect(() => getGLTSContext()).toThrow("No GLTS execution is active");
+  expect(() => getGLTSSource()).toThrow("No GLTS execution is active");
   release.resolve();
   await loads;
   expect(observed.filter((url) => url === `${base}a.glts`)).toHaveLength(2);
   expect(observed.filter((url) => url === `${base}b.glts`)).toHaveLength(2);
-  expect(() => getGLTSContext()).toThrow("No GLTS execution is active");
+  expect(() => getGLTSSource()).toThrow("No GLTS execution is active");
 });
 
 it("restores a parent script after loading a nested script", async () => {
@@ -38,86 +38,93 @@ it("restores a parent script after loading a nested script", async () => {
       import { capture } from "library";
       capture(); scene.add(await gltsLoader.loadAsync("./child.glts")); capture();`,
     "child.glts": `import { capture } from "library"; await Promise.resolve(); capture();`,
-  }, { capture: () => { observed.push(getGLTSContext().url); } });
+  }, { capture: () => { observed.push(getGLTSSource().url); } });
   await loader.loadAsync(`${base}parent.glts`);
   expect(observed).toEqual([`${base}parent.glts`, `${base}child.glts`, `${base}parent.glts`]);
 });
 
-it("restores context after a failed script and permits subsequent execution", async () => {
+it("restores the current execution after a failed script and permits subsequent execution", async () => {
   const observed: string[] = [];
   const loader = serve({
     "bad.glts": `await Promise.resolve(); throw new Error("script failed");`,
     "good.glts": `import { capture } from "library"; capture();`,
-  }, { capture: () => { observed.push(getGLTSContext().url); } });
+  }, { capture: () => { observed.push(getGLTSSource().url); } });
   await expect(loader.loadAsync(`${base}bad.glts`)).rejects.toMatchObject({ phase: "evaluate", cause: { message: "script failed" } });
-  expect(() => getGLTSContext()).toThrow("No GLTS execution is active");
+  expect(() => getGLTSSource()).toThrow("No GLTS execution is active");
   await loader.loadAsync(`${base}good.glts`);
   expect(observed).toEqual([`${base}good.glts`]);
 });
 
-it("uses the final response URL as the execution URL", async () => {
-  let captured: GLTSContext | undefined;
-  const loader = serve({}, { capture: () => { captured = getGLTSContext(); } });
+it("exposes only frozen source metadata with the same final URL as the scene", async () => {
+  let captured: GLTSSource | undefined;
+  const loader = serve({}, { capture: () => {
+    captured = getGLTSSource();
+    expect(Reflect.ownKeys(captured).sort()).toEqual(["dependencyUrls", "url"]);
+    expect(Object.isFrozen(captured)).toBe(true);
+    expect(getGLTSSource()).toBe(captured);
+  } });
   vi.stubGlobal("fetch", async () => {
     const response = new Response(`import { capture } from "library"; capture();`);
     Object.defineProperty(response, "url", { value: `${base}redirected/scene.glts?version=2` });
     return response;
   });
-  await loader.loadAsync(`${base}original.glts`);
+  const scene = await loader.loadAsync(`${base}original.glts`);
   expect(captured?.url).toBe(`${base}redirected/scene.glts?version=2`);
+  expect(scene.source).toBe(captured);
+  expect(scene.url).toBe(`${base}original.glts`);
 });
 
-it("keeps the replacement context scene bound to the existing node on reload", async () => {
-  const contexts: GLTSContext[] = [];
+it("keeps the replacement execution's scene bound to the existing node on reload", async () => {
+  const sources: GLTSSource[] = [];
   const source = `import { capture } from "library";
     import { scene as root, onFrame } from "@drawcall/glts";
     import * as glts from "@drawcall/glts";
     capture();
     onFrame(() => {
-      if (root !== glts.scene || root !== glts.getGLTSContext().scene) throw new Error("Stale scene");
+      if (root !== glts.scene) throw new Error("Stale scene");
       root.userData.updated = true;
     });
     if (Object.getPrototypeOf(glts) !== null || !Object.isFrozen(glts)) throw new Error("Invalid namespace");
     const names = Object.keys(glts).sort().join();
-    if (names !== "getGLTSContext,gltsLoader,instanceCount,isPreview,loadingManager,onDispose,onFrame,onMatrixUpdateAt,scene") {
+    if (names !== "getGLTSSource,gltsLoader,instanceCount,isPreview,loadingManager,onDispose,onFrame,onMatrixUpdateAt,scene") {
       throw new Error("Unexpected script exports: " + names);
     }`;
-  const loader = serve({ "scene.glts": source }, { capture: () => { contexts.push(getGLTSContext()); } });
+  const loader = serve({ "scene.glts": source }, { capture: () => { sources.push(getGLTSSource()); } });
   const scene = await loader.loadAsync(`${base}scene.glts`);
   await loader.reload(`${base}scene.glts`);
-  expect(contexts).toHaveLength(2);
-  expect(contexts[1]).not.toBe(contexts[0]);
-  expect(contexts[1]?.scene).toBe(scene);
+  expect(sources).toHaveLength(2);
+  expect(sources[1]).not.toBe(sources[0]);
+  expect(scene.source).toBe(sources[1]);
   scene.update(0.1);
   expect(scene.userData.updated).toBe(true);
 });
 
-it("allows async helpers to read the calling script context", async () => {
+it("allows async helpers to read the calling script's source", async () => {
   const observed: string[] = [];
   const loader = serve({
     "scene.glts": `import { work } from "./helper.ts"; await work();`,
-    "helper.ts": `import { getGLTSContext } from "@drawcall/glts";
+    "helper.ts": `import { getGLTSSource } from "@drawcall/glts";
       import { record } from "library";
       export async function work() {
-        record(getGLTSContext().url);
+        record(getGLTSSource().url);
         await Promise.resolve();
-        record(getGLTSContext().url);
+        record(getGLTSSource().url);
       }`,
   }, { record: (url: string) => { observed.push(url); } });
   await loader.loadAsync(`${base}scene.glts`);
   expect(observed).toEqual([`${base}scene.glts`, `${base}scene.glts`]);
 });
 
-it("lets native async packages retain context without leaking it across their awaits", async () => {
-  let retained: GLTSContext | undefined;
+it("lets native async packages retain source metadata without leaking the execution across their awaits", async () => {
+  let retained: GLTSSource | undefined;
   let afterAwait: unknown;
   const loader = serve({
     "scene.glts": `import { work } from "library"; await work();`,
   }, {
     work: async () => {
-      retained = getGLTSContext();
+      retained = getGLTSSource();
       await Promise.resolve();
-      try { getGLTSContext(); } catch (error) { afterAwait = error; }
+      try { getGLTSSource(); } catch (error) { afterAwait = error; }
     },
   });
   await loader.loadAsync(`${base}scene.glts`);
@@ -125,7 +132,7 @@ it("lets native async packages retain context without leaking it across their aw
   expect(afterAwait).toBeInstanceOf(Error);
 });
 
-it("preserves context in async methods, generators, and rejected-await continuations", async () => {
+it("preserves the current execution in async methods, generators, and rejected-await continuations", async () => {
   const observed: string[] = [];
   const loader = serve({
     "scene.glts": `import { capture, record } from "library";
@@ -143,7 +150,7 @@ it("preserves context in async methods, generators, and rejected-await continuat
       catch { capture(); }
       finally { capture(); }`,
   }, {
-    capture: () => { observed.push(getGLTSContext().url); },
+    capture: () => { observed.push(getGLTSSource().url); },
     record: (value: string) => { observed.push(value); },
   });
   await loader.loadAsync(`${base}scene.glts`);
@@ -155,7 +162,7 @@ it("preserves context in async methods, generators, and rejected-await continuat
   ]);
 });
 
-it("retains an async lifecycle callback's context across its awaits", async () => {
+it("retains an async lifecycle callback's execution across its awaits", async () => {
   const finished = deferred();
   const observed: string[] = [];
   const loader = serve({
@@ -168,26 +175,26 @@ it("retains an async lifecycle callback's context across its awaits", async () =
         finish();
       });`,
   }, {
-    capture: () => { observed.push(getGLTSContext().url); },
+    capture: () => { observed.push(getGLTSSource().url); },
     finish: finished.resolve,
   });
   const scene = await loader.loadAsync(`${base}scene.glts`);
   scene.update(0.1);
-  expect(() => getGLTSContext()).toThrow("No GLTS execution is active");
+  expect(() => getGLTSSource()).toThrow("No GLTS execution is active");
   await finished.promise;
   expect(observed).toEqual([`${base}scene.glts`, `${base}scene.glts`]);
-  expect(() => getGLTSContext()).toThrow("No GLTS execution is active");
+  expect(() => getGLTSSource()).toThrow("No GLTS execution is active");
 });
 
-it("does not assign execution context to an independently scheduled then callback", async () => {
+it("does not assign an execution to an independently scheduled then callback", async () => {
   const release = deferred();
   const finished = deferred();
   let observed: unknown;
   const loader = serve({
-    "scene.glts": `import { getGLTSContext } from "@drawcall/glts";
+    "scene.glts": `import { getGLTSSource } from "@drawcall/glts";
       import { pending, report, finish } from "library";
       pending.then(() => {
-        try { report(getGLTSContext()); } catch (error) { report(error); }
+        try { report(getGLTSSource()); } catch (error) { report(error); }
         finish();
       });`,
   }, {
@@ -206,15 +213,18 @@ it("shares package exports and explicit host overrides with CDN packages", async
   const observed: unknown[] = [];
   const loader = serve({
     "scene.glts": `import { work } from "https://cdn.test/library.js"; work();`,
-    "library.js": `import { getGLTSContext, GLTSLoader, marker } from "@drawcall/glts";
+    "library.js": `import { getGLTSSource, GLTSLoader, marker } from "@drawcall/glts";
       import { record } from "library";
       export function work() {
-        record(getGLTSContext().url);
+        record(getGLTSSource().url);
         record(GLTSLoader);
         record(marker);
       }`,
   }, { record: (value: unknown) => { observed.push(value); } }, {
-    "@drawcall/glts": { marker: "host override", getGLTSContext: () => { throw new Error("Override must not replace the getter"); } },
+    "@drawcall/glts": {
+      marker: "host override",
+      getGLTSSource: () => { throw new Error("Override must not replace the source getter"); },
+    },
   });
   await loader.loadAsync(`${base}scene.glts`);
   expect(observed).toEqual([`${base}scene.glts`, GLTSLoader, "host override"]);
