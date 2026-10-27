@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 import { deferred } from "./deferred.js";
-import { fulfillGLTS } from "./routes.js";
+import { fulfillScript } from "./routes.js";
 
-test("reopens inactive root, nested and cross-frame sources after canonical reloads", async ({ page }) => {
+test("refetches the sources of inactive host-loaded, nested and cross-frame scripts after canonical reloads", async ({ page }) => {
   const requests: string[] = [];
   await page.route("**/*.glts", async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -15,7 +15,7 @@ test("reopens inactive root, nested and cross-frame sources after canonical relo
       scene.add(await gltsLoader.loadAsync(new URL("./nested.glts", import.meta.url)))
       scene.add(await gltsLoader.loadAsync(new URL("../other/shared.glts", import.meta.url)))
     ` : "";
-    await fulfillGLTS(route, `
+    await fulfillScript(route, `
       import { scene, onDispose } from "@drawcall/glts"
       scene.name = "${path} v${version}"
       globalThis.__invalidatedExecutions = (globalThis.__invalidatedExecutions ?? 0) + 1
@@ -132,7 +132,7 @@ test("reload waits for a pending load and refreshes its live result and future l
       requested.resolve();
       await release.promise;
     }
-    await fulfillGLTS(route, `import { scene } from "@drawcall/glts"; scene.name = "v${version}"`);
+    await fulfillScript(route, `import { scene } from "@drawcall/glts"; scene.name = "v${version}"`);
   });
 
   await page.goto("/test-harness.html");
@@ -164,7 +164,7 @@ test("invalidates inactive instances through the same path and URL modifier as l
   let requests = 0;
   await page.route("**/actual/scene.glts", (route) => {
     requests += 1;
-    return fulfillGLTS(route, `
+    return fulfillScript(route, `
       import { scene, onMatrixUpdateAt } from "@drawcall/glts"
       onMatrixUpdateAt(() => {})
       scene.name = "v${requests}"

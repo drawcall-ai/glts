@@ -14,10 +14,21 @@ export default defineConfig({
     baseURL,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
-    viewport: { width: 1440, height: 900 }
+    viewport: { width: 1440, height: 900 },
+    launchOptions: {
+      args: [
+        "--enable-gpu", "--ignore-gpu-blocklist", "--enable-unsafe-webgpu",
+        // Headless Linux needs software rendering for both WebGPU and the compositor.
+        ...(process.platform === "linux" ? [
+          "--enable-features=Vulkan", "--use-angle=swiftshader", "--use-vulkan=swiftshader",
+          "--use-webgpu-adapter=swiftshader", "--disable-vulkan-surface"
+        ] : [])
+      ]
+    }
   },
   webServer: {
-    command: `pnpm --filter @drawcall/glts-example-viewer dev --host 127.0.0.1 --port ${port} --strictPort`,
+    // --force: Vite's prebundle cache would otherwise keep serving the GLTS build it first saw.
+    command: `pnpm --filter @drawcall/glts-example-viewer dev --host 127.0.0.1 --port ${port} --strictPort --force`,
     url: baseURL,
     reuseExistingServer: false,
     timeout: 30_000

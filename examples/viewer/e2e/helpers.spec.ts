@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { fulfillGLTS } from "./routes.js";
+import { fulfillScript } from "./routes.js";
 
 test("runs helpers, shares them within a script, and reloads their scripts when they change", async ({ page }) => {
   const sources: Record<string, string> = {
@@ -36,7 +36,7 @@ test("runs helpers, shares them within a script, and reloads their scripts when 
   };
   await page.route(/\/assets\/.*\.(glts|ts)$/, (route) => {
     const source = sources[new URL(route.request().url()).pathname];
-    return source === undefined ? route.fulfill({ status: 404 }) : fulfillGLTS(route, source);
+    return source === undefined ? route.fulfill({ status: 404 }) : fulfillScript(route, source);
   });
 
   await page.goto("/test-harness.html");

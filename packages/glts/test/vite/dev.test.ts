@@ -60,15 +60,15 @@ async function write(event: "add" | "change", name: string, source: string, ...p
 }
 
 it("reloads an edited script in place", async () => {
-  await edit("scene.glts", `import { marker } from "x";\nconsole.log(marker);`, "glts:update", { url: "/scene.glts" });
+  await edit("scene.glts", `import { marker } from "x";\nconsole.log(marker);`, "glts:reload", { url: "/scene.glts" });
 });
 
 it("reloads the scripts importing an edited helper", async () => {
-  await edit("helper.ts", `export const value = 2;`, "glts:update", { url: "/helper.ts" });
+  await edit("helper.ts", `export const value = 2;`, "glts:reload", { url: "/helper.ts" });
 });
 
 it("reloads the scripts importing a created helper", async () => {
-  await write("add", "created.ts", `export const value = 1;`, "glts:update", { url: "/created.ts" });
+  await write("add", "created.ts", `export const value = 1;`, "glts:reload", { url: "/created.ts" });
 });
 
 it("reloads the page when a helper's imports change", async () => {
@@ -81,7 +81,7 @@ it("reloads the page when a script's imports change", async () => {
 
 // scene.glts always imports x too, so these edits keep the scripts' imports.
 it("logs type errors until they are fixed", async () => {
-  const reload = ["glts:update", { url: "/typed.glts" }];
+  const reload = ["glts:reload", { url: "/typed.glts" }];
   await edit("typed.glts", `import { marker } from "x";\nconst size: number = marker;`, ...reload);
   await vi.waitFor(() => expect(logger.error).toHaveBeenCalledWith(
     expect.stringContaining("typed.glts:2:7 - error TS2322"), expect.anything()), checked);

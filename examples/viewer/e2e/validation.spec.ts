@@ -1,22 +1,22 @@
 import { expect, test } from "@playwright/test";
 
-import { routeGLTS } from "./routes.js";
+import { routeScript } from "./routes.js";
 
 test("rejects exports and invalid imports at their owning boundaries", async ({ page }) => {
-  await routeGLTS(page, "**/assets/export.glts", "export const value = 1");
-  await routeGLTS(
+  await routeScript(page, "**/assets/export.glts", "export const value = 1");
+  await routeScript(
     page,
     "**/assets/class-import.glts",
     'import { GLTSLoader } from "@drawcall/glts"; console.log(GLTSLoader)'
   );
-  await routeGLTS(
+  await routeScript(
     page,
     "**/assets/static-import.glts",
     'import Child from "./child.glts"; console.log(Child)'
   );
 
-  await routeGLTS(page, "**/assets/missing-import.glts", 'import { missing } from "@drawcall/glts"; console.log(missing)');
-  await routeGLTS(page, "**/assets/default-import.glts", 'import glts from "@drawcall/glts"; console.log(glts)');
+  await routeScript(page, "**/assets/missing-import.glts", 'import { missing } from "@drawcall/glts"; console.log(missing)');
+  await routeScript(page, "**/assets/default-import.glts", 'import glts from "@drawcall/glts"; console.log(glts)');
 
   await page.goto("/test-harness.html");
   const errors = await page.evaluate(async () => {
@@ -45,14 +45,14 @@ test("rejects exports and invalid imports at their owning boundaries", async ({ 
 
   expect(errors).toHaveLength(5);
   expect(errors[0]).toMatchObject({ phase: "transform", message: expect.stringContaining("must not export values") });
-  expect(errors[1]).toMatchObject({ phase: "evaluate", cause: expect.stringContaining("GLTSLoader") });
+  expect(errors[1]).toMatchObject({ phase: "transform", cause: expect.stringContaining("GLTSLoader") });
   expect(errors[2]).toMatchObject({ phase: "resolve", message: expect.stringContaining("use gltsLoader.loadAsync()") });
-  expect(errors[3]).toMatchObject({ phase: "evaluate", cause: expect.stringContaining("missing") });
-  expect(errors[4]).toMatchObject({ phase: "evaluate", cause: expect.stringContaining("default") });
+  expect(errors[3]).toMatchObject({ phase: "transform", cause: expect.stringContaining("missing") });
+  expect(errors[4]).toMatchObject({ phase: "transform", cause: expect.stringContaining("default") });
 });
 
-test("accepts namespace and aliased imports from the context module", async ({ page }) => {
-  await routeGLTS(page, "**/assets/namespace-import.glts", `
+test("accepts namespace and aliased script imports", async ({ page }) => {
+  await routeScript(page, "**/assets/namespace-import.glts", `
     import * as glts from "@drawcall/glts"
     import { scene as currentScene } from "@drawcall/glts"
     if (glts.scene !== currentScene) throw new Error("Context scene mismatch")
@@ -71,8 +71,8 @@ test("accepts namespace and aliased imports from the context module", async ({ p
   expect(result).toEqual({ name: "namespace scene", elapsed: 0.25 });
 });
 
-test("reports managed-node augmentation as construction", async ({ page }) => {
-  await routeGLTS(page, "**/assets/frozen-phase.glts", `
+test("reports node augmentation as construction", async ({ page }) => {
+  await routeScript(page, "**/assets/frozen-phase.glts", `
     import { scene } from "@drawcall/glts"
     Object.preventExtensions(scene)
   `);

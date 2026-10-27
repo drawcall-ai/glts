@@ -1,3 +1,4 @@
+/** The phase a GLTS error arose in; "transform" covers compiling a script or helper and linking its imports. */
 export type GLTSPhase =
   | "resolve"
   | "fetch"
@@ -8,7 +9,7 @@ export type GLTSPhase =
   | "reload"
   | "dispose";
 
-export interface GLTSErrorContext {
+export interface GLTSErrorDetails {
   readonly url: string;
   readonly phase: GLTSPhase;
   readonly importChain?: readonly string[];
@@ -19,17 +20,17 @@ export class GLTSError extends Error {
   readonly phase: GLTSPhase;
   readonly importChain: readonly string[];
 
-  constructor(message: string, context: GLTSErrorContext, cause?: unknown) {
-    const chain = context.importChain ?? [];
+  constructor(message: string, details: GLTSErrorDetails, cause?: unknown) {
+    const chain = details.importChain ?? [];
     const chainMessage = chain.length > 1 ? `\nImport chain: ${chain.join(" -> ")}` : "";
 
-    super(`[GLTS:${context.phase}] ${message}\nURL: ${context.url}${chainMessage}`, {
+    super(`[GLTS:${details.phase}] ${message}\nURL: ${details.url}${chainMessage}`, {
       cause
     });
 
     this.name = "GLTSError";
-    this.url = context.url;
-    this.phase = context.phase;
+    this.url = details.url;
+    this.phase = details.phase;
     this.importChain = chain;
   }
 }
@@ -37,28 +38,38 @@ export class GLTSError extends Error {
 export function toGLTSError(
   error: unknown,
   message: string,
-  context: GLTSErrorContext
+  details: GLTSErrorDetails
 ): GLTSError {
   if (error instanceof GLTSError) {
     return error;
   }
 
-  return new GLTSError(message, context, error);
+  return new GLTSError(message, details, error);
+}
+
+/** Runs `step`, adding its failure to `errors` instead of throwing it. */
+export function collectError(errors: unknown[], step: () => void): void {
+  try {
+    step();
+  } catch (error) {
+    errors.push(error);
+  }
 }
 
 /** Runs every step, then throws an AggregateError of the steps that failed. */
 export function runAll(message: string, steps: readonly (() => void)[]): void {
   const errors: unknown[] = [];
-  for (const step of steps) {
-    try {
-      step();
-    } catch (error) {
-      errors.push(error);
-    }
-  }
+  for (const step of steps) collectError(errors, step);
   if (errors.length > 0) {
     throw new AggregateError(errors, message);
   }
+}
+
+/** `primary`, or, with other distinct failures, an error with its phase and URL that aggregates them all. */
+export function aggregate(message: string, primary: GLTSError, others: readonly unknown[]): GLTSError {
+  const errors = [...new Set([primary, ...others])];
+  if (errors.length === 1) return primary;
+  return new GLTSError(message, primary, new AggregateError(errors));
 }
 
 /** Runs `cleanup` after `error`, then rethrows `error`, or both errors when cleanup fails too. */

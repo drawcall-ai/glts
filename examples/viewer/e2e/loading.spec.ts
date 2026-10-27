@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { deferred } from "./deferred.js";
-import { routeGLTS, routeGLTSRevisions } from "./routes.js";
+import { routeScript, routeScriptRevisions } from "./routes.js";
 
 test("rejects unsupported per-load progress callbacks", async ({ page }) => {
   await page.goto("/test-harness.html");
@@ -20,7 +20,7 @@ test("rejects unsupported per-load progress callbacks", async ({ page }) => {
 });
 
 test("keeps the current revision when an unawaited reload resource fails", async ({ page }) => {
-  await routeGLTSRevisions(page, "**/assets/resource-reload.glts", [
+  await routeScriptRevisions(page, "**/assets/resource-reload.glts", [
     `
       import { onDispose, scene } from "@drawcall/glts"
       scene.name = "current"
@@ -81,7 +81,7 @@ test("keeps the current revision when an unawaited reload resource fails", async
 });
 
 test("waits for manager-tracked work even when a script does not await it", async ({ page }) => {
-  await routeGLTS(page, "**/assets/tracked.glts", `
+  await routeScript(page, "**/assets/tracked.glts", `
     import * as THREE from "three"
     import { loadingManager, scene } from "@drawcall/glts"
     new THREE.FileLoader(loadingManager).load(

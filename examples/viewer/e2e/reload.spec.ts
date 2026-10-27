@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { deferred } from "./deferred.js";
-import { fulfillGLTS, routeGLTS, routeGLTSRevisions } from "./routes.js";
+import { fulfillScript, routeScript, routeScriptRevisions } from "./routes.js";
 
 test("disposes a replacement when its node is disposed during reload", async ({ page }) => {
   const reloadRequested = deferred();
@@ -13,7 +13,7 @@ test("disposes a replacement when its node is disposed during reload", async ({ 
       reloadRequested.resolve();
       await releaseReload.promise;
     }
-    await fulfillGLTS(route, `
+    await fulfillScript(route, `
       import { onDispose, scene } from "@drawcall/glts"
       scene.name = "revision ${requests}"
       onDispose(() => {
@@ -81,7 +81,7 @@ test("serializes reloads of the same URL", async ({ page }) => {
         import { scene } from "@drawcall/glts"
         scene.name = "revision ${requests}"
       `;
-    await fulfillGLTS(route, resource);
+    await fulfillScript(route, resource);
   });
   await page.route("**/assets/serialized.bin", async (route) => {
     resourceRequested.resolve();
@@ -132,7 +132,7 @@ test("serializes reloads of the same URL", async ({ page }) => {
 });
 
 test("notifies LoadingManager completion after a reload commits", async ({ page }) => {
-  await routeGLTSRevisions(page, "**/assets/manager-order.glts", [
+  await routeScriptRevisions(page, "**/assets/manager-order.glts", [
     `
       import { scene } from "@drawcall/glts"
       scene.name = "first"
@@ -173,7 +173,7 @@ test("fails a reload instead of replacing a same-source node disposed by an earl
         (globalThis.__nestedReloadDisposals ?? 0) + 1
     })
   `;
-  await routeGLTSRevisions(page, "**/assets/nested-reload.glts", [
+  await routeScriptRevisions(page, "**/assets/nested-reload.glts", [
     source("first"),
     source("second")
   ]);
@@ -223,8 +223,8 @@ test("fails a reload instead of replacing a same-source node disposed by an earl
   });
 });
 
-test("cleans up when a script prevents managed node augmentation", async ({ page }) => {
-  await routeGLTS(page, "**/assets/frozen.glts", `
+test("cleans up when a script prevents node augmentation", async ({ page }) => {
+  await routeScript(page, "**/assets/frozen.glts", `
     import { onDispose, scene } from "@drawcall/glts"
     onDispose(() => { globalThis.__frozenDisposals = 1 })
     Object.preventExtensions(scene)

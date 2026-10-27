@@ -1,7 +1,7 @@
 // Ragdoll example: run `pnpm --filter @drawcall/glts-example-physics dev`.
 // public/ragdoll.glts authors bodies and joints; this app builds and steps the world.
 import { GLTSLoader } from "@drawcall/glts";
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import * as physics from "@drawcall/physics";
 import { buildWorld } from "@drawcall/physics-rapier";
@@ -42,7 +42,10 @@ light.position.set(3, 5, 4);
 scene.add(light, new THREE.GridHelper(10, 20));
 const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
 camera.position.set(4, 3, 5);
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
+renderer.onDeviceLost = (info) => { status.textContent = info.message; };
+await renderer.init();
+if (renderer.coordinateSystem !== THREE.WebGPUCoordinateSystem) throw new Error("WebGPU is required.");
 renderer.setClearColor(0x18212c);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const controls = new OrbitControls(camera, renderer.domElement);

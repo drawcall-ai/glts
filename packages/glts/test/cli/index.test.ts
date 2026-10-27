@@ -64,8 +64,9 @@ it("names itself from DRAWCALL_INVOCATION in help output", async () => {
   expect((await help()).stdout).toMatch(/^Usage: npx @drawcall\/glts \[options\] \[command\]/);
 });
 
-it("renders single-quoted assets/helpers, frames views at a simulation time, and isolates nested meshes", async () => {
-  await run("render", "asset.glts", "-o", "hero.png", "--size", "64");
+it("renders single-quoted scripts/helpers, frames views at a simulation time, and isolates nested meshes", async () => {
+  const { stderr } = await run("render", "asset.glts", "-o", "hero.png", "--size", "64");
+  expect(stderr).not.toContain("Invalid asm.js");
   expect(await sharp(join(project, "hero.png")).metadata()).toMatchObject({ width: 64, height: 64, format: "png" });
   await run("render", "asset.glts", "-o", "sheet.png", "--size", "64", "--time", "0.5", "--views", JSON.stringify([[{camera:"+z", isolate:"detail"}, {camera:"persp", focus:{center:[.5,0,.75], radius:.5}, title:"Region"}]]));
   expect(await sharp(join(project, "sheet.png")).metadata()).toMatchObject({ width: 128, height: 92 });
@@ -91,19 +92,72 @@ it("resolves ESM-only project packages and their Three imports to the host insta
   expect(bytes.subarray(0, 4).toString()).toBe("glTF");
 }, 30_000);
 
+it("renders and exports native bitmap textures loaded before the renderer exists", async () => {
+  await sharp({ create: { width: 4, height: 4, channels: 4, background: "#00ff20" } }).png().toFile(join(project, "texture.png"));
+  await writeFile(join(project, "textured.glts"), `
+    import * as THREE from 'three/webgpu';
+    import { scene, loadingManager, onDispose } from '@drawcall/glts';
+    const bitmap = await new THREE.ImageBitmapLoader(loadingManager).loadAsync(new URL('./texture.png', import.meta.url).href);
+    const map = new THREE.Texture(bitmap);
+    map.needsUpdate = true;
+    const geometry = new THREE.BoxGeometry();
+    const material = new THREE.MeshBasicMaterial({ map });
+    scene.add(new THREE.Mesh(geometry, material));
+    onDispose(() => { geometry.dispose(); material.dispose(); map.dispose(); bitmap.close(); });
+  `);
+  await run("render", "textured.glts", "-o", "textured.png", "--size", "32");
+  const { data } = await sharp(join(project, "textured.png")).raw().toBuffer({ resolveWithObject: true });
+  let green = 0;
+  for (let offset = 0; offset < data.length; offset += 4) {
+    if ((data[offset + 1] ?? 0) > 200 && (data[offset] ?? 0) < 20) green++;
+  }
+  expect(green).toBeGreaterThan(40);
+  await run("export", "textured.glts", "-o", "textured.glb");
+  const bytes = await readFile(join(project, "textured.glb"));
+  const json: unknown = JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString());
+  expect(json).toMatchObject({ images: [{ mimeType: "image/png" }], textures: [{ source: 0 }] });
+  const imageOffset = bytes.indexOf(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  expect(imageOffset).toBeGreaterThan(0);
+  const pixels = await sharp(bytes.subarray(imageOffset)).raw().toBuffer();
+  expect(Array.from(pixels.subarray(0, 4))).toEqual([0, 255, 32, 255]);
+}, 30_000);
+
+it("renders node materials through native TSL bloom and chained effects", async () => {
+  await writeFile(join(project, "effects.glts"), `
+    import * as THREE from 'three/webgpu';
+    import { vec4 } from 'three/tsl';
+    import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+    import { scene, onDispose } from '@drawcall/glts';
+    const geometry = new THREE.PlaneGeometry(2, 2);
+    const material = new THREE.MeshBasicNodeMaterial();
+    material.colorNode = vec4(1, 0, 0, 1);
+    scene.add(new THREE.Mesh(geometry, material));
+    scene.defaultCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    scene.defaultCamera.position.z = 2;
+    scene.rendering.effects.push(
+      ({ input }) => input.add(bloom(input)),
+      ({ input }) => vec4(input.b, input.r, input.g, input.a),
+    );
+    onDispose(() => { geometry.dispose(); material.dispose(); });
+  `);
+  await run("render", "effects.glts", "-o", "effects.png", "--size", "16");
+  const pixel = await sharp(join(project, "effects.png")).extract({ left: 8, top: 8, width: 1, height: 1 }).raw().toBuffer();
+  expect(Array.from(pixel)).toEqual([0, 255, 0, 255]);
+}, 30_000);
+
 it("reports invalid views and load failures without replacing an existing output", async () => {
   const output = join(project, "existing.png");
   await writeFile(output, "original");
   await expect(run("render", "asset.glts", "-o", "existing.png", "--views", '[[{"camera":"front"}]]')).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("View camera must be") });
-  await expect(run("render", "missing.glts", "-o", "existing.png")).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("Unable to fetch source") });
+  await expect(run("render", "missing.glts", "-o", "existing.png")).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("Request failed with 404") });
   expect(await readFile(output, "utf8")).toBe("original");
   await writeFile(join(project, "broken.glts"), "import {scene,onDispose} from '@drawcall/glts'; import {Mesh,ShaderMaterial} from 'three'; scene.add(new Mesh(undefined,new ShaderMaterial())); onDispose(()=>{throw new Error('cleanup failed')});");
   await expect(run("export", "broken.glts", "-o", "broken.glb")).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("Cannot export ShaderMaterial") });
 });
 
-it("keeps native dependencies outside browser builds of the package root", async () => {
+it("keeps native packages outside browser builds of the package root", async () => {
   await writeFile(join(project, "browser.js"), `export { GLTSLoader } from ${JSON.stringify(join(packageDir, "src/index.ts"))};`);
   const modules: string[] = [];
   await build({ configFile: false, logLevel: "silent", root: project, plugins: [{ name:"check-modules", moduleParsed(info) { modules.push(info.id); } }], build: { write: false, lib: { entry: join(project, "browser.js"), formats: ["es"] }, minify: false } });
-  expect(modules.some(id => /\/cli\/|@drawcall\/webgl|@napi-rs\/canvas|\/sharp\//.test(id))).toBe(false);
+  expect(modules.some(id => /\/cli\/|@drawcall\/webgpu|@napi-rs\/canvas|\/sharp\//.test(id))).toBe(false);
 }, 30_000);

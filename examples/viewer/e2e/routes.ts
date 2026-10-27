@@ -2,7 +2,7 @@ import type { Page, Route } from "@playwright/test";
 
 type RoutePattern = string | RegExp;
 
-export function assetSource(name: string, child?: string): string {
+export function scriptSource(name: string, child?: string): string {
   const childLoad = child
     ? `scene.add(await gltsLoader.loadAsync(new URL(${JSON.stringify(child)}, import.meta.url)))`
     : "";
@@ -14,15 +14,15 @@ export function assetSource(name: string, child?: string): string {
   `;
 }
 
-export function fulfillGLTS(route: Route, source: string): Promise<void> {
+export function fulfillScript(route: Route, source: string): Promise<void> {
   return route.fulfill({ body: source, contentType: "text/plain" });
 }
 
-export function routeGLTS(page: Page, pattern: RoutePattern, source: string) {
-  return page.route(pattern, (route) => fulfillGLTS(route, source));
+export function routeScript(page: Page, pattern: RoutePattern, source: string) {
+  return page.route(pattern, (route) => fulfillScript(route, source));
 }
 
-export async function routeGLTSRevisions(
+export async function routeScriptRevisions(
   page: Page,
   pattern: RoutePattern,
   sources: readonly string[]
@@ -37,7 +37,7 @@ export async function routeGLTSRevisions(
       );
     }
 
-    return fulfillGLTS(route, source);
+    return fulfillScript(route, source);
   });
   return state;
 }

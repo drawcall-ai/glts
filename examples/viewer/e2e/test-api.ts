@@ -1,8 +1,9 @@
-import { GLTSLoader, GLTSRenderer } from "@drawcall/glts";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { bloom } from "three/addons/tsl/display/BloomNode.js";
+
+import { getGLTSContext, GLTSLoader, GLTSRenderer } from "@drawcall/glts";
 import {
-  ArrayCamera,
   Group,
-  HalfFloatType,
   InstancedMesh,
   LoadingManager,
   Matrix4,
@@ -10,10 +11,9 @@ import {
   PerspectiveCamera,
   Scene,
   Sphere,
-  Vector4,
-  WebGLRenderTarget,
-  WebGLRenderer
-} from "three";
+  RenderTarget,
+  WebGPURenderer
+} from "three/webgpu";
 
 function readErrorField(error: unknown, key: PropertyKey): unknown {
   return typeof error === "object" && error !== null ? Reflect.get(error, key) : undefined;
@@ -21,11 +21,12 @@ function readErrorField(error: unknown, key: PropertyKey): unknown {
 
 declare global {
   interface Window {
-    readonly ArrayCamera: typeof ArrayCamera;
+    readonly bloom: typeof bloom;
+    readonly getGLTSContext: typeof getGLTSContext;
+    readonly GLTFLoader: typeof GLTFLoader;
     readonly GLTSLoader: typeof GLTSLoader;
     readonly GLTSRenderer: typeof GLTSRenderer;
     readonly Group: typeof Group;
-    readonly HalfFloatType: typeof HalfFloatType;
     readonly InstancedMesh: typeof InstancedMesh;
     readonly LoadingManager: typeof LoadingManager;
     readonly Matrix4: typeof Matrix4;
@@ -33,19 +34,19 @@ declare global {
     readonly PerspectiveCamera: typeof PerspectiveCamera;
     readonly Scene: typeof Scene;
     readonly Sphere: typeof Sphere;
-    readonly Vector4: typeof Vector4;
-    readonly WebGLRenderTarget: typeof WebGLRenderTarget;
-    readonly WebGLRenderer: typeof WebGLRenderer;
+    readonly RenderTarget: typeof RenderTarget;
+    readonly WebGPURenderer: typeof WebGPURenderer;
     readonly readErrorField: typeof readErrorField;
   }
 }
 
 Object.defineProperties(window, {
-  ArrayCamera: { value: ArrayCamera },
+  bloom: { value: bloom },
+  getGLTSContext: { value: getGLTSContext },
+  GLTFLoader: { value: GLTFLoader },
   GLTSLoader: { value: GLTSLoader },
   GLTSRenderer: { value: GLTSRenderer },
   Group: { value: Group },
-  HalfFloatType: { value: HalfFloatType },
   InstancedMesh: { value: InstancedMesh },
   LoadingManager: { value: LoadingManager },
   Matrix4: { value: Matrix4 },
@@ -53,8 +54,7 @@ Object.defineProperties(window, {
   PerspectiveCamera: { value: PerspectiveCamera },
   Scene: { value: Scene },
   Sphere: { value: Sphere },
-  Vector4: { value: Vector4 },
-  WebGLRenderTarget: { value: WebGLRenderTarget },
-  WebGLRenderer: { value: WebGLRenderer },
+  RenderTarget: { value: RenderTarget },
+  WebGPURenderer: { value: WebGPURenderer },
   readErrorField: { value: readErrorField }
 });

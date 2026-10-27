@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { fulfillGLTS } from "./routes.js";
+import { fulfillScript } from "./routes.js";
 
 const localScene = `
   import * as THREE from "three"
@@ -127,7 +127,7 @@ test("keeps the current scene when a local file fails", async ({ page }) => {
 
 test("reports an initial showcase failure in the page", async ({ page }) => {
   await page.route("**/assets/showcases/vintage-racecar/index.glts", (route) =>
-    fulfillGLTS(route, 'throw new Error("initial showcase failed")')
+    fulfillScript(route, 'throw new Error("initial showcase failed")')
   );
 
   await page.goto("/");

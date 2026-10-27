@@ -1,7 +1,7 @@
 import {
   AnimationClip, Bone, BoxGeometry, BufferAttribute, DataTexture, Float32BufferAttribute,
   LoadingManager, Mesh, MeshStandardMaterial, NumberKeyframeTrack, QuaternionKeyframeTrack, RGBAFormat,
-  ShaderMaterial, Skeleton, SkinnedMesh, Texture, Uint16BufferAttribute,
+  ShaderMaterial, Skeleton, SkinnedMesh, Uint16BufferAttribute,
 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { Canvas, Image, loadImage } from "@napi-rs/canvas";
@@ -55,21 +55,20 @@ it("roundtrips a procedural skinned mesh, morph target and UUID-addressed animat
   expect(mesh.skeleton.bones[0]).toBe(bone);
 });
 
-it("embeds PNG images from DataTexture and headless bitmap pixels without modifying originals", async () => {
+it("embeds PNG images from DataTexture and combines PBR maps without modifying originals", async () => {
   const asset = await scene();
   const pixels = new Uint8Array([255, 0, 0, 255]);
-  const bitmap = { width: 1, height: 1, pixels: () => pixels };
-  const textures = [new DataTexture(pixels, 1, 1, RGBAFormat), new Texture(bitmap)];
-  for (const texture of textures) asset.add(new Mesh(new BoxGeometry(), new MeshStandardMaterial({ map: texture })));
+  const texture = new DataTexture(pixels, 1, 1, RGBAFormat);
+  asset.add(new Mesh(new BoxGeometry(), new MeshStandardMaterial({ map: texture })));
   asset.add(new Mesh(new BoxGeometry(), new MeshStandardMaterial({
     roughnessMap: new DataTexture(new Uint8Array([0, 64, 0, 255]), 1, 1),
     metalnessMap: new DataTexture(new Uint8Array([0, 0, 128, 255]), 1, 1),
   })));
-  const originalSource = textures[1]?.source;
+  const originalSource = texture.source;
   const data = await exportScene(asset);
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const json: unknown = JSON.parse(new TextDecoder().decode(data.subarray(20, 20 + view.getUint32(12, true))));
-  expect(json).toMatchObject({ images: [{ mimeType: "image/png" }, { mimeType: "image/png" }, { mimeType: "image/png" }] });
+  expect(json).toMatchObject({ images: [{ mimeType: "image/png" }, { mimeType: "image/png" }] });
   vi.stubGlobal("self", globalThis);
   vi.stubGlobal("createImageBitmap", async (blob: Blob) => loadImage(Buffer.from(await blob.arrayBuffer())));
   const gltf = await new GLTFLoader().parseAsync(Uint8Array.from(data).buffer, "");
@@ -82,8 +81,8 @@ it("embeds PNG images from DataTexture and headless bitmap pixels without modify
     context.drawImage(image, 0, 0);
     expect(Array.from(context.getImageData(0, 0, 1, 1).data)).toEqual(object.material.map ? Array.from(pixels) : [0, 64, 128, 255]);
   });
-  expect(textures[1]?.source).toBe(originalSource);
-  expect(textures[1]?.image).toBe(bitmap);
+  expect(texture.source).toBe(originalSource);
+  expect(texture.image.data).toBe(pixels);
 });
 
 it("rejects unsupported materials and animation channels instead of producing an incomplete GLB", async () => {

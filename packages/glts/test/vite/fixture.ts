@@ -10,7 +10,7 @@ export async function writeFiles(root: string, files: Readonly<Record<string, st
 }
 
 /** Installs this package's three and its types in `root`, for scripts importing three. */
-export async function linkThree(root: string): Promise<void> {
+export async function symlinkThree(root: string): Promise<void> {
   await mkdir(join(root, "node_modules/@types"), { recursive: true });
   for (const name of ["three", "@types/three"]) {
     await symlink(fileURLToPath(new URL(`../../node_modules/${name}`, import.meta.url)), join(root, "node_modules", name));

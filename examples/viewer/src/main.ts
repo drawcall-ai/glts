@@ -46,10 +46,13 @@ const stats = requiredElement("#stats", HTMLElement);
 const progressBar = requiredElement("#progress-bar", HTMLElement);
 const showcaseButton = requiredElement("[data-showcase]", HTMLButtonElement);
 
-const preview = createPreview(canvas, (error) => {
+const preview = await createPreview(canvas, (error) => {
   console.error(error);
   showStatus(`Rendering failed. ${errorMessage(error)}`, "error");
-}, (text) => { stats.textContent = text; });
+}, (text) => { stats.textContent = text; }).catch((error: unknown) => {
+  showStatus(`Rendering failed. ${errorMessage(error)}`, "error");
+  throw error;
+});
 
 const loadingManager = new LoadingManager();
 loadingManager.onStart = () => {

@@ -1,169 +1,105 @@
-import * as THREE from "three";
-import type { Pass } from "three/addons/postprocessing/Pass.js";
+import * as THREE from "three/webgpu";
+import { pass } from "three/tsl";
 
 import { cleanUpAndThrow, runAll } from "../errors.js";
-import type { GLTSScene } from "../types.js";
-import { onNodeDispose } from "../scene/nodes.js";
-import type { GLTSEffect } from "../scene/root.js";
+import { onNodeDispose } from "../node.js";
+import type { GLTSEffect, GLTSScene } from "../types.js";
 
 interface EffectSet {
   readonly camera: THREE.Camera;
-  readonly factories: readonly GLTSEffect[];
-  /** Compared by identity, so a reload, which copies the array, rebuilds passes of unchanged factories. */
-  readonly source: GLTSEffect[];
-  readonly passes: Pass[];
+  readonly effects: GLTSEffect[];
+  /** Detect in-place edits as well as a replacement array, including reloads. */
+  readonly snapshot: readonly GLTSEffect[];
+  readonly pipeline: THREE.RenderPipeline;
+  readonly dispose: () => void;
   readonly removeListener: () => void;
 }
 
-function disposePasses(passes: readonly Pass[]): void {
-  runAll("GLTS effects disposal failed", passes.map((pass) => () => pass.dispose()));
+function disposeGraph(roots: readonly THREE.Node[], pipeline?: THREE.RenderPipeline): void {
+  const nodes = new Set<THREE.Node>();
+  const pending = [...roots];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (!node || nodes.has(node)) continue;
+    nodes.add(node);
+    pending.push(...node.getChildren());
+  }
+  runAll("GLTS effects disposal failed", [
+    () => pipeline?.dispose(),
+    // Three's shared quad geometry caches the first compiled graph, including user callbacks.
+    // Release that cache; other live pipelines recreate the triangle's GPU buffers on their next render.
+    () => { if (pipeline) new THREE.QuadMesh().geometry.dispose(); },
+    ...[...nodes].map(node => () => node.dispose())
+  ]);
 }
 
 export class Effects {
-  readonly #effects = new Map<GLTSScene, EffectSet>();
-  readonly #renderer: THREE.WebGLRenderer;
+  readonly #sets = new Map<GLTSScene, EffectSet>();
+  readonly #renderer: THREE.WebGPURenderer;
   readonly #size = new THREE.Vector2();
-  #failure: { readonly error: unknown } | undefined;
-  #effectsSupported = false;
-  #delta = 0;
 
-  constructor(renderer: THREE.WebGLRenderer) {
+  constructor(renderer: THREE.WebGPURenderer) {
     this.#renderer = renderer;
   }
 
-  render(
-    scene: GLTSScene,
-    camera: THREE.Camera,
-    delta: number,
-    beforeRender: () => void
-  ): void {
-    this.#delta = delta;
-    const passes = this.#refreshPasses(scene, camera);
-    // Factories observe host state before the root profile is applied.
-    beforeRender();
-    if (passes.length === 0) {
-      this.#renderer.render(scene, camera);
-      return;
+  /** Builds the scene's effect graph again when its camera or effect factories change. */
+  prepare(scene: GLTSScene, camera: THREE.Camera): THREE.RenderPipeline | undefined {
+    const effects = scene.rendering.effects;
+    const current = this.#sets.get(scene);
+    if (
+      current && current.camera === camera && current.effects === effects &&
+      current.snapshot.length === effects.length &&
+      current.snapshot.every((effect, index) => effect === effects[index])
+    ) {
+      return current.pipeline;
     }
-    let failure;
+
+    this.#release(scene);
+    if (effects.length === 0) return;
+
+    const scenePass = pass(scene, camera);
+    const roots: THREE.Node[] = [scenePass];
+    const output = new THREE.ContextNode(scenePass.getTextureNode());
+    let pipeline: THREE.RenderPipeline | undefined;
+    const dispose = () => {
+      // Addon quads keep their last builder and pipeline context; detach the disposed asset from both.
+      output.node = null;
+      scenePass.scene = new THREE.Scene();
+      scenePass.camera = new THREE.Camera();
+      disposeGraph(roots, pipeline);
+    };
     try {
-      this.#renderer.setEffects(passes);
-      if (!this.#effectsSupported) {
-        cleanUpAndThrow(
-          new Error("GLTS effects require a WebGLRenderer constructed with GLTSRenderer.parameters"),
-          scene.url,
-          () => this.#release(scene)
-        );
+      const size = this.#renderer.getDrawingBufferSize(this.#size);
+      let input: THREE.Node<"vec4"> = scenePass.getTextureNode();
+      for (const effect of effects) {
+        const node = effect({ camera, scene, input, width: size.width, height: size.height });
+        if (!(node instanceof THREE.Node)) {
+          throw new TypeError("GLTS effect factories must return a Three.js TSL node");
+        }
+        roots.push(node);
+        input = node;
       }
-      this.#renderer.render(scene, camera);
-    } finally {
-      // An unsupported renderer installs nothing, so there is nothing to undo.
-      if (this.#effectsSupported) this.#renderer.setEffects(null);
-      failure = this.#failure;
-      this.#failure = undefined;
-    }
-    if (failure) {
-      throw failure.error;
+      output.node = input;
+      pipeline = new THREE.RenderPipeline(this.#renderer, output);
+      this.#sets.set(scene, {
+        camera, effects, snapshot: effects.slice(), pipeline, dispose,
+        removeListener: onNodeDispose(scene, () => this.#release(scene))
+      });
+      return pipeline;
+    } catch (error) {
+      cleanUpAndThrow(error, scene.url, dispose);
     }
   }
 
   dispose(): void {
-    runAll("GLTS effects disposal failed", [...this.#effects.keys()].map((scene) => () => this.#release(scene)));
+    runAll("GLTS effects disposal failed", [...this.#sets.keys()].map(scene => () => this.#release(scene)));
   }
 
   #release(scene: GLTSScene): void {
-    const effects = this.#effects.get(scene);
-    if (!effects) {
-      return;
-    }
-    this.#effects.delete(scene);
-    effects.removeListener();
-    disposePasses(effects.passes);
-  }
-
-  #refreshPasses(scene: GLTSScene, camera: THREE.Camera): Pass[] {
-    const factories = scene.rendering.effects;
-    const current = this.#effects.get(scene);
-    if (
-      current &&
-      current.camera === camera &&
-      current.source === factories &&
-      current.factories.length === factories.length &&
-      current.factories.every((factory, index) => factory === factories[index])
-    ) {
-      return current.passes;
-    }
-
-    this.#release(scene);
-    if (factories.length === 0) {
-      return [];
-    }
-
-    const size = this.#renderer.getDrawingBufferSize(this.#size);
-    const passes: Pass[] = [];
-    try {
-      for (const factory of factories) {
-        const pass = factory({
-          camera,
-          height: size.height,
-          scene,
-          width: size.width
-        });
-        if (
-          !pass ||
-          pass.isPass !== true ||
-          typeof pass.render !== "function" ||
-          typeof pass.setSize !== "function" ||
-          typeof pass.dispose !== "function"
-        ) {
-          throw new TypeError("GLTS effect factories must return a Three.js Pass");
-        }
-        passes.push(pass);
-        this.#adaptPassForRenderer(pass);
-      }
-    } catch (error) {
-      cleanUpAndThrow(error, scene.url, () => disposePasses(passes));
-    }
-
-    this.#effects.set(scene, {
-      camera,
-      factories: factories.slice(),
-      passes,
-      removeListener: onNodeDispose(scene, () => this.#release(scene)),
-      source: factories
-    });
-    return passes;
-  }
-
-  #adaptPassForRenderer(pass: Pass): void {
-    if (Reflect.get(pass, "isRenderPass") === true) {
-      throw new TypeError(
-        "GLTS effects must not include RenderPass; " +
-        "GLTSRenderer renders the selected scene and camera"
-      );
-    }
-    if (Reflect.get(pass, "isOutputPass") === true) {
-      throw new TypeError(
-        "GLTS effects must not include OutputPass; GLTSRenderer handles final output"
-      );
-    }
-    // WebGLRenderer rejects incompatible output buffers without throwing.
-    const setSize = pass.setSize.bind(pass);
-    pass.setSize = (width, height) => {
-      this.#effectsSupported = true;
-      setSize(width, height);
-    };
-    // Defer errors until Three's compositor has restored its internal state.
-    const render = pass.render.bind(pass);
-    pass.render = (renderer, writeBuffer, readBuffer, _delta, maskActive) => {
-      if (this.#failure) {
-        return;
-      }
-      try {
-        render(renderer, writeBuffer, readBuffer, this.#delta, maskActive);
-      } catch (error) {
-        this.#failure = { error };
-      }
-    };
+    const set = this.#sets.get(scene);
+    if (!set) return;
+    this.#sets.delete(scene);
+    set.removeListener();
+    set.dispose();
   }
 }
