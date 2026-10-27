@@ -3,8 +3,8 @@ import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { installGlobals } from "@drawcall/webgl";
-import { LoadingManager } from "three";
+import { createCanvas, type Canvas } from "@drawcall/webgpu";
+import { LoadingManager } from "three/webgpu";
 import { GLTSLoader } from "../loader/index.js";
 import type { GLTSScene } from "../types.js";
 import { withFiles } from "../files.js";
@@ -19,15 +19,22 @@ export async function writeHeadless(
   file: string,
   output: string,
   isPreview: boolean,
-  encode: (scene: GLTSScene) => Promise<Uint8Array>
+  size: number,
+  encode: (scene: GLTSScene, canvas: Canvas) => Promise<Uint8Array>
 ): Promise<void> {
-  await write(output, await withHeadlessScene(file, isPreview, encode));
+  const canvas = await createCanvas(size, size);
+  let bytes: Uint8Array;
+  try {
+    bytes = await withHeadlessScene(file, isPreview, (scene) => encode(scene, canvas));
+  } finally {
+    await canvas.dispose();
+  }
+  await write(output, bytes);
 }
 
 /** Loads the script at `file` headlessly and returns what `use` makes of its scene, then disposes the loader. */
 async function withHeadlessScene<T>(file: string, isPreview: boolean, use: (scene: GLTSScene) => Promise<T>): Promise<T> {
   const url = pathToFileURL(resolve(file));
-  installGlobals();
   const fetch = globalThis.fetch;
   // Scripts load their resources, such as textures, with `fetch`.
   globalThis.fetch = withFiles(fetch);

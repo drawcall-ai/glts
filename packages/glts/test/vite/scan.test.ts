@@ -14,13 +14,15 @@ it("collects the package imports scripts do not get from the loader", async () =
   await writeFiles(temp, {
     "imports/scene.glts": `
       import * as THREE from "three";
+      import { MeshBasicNodeMaterial } from "three/webgpu";
+      import { color } from "three/tsl";
       import { scene } from "@drawcall/glts";
       import { Options } from "elided";
       import "side-effect";
       const options: Options | undefined = undefined;
       import noise from "simplex-noise@4";
       import remote from "https://cdn.test/remote.js";
-      console.log(THREE, scene, noise, remote, options);
+      console.log(THREE, MeshBasicNodeMaterial, color, scene, noise, remote, options);
     `,
   });
   const { specifiers } = await scan(`${temp}/imports`);

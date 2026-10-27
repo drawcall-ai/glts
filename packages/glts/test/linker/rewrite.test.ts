@@ -60,6 +60,15 @@ describe("rewriteModule", () => {
     await expect(operation).rejects.toThrow("Import attributes are not supported (1:14)");
   });
 
+  it.each([
+    'import data from "./data.json" with { type: "json" };',
+    'import data from "./data.json" with {};',
+    'export { default } from "./data.json" with { type: "json" };',
+  ])("rejects static import attributes: %s", async (source) => {
+    const operation = rewriteModule({ source, url: "https://example.test/data.js" }, [], async (specifier) => specifier, "load");
+    await expect(operation).rejects.toThrow("Import attributes are not supported (1:1)");
+  });
+
   it("rejects source-phase imports with source context", async () => {
     const sourceURL = "https://example.test/assets/tree.glts";
     const operation = rewriteModule({

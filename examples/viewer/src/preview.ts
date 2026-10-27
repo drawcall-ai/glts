@@ -1,17 +1,18 @@
 import { GLTSRenderer, type GLTSScene } from "@drawcall/glts";
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-export function createPreview(
+export async function createPreview(
   canvas: HTMLCanvasElement,
   onError: (error: unknown) => void,
   onStats: (text: string) => void
 ) {
-  const renderer = new THREE.WebGLRenderer({
-    ...GLTSRenderer.parameters,
+  const renderer = new THREE.WebGPURenderer({
     antialias: true,
     canvas
   });
+  renderer.onDeviceLost = (info) => onError(new Error(info.message));
+  await renderer.init();
   const gltsRenderer = new GLTSRenderer(renderer);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x080a10);
@@ -72,7 +73,7 @@ export function createPreview(
       renderer.info.reset();
       try {
         scene.update(delta);
-        gltsRenderer.render(scene, camera, delta);
+        gltsRenderer.render(scene, camera);
       } catch (error) {
         renderFailure = scene;
         onError(error);
@@ -84,7 +85,7 @@ export function createPreview(
       statsAt = elapsed;
       onStats(
         `${renderer.info.render.triangles.toLocaleString()} triangles · ` +
-        `${renderer.info.render.calls} draw calls`
+        `${renderer.info.render.drawCalls} draw calls`
       );
     }
   });

@@ -1,6 +1,6 @@
-import { createCanvas } from "@drawcall/webgl";
+import type { Canvas } from "@drawcall/webgpu";
 import sharp from "sharp";
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
 import { GLTSRenderer } from "../renderer/index.js";
 import type { GLTSScene } from "../types.js";
 import { writeHeadless } from "./headless.js";
@@ -19,7 +19,7 @@ function caption(text: string, size: number): Buffer {
 }
 
 export async function renderFile(file: string, options: RenderOptions): Promise<void> {
-  await writeHeadless(file, options.output, true, (scene) => renderScene(scene, options));
+  await writeHeadless(file, options.output, true, options.size, (scene, canvas) => renderScene(scene, canvas, options));
 }
 
 function findUnique(scene: THREE.Object3D, name: string): THREE.Object3D {
@@ -76,7 +76,7 @@ function isolate(scene: THREE.Object3D, selected: THREE.Object3D): () => void {
   return () => { for (const [object, mask] of masks) object.layers.mask = mask; };
 }
 
-async function renderScene(scene: GLTSScene, { size, time, views }: RenderOptions): Promise<Uint8Array> {
+async function renderScene(scene: GLTSScene, canvas: Canvas, { size, time, views }: RenderOptions): Promise<Uint8Array> {
   scene.update(0);
   for (let elapsed = 0; elapsed < time;) {
     const delta = Math.min(1 / 60, time - elapsed);
@@ -91,16 +91,12 @@ async function renderScene(scene: GLTSScene, { size, time, views }: RenderOption
     const camera = defaultCamera ?? fitCamera(view.camera, focusSphere(scene, view.focus, isolated));
     return { view, camera, isolated };
   }));
-  const canvas = createCanvas(size, size);
-  let renderer: THREE.WebGLRenderer | undefined;
+  // Three's DOM canvas types exclude native canvases; its constructor checks the actual API.
+  const instance: unknown = Reflect.construct(THREE.WebGPURenderer, [{ canvas, antialias: false }]);
+  if (!(instance instanceof THREE.WebGPURenderer)) throw new Error("Unable to construct the headless renderer.");
+  const renderer = instance;
   try {
-    // Three's DOM canvas types exclude native canvases; its constructor checks the actual API.
-    const instance: unknown = Reflect.construct(THREE.WebGLRenderer, [{ canvas, ...GLTSRenderer.parameters, antialias: false }]);
-    if (!(instance instanceof THREE.WebGLRenderer)) throw new Error("Unable to construct the headless renderer.");
-    renderer = instance;
-    renderer.debug.onShaderError = (gl, program, vertex, fragment) => {
-      throw new Error(`Shader compilation failed:\n${gl.getProgramInfoLog(program)}\n${gl.getShaderInfoLog(vertex)}\n${gl.getShaderInfoLog(fragment)}`);
-    };
+    await renderer.init();
     renderer.setPixelRatio(1);
     renderer.setSize(size, size, false);
     const tiles: sharp.OverlayOptions[] = [];
@@ -110,10 +106,13 @@ async function renderScene(scene: GLTSScene, { size, time, views }: RenderOption
       const restore = shot.isolated ? isolate(scene, shot.isolated) : () => {};
       const gltsRenderer = new GLTSRenderer(renderer);
       try {
-        gltsRenderer.render(scene, shot.camera, 0);
-        const input = await sharp(canvas.readPixels(), { raw: { width: size, height: size, channels: 4 } }).png().toBuffer();
+        gltsRenderer.render(scene, shot.camera);
+        const input = await sharp(await canvas.readPixels(), { raw: { width: size, height: size, channels: 4 } }).png().toBuffer();
         tiles.push({ input, left: column * size, top: row * height });
-      } finally { gltsRenderer.dispose(); restore(); }
+      } finally {
+        try { gltsRenderer.dispose(); }
+        finally { restore(); }
+      }
       if (labeled) {
         const title = shot.view.title ? `${shot.view.title} · ${shot.view.camera}` : shot.view.camera;
         tiles.push({ input: caption(title, size), left: column * size, top: row * height + size });
@@ -122,7 +121,6 @@ async function renderScene(scene: GLTSScene, { size, time, views }: RenderOption
     const width = Math.max(...rows.map(row => row.length)) * size;
     return await sharp({ create: { width, height: rows.length * height, channels: 4, background: "#202733" } }).composite(tiles).png().toBuffer();
   } finally {
-    try { renderer?.dispose(); }
-    finally { canvas.destroy(); }
+    await renderer.dispose();
   }
 }

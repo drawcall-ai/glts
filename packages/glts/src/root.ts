@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
 
 import type { GLTSScriptScene, RootState } from "./types.js";
 
@@ -13,7 +13,6 @@ export function createRoot(): ScriptRoot {
     defaultCamera: undefined,
     rendering: {
       effects: [],
-      localClippingEnabled: false,
       shadows: false,
       toneMapping: THREE.NoToneMapping,
       toneMappingExposure: 1
@@ -34,13 +33,16 @@ export function copyRootState(target: GLTSScriptScene, from: GLTSScriptScene): v
   target.userData = from.userData;
   target.defaultCamera = from.defaultCamera;
   target.background = from.background;
+  target.backgroundNode = from.backgroundNode;
   target.backgroundBlurriness = from.backgroundBlurriness;
   target.backgroundIntensity = from.backgroundIntensity;
   target.backgroundRotation.copy(from.backgroundRotation);
   target.environment = from.environment;
+  target.environmentNode = from.environmentNode;
   target.environmentIntensity = from.environmentIntensity;
   target.environmentRotation.copy(from.environmentRotation);
   target.fog = from.fog;
+  target.fogNode = from.fogNode;
   target.overrideMaterial = from.overrideMaterial;
   Object.assign(target.rendering, from.rendering, {
     effects: from.rendering.effects.slice()

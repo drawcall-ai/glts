@@ -1,6 +1,6 @@
 {
   "name": "@drawcall/glts",
-  "version": "0.7.1",
+  "version": "1.0.0",
   "type": "module",
   "bin": {
     "glts": "./dist/cli/index.js"
@@ -59,14 +59,14 @@
   "dependencies": {
     "@babel/standalone": "^8.0.7",
     "@babel/types": "^8.0.6",
-    "@drawcall/webgl": "^0.1.0",
+    "@drawcall/webgpu": "^0.1.1",
     "@napi-rs/canvas": "^1.0.11",
     "commander": "^15.0.0",
-    "es-module-lexer": "^2.0.0",
+    "es-module-lexer": "^3.0.4",
     "sharp": "^0.34.5"
   },
   "peerDependencies": {
-    "three": ">=0.182.0",
+    "three": ">=0.185.0",
     "typescript": "^5.0.0 || ^6.0.0",
     "vite": ">=6.0.0"
   },
@@ -80,6 +80,7 @@
   },
   "devDependencies": {
     "@types/three": "^0.185.0",
+    "@webgpu/types": "^0.1.74",
     "three": "^0.185.1",
     "typescript": "^5.9.3",
     "vite": "^8.3.4",

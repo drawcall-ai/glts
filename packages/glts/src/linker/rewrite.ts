@@ -1,4 +1,5 @@
-import { parse } from "es-module-lexer/js";
+// Parse compiled JavaScript synchronously without eval or WebAssembly.
+import { parse } from "es-module-lexer/minimal/js";
 
 import { GLTSError, type GLTSPhase } from "../errors.js";
 import type { Source } from "./fetch.js";
@@ -67,7 +68,7 @@ export function parseImports({ source, url }: Source, chain: readonly string[]):
       throw failure(`Source- and defer-phase imports are not supported (${locationAt(source, entry.ss)})`, "transform");
     }
 
-    if (entry.at) {
+    if (entry.a !== -1) {
       throw failure(`Import attributes are not supported (${locationAt(source, entry.ss)})`, "transform");
     }
 

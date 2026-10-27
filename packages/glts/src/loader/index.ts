@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import * as TSL from "three/tsl";
+import * as WebGPU from "three/webgpu";
 
 import { aggregate, cleanUpAndThrow, GLTSError, runAll, toGLTSError } from "../errors.js";
 import { Dependencies } from "../dependencies.js";
@@ -14,10 +16,12 @@ import { canonicalize, pageURL } from "../urls.js";
 import { trackItem, type ItemFailure } from "./items.js";
 import { LoadScope, type NestedLoader } from "./scope.js";
 
-/** The namespaces scripts share with the host: `modules`, with the host's `three` and `@drawcall/glts`. */
+/** The namespaces scripts share with the host, including Three's core, WebGPU, and TSL modules. */
 function hostModules(modules: GLTSModules = {}): GLTSModules {
   const provided: Record<ProvidedSpecifier, object> = {
     three: THREE,
+    "three/webgpu": WebGPU,
+    "three/tsl": TSL,
     [gltsSpecifier]: packageNamespace(GLTS, modules[gltsSpecifier]),
   };
   return { ...modules, ...provided };

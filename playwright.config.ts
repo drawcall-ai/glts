@@ -14,7 +14,13 @@ export default defineConfig({
     baseURL,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
-    viewport: { width: 1440, height: 900 }
+    viewport: { width: 1440, height: 900 },
+    launchOptions: {
+      args: [
+        "--enable-gpu", "--ignore-gpu-blocklist", "--enable-unsafe-webgpu",
+        ...(process.platform === "linux" ? ["--use-webgpu-adapter=swiftshader"] : [])
+      ]
+    }
   },
   webServer: {
     // --force: Vite's prebundle cache would otherwise keep serving the GLTS build it first saw.

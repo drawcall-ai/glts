@@ -1,5 +1,4 @@
-import type * as THREE from "three";
-import type { Pass } from "three/addons/postprocessing/Pass.js";
+import type * as THREE from "three/webgpu";
 
 export type GLTSURL = string | URL;
 
@@ -13,25 +12,37 @@ export type GLTSModules = Readonly<Record<string, object>>;
 export type GLTSResolve = (specifier: string) => string;
 
 export interface GLTSLoaderOptions {
+  /** CDN for packages not supplied by the host. Defaults to https://esm.sh/. */
   cdnURL?: GLTSURL;
+  /** Enables preview staging for directly loaded scenes. Defaults to false. */
   isPreview?: boolean;
+  /** Host namespaces shared with scripts by exact import specifier. */
   modules?: GLTSModules;
+  /** Resolves unversioned packages natively instead of through the CDN. */
   resolve?: GLTSResolve;
 }
 
 export interface GLTSEffectContext {
+  /** The previous effect's linear RGBA output, or the rendered scene for the first effect. */
+  readonly input: THREE.Node<"vec4">;
   readonly camera: THREE.Camera;
+  /** Initial drawing-buffer height in pixels. */
   readonly height: number;
   readonly scene: GLTSScriptScene;
+  /** Initial drawing-buffer width in pixels. */
   readonly width: number;
 }
 
-export type GLTSEffect = (context: GLTSEffectContext) => Pass;
+/**
+ * Creates an effect graph owned and disposed by GLTS. Create its resource nodes inside the factory.
+ * Three.js addons such as bloom can retain custom node-update callbacks after disposal. Animate script
+ * uniforms with onFrame instead to avoid keeping script state in those callbacks.
+ */
+export type GLTSEffect = (context: GLTSEffectContext) => THREE.Node<"vec4">;
 
 /** How GLTSRenderer configures the renderer for a scene. */
 export interface GLTSRenderingProfile {
   effects: GLTSEffect[];
-  localClippingEnabled: boolean;
   shadows: boolean;
   toneMapping: THREE.ToneMapping;
   toneMappingExposure: number;
@@ -39,6 +50,7 @@ export interface GLTSRenderingProfile {
 
 /** What a script's root adds to a THREE.Scene. */
 export interface RootState {
+  /** Recommended camera, used by GLTSRenderer when the host does not supply one. */
   defaultCamera: THREE.Camera | undefined;
   readonly rendering: GLTSRenderingProfile;
 }
@@ -49,6 +61,7 @@ export type GLTSScriptScene = Omit<THREE.Scene, "clone"> & RootState & {
 };
 
 interface GLTSSceneMethods {
+  /** Resolved source URL. */
   readonly url: string;
   add(...objects: THREE.Object3D[]): this;
   applyQuaternion(quaternion: THREE.Quaternion): this;
@@ -56,6 +69,7 @@ interface GLTSSceneMethods {
   clear(): this;
   clone(recursive?: boolean): THREE.Scene;
   copy(source: THREE.Scene, recursive?: boolean): this;
+  /** Disposes this execution, nested scenes, and GLTSRenderer effect graphs. */
   dispose(): void;
   remove(...objects: THREE.Object3D[]): this;
   removeFromParent(): this;
@@ -68,6 +82,7 @@ interface GLTSSceneMethods {
   translateX(distance: number): this;
   translateY(distance: number): this;
   translateZ(distance: number): this;
+  /** Advances frame callbacks of this scene and its nested scenes by delta seconds. */
   update(delta: number): void;
 }
 

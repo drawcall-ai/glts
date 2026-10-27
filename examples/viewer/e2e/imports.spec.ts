@@ -217,8 +217,8 @@ test("releases script state, context, and scene after disposal", async ({ page }
 
 test("releases nested scenes, instances, and helper imports across load and dispose cycles", async ({ page }) => {
   const script = (nested: string) => `
+    import { uniform } from "three/tsl"
     import { getGLTSContext, gltsLoader, onDispose, onFrame, onMatrixUpdateAt, scene } from "@drawcall/glts"
-    import { Pass } from "three/addons/postprocessing/Pass.js"
     import { settle, track } from "./track.ts"
 
     const state = { frames: 0, matrices: [] }
@@ -232,10 +232,11 @@ test("releases nested scenes, instances, and helper imports across load and disp
     "/assets/leak/parent.glts": script(`
       scene.add(await gltsLoader.loadAsync("./child.glts"))
       scene.add(await gltsLoader.loadInstancesAsync("./instances.glts", 2))
-      scene.rendering.effects.push(() => {
-        const pass = new (class extends Pass { render() {} })()
-        track(pass)
-        return pass
+      scene.rendering.effects.push(({ input }) => {
+        const gain = uniform(1).onRenderUpdate(() => state.frames)
+        const output = input.mul(gain)
+        track(output)
+        return output
       })
     `),
     "/assets/leak/child.glts": script(""),
@@ -270,10 +271,8 @@ test("releases nested scenes, instances, and helper imports across load and disp
   await page.goto("/test-harness.html");
   await page.evaluate(async () => {
     const loader = new window.GLTSLoader(new window.LoadingManager());
-    const renderer = new window.WebGLRenderer({
-      canvas: document.createElement("canvas"),
-      ...window.GLTSRenderer.parameters
-    });
+    const renderer = new window.WebGPURenderer({ canvas: document.createElement("canvas") });
+    await renderer.init();
     renderer.setSize(8, 8, false);
     const gltsRenderer = new window.GLTSRenderer(renderer);
     const camera = new window.PerspectiveCamera();
@@ -309,8 +308,9 @@ test("releases nested scenes, instances, and helper imports across load and disp
     });
   });
   // Per cycle: state, context, and scene of three scripts loaded and then reloaded, of a failing script and
-  // its parent, and of an automatically instanced mesh's script, plus one effect pass.
-  expect(retained).toEqual(Array(4 * (3 * 3 * 2 + 3 * 2 + 3 + 1)).fill(false));
+  // its parent, and of an automatically instanced mesh's script, plus one effect node.
+  expect(retained).toHaveLength(4 * (3 * 3 * 2 + 3 * 2 + 3 + 1));
+  expect(retained.flatMap((value, index) => value ? [index] : [])).toEqual([]);
 });
 
 test("host modules see the calling execution across concurrent script awaits", async ({ page }) => {

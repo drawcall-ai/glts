@@ -8,7 +8,7 @@ export const gltsSpecifier = "@drawcall/glts";
 export const runtimeSpecifier = "glts:runtime";
 
 /** The bare specifiers every loader provides scripts and helpers with, rather than resolving them. */
-export const providedSpecifiers = ["three", gltsSpecifier] as const;
+export const providedSpecifiers = ["three", "three/webgpu", "three/tsl", gltsSpecifier] as const;
 
 export type ProvidedSpecifier = (typeof providedSpecifiers)[number];
 

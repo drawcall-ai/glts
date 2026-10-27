@@ -25,7 +25,7 @@ A script builds its asset in the `scene` it imports:
 
 ```ts
 // public/crystal.glts
-import * as THREE from "three"
+import * as THREE from "three/webgpu"
 import { onDispose, onFrame, scene } from "@drawcall/glts"
 
 const geometry = new THREE.IcosahedronGeometry()
@@ -43,11 +43,14 @@ onDispose(() => {
 })
 ```
 
-The app loads it like any other Three.js asset:
+The app loads it like any other Three.js asset and renders with WebGPU:
 
 ```ts
 import { GLTSLoader } from "@drawcall/glts"
-import * as THREE from "three"
+import * as THREE from "three/webgpu"
+
+const renderer = new THREE.WebGPURenderer({ canvas })
+await renderer.init()
 
 const loader = new GLTSLoader(new THREE.LoadingManager())
 const crystal = await loader.loadAsync("/crystal.glts")
@@ -71,7 +74,8 @@ npx @drawcall/glts render asset.glts -o views.png --views '[[{"camera":"+x"},{"c
 npx @drawcall/glts export asset.glts -o asset.glb
 ```
 
-Rendering includes preview staging. Export excludes it and writes supported
+Rendering uses [@drawcall/webgpu](https://github.com/drawcall-ai/webgpu) and includes
+preview staging. Export excludes it and writes supported
 geometry, materials, textures, skins, and explicit animation clips; procedural
 frame callbacks remain in the `.glts` file.
 

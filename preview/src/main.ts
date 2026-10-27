@@ -3,7 +3,7 @@
 // or logs and shows the error. A .glts file dropped anywhere on the page, or picked when no
 // URL was given, replaces the shown asset the same way.
 import { GLTSLoader, GLTSRenderer, type GLTSScene } from "@drawcall/glts";
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
 
 // Frame callbacks run once with this step before the render, so they can
 // apply authored state such as animation poses.
@@ -12,15 +12,16 @@ const delta = 1 / 60;
 const hint = element("#hint", HTMLElement);
 const picker = element("#picker", HTMLInputElement);
 
-const renderer = new THREE.WebGLRenderer({
-  ...GLTSRenderer.parameters,
-  antialias: true,
-  // Keeps the frame readable by screenshots after it was drawn.
-  preserveDrawingBuffer: true,
-});
-renderer.domElement.addEventListener("webglcontextlost", () =>
-  fail(new Error("The WebGL context was lost.")),
+let failed = false;
+let output: HTMLPreElement | undefined;
+addEventListener("error", (event) =>
+  fail(event.error ?? new Error(event.message || "The preview failed.")),
 );
+addEventListener("unhandledrejection", (event) => fail(event.reason));
+
+const renderer = new THREE.WebGPURenderer({ antialias: true });
+renderer.onDeviceLost = (info) => fail(new Error(info.message));
+await renderer.init();
 renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight, false);
 renderer.setClearColor(0x111111);
@@ -31,13 +32,7 @@ const loader = new GLTSLoader(new THREE.LoadingManager(), { isPreview: true });
 let current: GLTSScene | undefined;
 // Counts loads so a slower earlier load never replaces a later one.
 let loads = 0;
-let failed = false;
-let output: HTMLPreElement | undefined;
 
-addEventListener("error", (event) =>
-  fail(event.error ?? new Error(event.message || "The preview failed.")),
-);
-addEventListener("unhandledrejection", (event) => fail(event.reason));
 picker.addEventListener("change", () => {
   const file = picker.files?.[0];
   picker.value = "";
@@ -87,7 +82,7 @@ function render(scene: GLTSScene): void {
   scene.updateWorldMatrix(true, true);
   scene.update(delta);
   const camera = scene.defaultCamera ?? fitCamera(scene);
-  glts.render(scene, camera, delta);
+  glts.render(scene, camera);
 }
 
 function element<T extends Element>(selector: string, type: new () => T): T {

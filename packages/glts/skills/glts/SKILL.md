@@ -14,7 +14,7 @@ A `.glts` file is a TypeScript ES module that builds a Three.js asset. `GLTSLoad
 Build the asset in the imported `scene`, a `THREE.Scene`. The file is a plain script, not a class or factory:
 
 ```ts
-import * as THREE from "three"
+import * as THREE from "three/webgpu"
 import { onDispose, scene } from "@drawcall/glts"
 
 const geometry = new THREE.BoxGeometry()
@@ -27,23 +27,14 @@ onDispose(() => {
 })
 ```
 
-Import the context by name from `@drawcall/glts`. Each execution gets its own values:
-
-| Import | Meaning |
-| --- | --- |
-| `scene` | The asset's root scene. |
-| `onDispose(fn)` | Runs `fn` when this execution is disposed or replaced by a reload; reverse registration order. |
-| `onFrame(fn)` | Runs `fn(delta)` when the host calls `update(delta)`. |
-| `loadingManager` | The `LoadingManager` to pass to Three.js loaders. |
-| `gltsLoader` | Loads nested `.glts` files (`loadAsync`, `loadInstancesAsync`). |
-| `isPreview` | `true` only when a host preview loader's `loadAsync()` loaded this script directly; a node keeps its value across reloads. |
-| `instanceCount` | Instance count; `1` for a plain `loadAsync()`. |
-| `onMatrixUpdateAt(fn)` | Opts into native instancing (see Instancing). |
+Import contextual values by name from `@drawcall/glts`: `scene`, `onDispose`,
+`onFrame`, `loadingManager`, `gltsLoader`, `isPreview`, `instanceCount`, and
+`onMatrixUpdateAt`. Each script execution gets its own context.
 
 Rules:
 
-- Export no values, and from `@drawcall/glts` import only the context names above; types are fine.
-- Import `three`, `three/addons/*`, browser-compatible npm packages, full `https://` module URLs, or helpers (see Helpers).
+- Export no values, and from `@drawcall/glts` import only these context names; types are fine.
+- Import `three/webgpu`, `three/tsl`, `three/addons/*`, browser-compatible npm packages, full `https://` module URLs, or helpers (see Helpers).
 - Never import `.glts` files (load them with `gltsLoader.loadAsync()`) or other local files such as `./data.json`, and never use import attributes.
 - Dynamic `import()` follows the same rules and resolves when it runs, so an import on a path that never runs is never fetched. `@drawcall/glts` must be imported statically. The Vite plugin bundles a literal specifier such as `import("pkg")` like a static import, loaded with the app; a computed one such as `import(name)` loads from the CDN.
 - Top-level `await` works.
@@ -62,9 +53,9 @@ Rules:
 Gate staging that exists only for standalone inspection (floor, light rig, background, fog, bloom) with `isPreview`. Keep intrinsic content unconditional, including each mesh's `castShadow`.
 
 ```ts
-import * as THREE from "three"
+import * as THREE from "three/webgpu"
 import { isPreview, onDispose, scene } from "@drawcall/glts"
-import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
+import { bloom } from "three/addons/tsl/display/BloomNode.js"
 
 scene.defaultCamera = new THREE.PerspectiveCamera(35, 1, 0.1, 100)
 scene.defaultCamera.position.set(4, 3, 6)
@@ -79,8 +70,8 @@ if (isPreview) {
 
   scene.rendering.shadows = true
   scene.rendering.toneMapping = THREE.ACESFilmicToneMapping
-  scene.rendering.effects.push(({ width, height }) =>
-    new UnrealBloomPass(new THREE.Vector2(width, height), 0.3, 0.4, 0.85),
+  scene.rendering.effects.push(({ input }) =>
+    input.add(bloom(input, 0.3, 0.4, 0.85)),
   )
 
   onDispose(() => light.dispose())
@@ -89,13 +80,16 @@ if (isPreview) {
 
 ### Rendering profile
 
-`scene.rendering` holds `shadows`, `localClippingEnabled`, `toneMapping`, `toneMappingExposure`, and `effects`. It applies only when this scene is the root passed to `GLTSRenderer.render()`.
+The rendering profile applies when this scene is the root passed to `GLTSRenderer`.
+Set it during script evaluation. Effect factories transform the incoming TSL
+color node; their outputs feed the next factory. Build fresh effect nodes each
+time, and let GLTS dispose the returned graph when the camera, effects, or scene
+changes. Keep script-owned geometry, materials, and textures in `onDispose`.
+Animate effect uniforms through `onFrame` when they should follow the asset's
+simulation time.
 
-- Set it during script evaluation, never from frame, matrix, timer, or event callbacks.
-- `effects` is an array of synchronous factories `({ camera, scene, width, height }) => Pass`, returning a Three.js `Pass` compatible with `WebGLRenderer.setEffects()`. `camera` is the camera the host renders with; `width` and `height` are the initial drawing-buffer size.
-- Return a fresh pass on every call. Factories run again when the camera or the factory list changes.
-- Never add `RenderPass` or `OutputPass`; the renderer does both and rejects them.
-- The renderer owns and disposes the passes.
+Use Three.js `ClippingGroup` for local clipping. For TSL composition and available
+effects, use the [Three.js TSL documentation](https://github.com/mrdoob/three.js/wiki/Three.js-Shading-Language).
 
 When the asset is nested, its background, environment, fog, override material, default camera, and rendering profile are ignored; the outer root wins.
 
@@ -114,7 +108,7 @@ Share code between scripts with helpers: `.ts` modules imported by a `./` or `..
 
 ```ts
 // parts/geometry.ts
-import * as THREE from "three"
+import * as THREE from "three/webgpu"
 
 export function tube(radius: number, length: number): THREE.BufferGeometry {
   return new THREE.CylinderGeometry(radius, radius, length, 24)
@@ -123,7 +117,7 @@ export function tube(radius: number, length: number): THREE.BufferGeometry {
 
 ```ts
 // parts/axle.glts
-import * as THREE from "three"
+import * as THREE from "three/webgpu"
 import { onDispose, scene } from "@drawcall/glts"
 import { tube } from "./geometry.ts"
 
@@ -174,7 +168,7 @@ Keep instanceable assets static and let the parent pose instances with `setMatri
 When the asset needs its own per-instance behavior, implement native instancing:
 
 ```ts
-import * as THREE from "three"
+import * as THREE from "three/webgpu"
 import { instanceCount, onDispose, onMatrixUpdateAt, scene } from "@drawcall/glts"
 
 const geometry = new THREE.BoxGeometry()
@@ -206,7 +200,7 @@ Registering `onMatrixUpdateAt` selects native instancing. It immediately replays
 
 ```ts
 import { GLTSLoader } from "@drawcall/glts"
-import * as THREE from "three"
+import * as THREE from "three/webgpu"
 
 const manager = new THREE.LoadingManager()
 const loader = new GLTSLoader(manager)
@@ -225,26 +219,12 @@ loader.dispose() // also disposes every scene it loaded
 - `setRequestHeader()` and `setWithCredentials()` apply to script and package requests.
 - Serve cross-origin scripts and packages with CORS, and allow `data:` ES modules in the page's CSP.
 
-The result is a `GLTSScene` (a `THREE.Scene`) with:
+The returned scene participates in ordinary Three.js composition. Advance it
+from the host's frame loop and dispose it when removed. Disposing the loader
+also disposes its scenes; cloning creates an unmanaged Three.js scene.
 
-| Member | Meaning |
-| --- | --- |
-| `url` | Resolved source URL. |
-| `update(delta)` | Runs frame callbacks of this and nested GLTS scenes. |
-| `dispose()` | Runs disposal callbacks, disposes nested GLTS scenes, and frees its `GLTSRenderer` passes. |
-| `defaultCamera` | The asset's recommended camera, or `undefined`. |
-| `rendering` | The rendering profile used by `GLTSRenderer`. |
-
-`clone()` is the ordinary Three.js clone and returns an unmanaged copy.
-
-Options, `new GLTSLoader(manager, options)`:
-
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `isPreview` | `false` | Value of `isPreview` for scripts this loader's `loadAsync()` loads directly. |
-| `modules` | `{}` | Host packages scripts import instead of the CDN (see Packages). |
-| `cdnURL` | `https://esm.sh/` | Where scripts' other packages come from. |
-| `resolve` | none | Resolves bare imports to a specifier or URL the app's `import()` resolves natively, such as `import.meta.resolve` (see Packages). |
+For package resolution and shared namespaces, see Packages below. Use the
+loader's exported option types for configuration.
 
 ## Instances
 
@@ -276,30 +256,30 @@ Use `GLTSRenderer` when the asset's `rendering` profile and `defaultCamera` shou
 
 ```ts
 import { GLTSLoader, GLTSRenderer } from "@drawcall/glts"
-import * as THREE from "three"
+import * as THREE from "three/webgpu"
 
-const renderer = new THREE.WebGLRenderer({ ...GLTSRenderer.parameters, canvas })
+const renderer = new THREE.WebGPURenderer({ canvas })
+await renderer.init()
 const gltsRenderer = new GLTSRenderer(renderer)
 const loader = new GLTSLoader(manager, { isPreview: true })
 const root = await loader.loadAsync("/asset.glts")
 
 root.update(delta)
-gltsRenderer.render(root, undefined, delta) // undefined: use root.defaultCamera
+gltsRenderer.render(root) // uses root.defaultCamera
 
 root.dispose()
 gltsRenderer.dispose()
 ```
 
-- `render(root, camera?, delta = 0)` renders with the root's profile and `camera`, else `root.defaultCamera`, and throws if neither exists; `delta` reaches the effect passes.
-- Create one `GLTSRenderer` per `WebGLRenderer` (a second throws) and never call `setEffects()` elsewhere.
-- Construct the `WebGLRenderer` with `GLTSRenderer.parameters` when roots use effects.
-- Effects and tone mapping need the default framebuffer, a full viewport, and scissor testing off.
-- The app still owns the canvas, output color space, shadow-map type, viewport, controls, and frame loop.
-- `renderer.render(asset, camera)` and custom pipelines also work, because the asset is a native scene; they ignore `rendering`.
+- Initialize the WebGPU renderer before wrapping it. A WebGL backend is rejected.
+- Create one `GLTSRenderer` per renderer. The app owns the canvas, controls, viewport, and frame loop.
+- Effects need the default framebuffer, a full viewport, and scissor testing off.
+- Pass an explicit camera to override the asset's `defaultCamera`.
+- Direct Three.js rendering and custom pipelines also work because the asset is a native scene; they ignore its rendering profile.
 
 ## Packages
 
-- `three` in a script is always the app's own `three`.
+- `three`, `three/webgpu`, and `three/tsl` always share the app's own namespaces.
 - Without the Vite plugin, other bare imports load at runtime from `cdnURL` (esm.sh) and share the app's `three` and every `modules` entry; `three/addons/*` matches the app's Three.js version.
 - `modules` gives scripts the app's own package instead. Keys match import specifiers exactly, so `simplex-noise@4` still comes from the CDN unless listed:
 
@@ -344,8 +324,8 @@ Type checking: the plugin type checks the public `.glts` files and their helpers
 ## CLI inspection and export
 
 Use the packaged `glts` command for headless image checks and GLB export, without
-creating a viewer app. It needs Node.js 22.18+ or 24.11+; native dependencies install
-with the package. The browser entry does not import them.
+creating a viewer app. It needs Node.js 22.18+ or 24.11+. The CLI uses
+`@drawcall/webgpu`; for supported headless asset-loading patterns, see its [WebGPU skill](https://github.com/drawcall-ai/webgpu/blob/main/skills/webgpu/SKILL.md).
 
 ```sh
 npx @drawcall/glts render dragon.glts -o dragon.png

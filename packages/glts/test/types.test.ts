@@ -1,5 +1,5 @@
 import { expect, expectTypeOf, it } from "vitest";
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
 
 import {
   GLTSLoader,
@@ -36,14 +36,12 @@ it("exports the host and contextual script APIs", () => {
   expectTypeOf<ConstructorParameters<typeof GLTSLoader>[0]>()
     .toEqualTypeOf<THREE.LoadingManager>();
   expectTypeOf<ConstructorParameters<typeof GLTSRenderer>[0]>()
-    .toEqualTypeOf<THREE.WebGLRenderer>();
-  expectTypeOf(GLTSRenderer.parameters.outputBufferType)
-    .toEqualTypeOf<typeof THREE.HalfFloatType>();
+    .toEqualTypeOf<THREE.WebGPURenderer>();
+  expectTypeOf<ReturnType<GLTSEffect>>().toEqualTypeOf<THREE.Node<"vec4">>();
   expectTypeOf<Parameters<GLTSRenderer["render"]>>()
     .toEqualTypeOf<[
       scene: GLTSScene,
-      camera?: THREE.Camera,
-      delta?: number
+      camera?: THREE.Camera
     ]>();
   expectTypeOf<GLTSLoader["loadAsync"]>().returns.toEqualTypeOf<Promise<GLTSScene>>();
   expectTypeOf<GLTSLoader["loadInstancesAsync"]>()
