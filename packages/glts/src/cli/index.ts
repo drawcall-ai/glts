@@ -21,7 +21,7 @@ function views(value: string): View[][] {
   catch (error) { throw new InvalidArgumentError(error instanceof Error ? error.message : String(error)); }
 }
 
-const program = new Command().name("glts").description("Render GLTS assets to PNG or export them to GLB.");
+const program = new Command().name(process.env.DRAWCALL_INVOCATION || "npx @drawcall/glts").description("Render GLTS assets to PNG or export them to GLB.");
 
 program.command("render")
   .description("Render an asset or a contact sheet using inline JSON views.")

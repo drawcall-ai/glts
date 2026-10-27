@@ -58,6 +58,12 @@ it("runs the packaged commands through npx @drawcall/glts", async () => {
   expect((await readFile(join(project, "npx.glb"))).subarray(0, 4).toString()).toBe("glTF");
 }, 30_000);
 
+it("names itself from DRAWCALL_INVOCATION in help output", async () => {
+  const help = (invocation?: string) => exec(process.execPath, [cli, "--help"], { cwd: project, env: { ...process.env, DRAWCALL_INVOCATION: invocation } });
+  expect((await help("drawcall glts")).stdout).toMatch(/^Usage: drawcall glts \[options\] \[command\]/);
+  expect((await help()).stdout).toMatch(/^Usage: npx @drawcall\/glts \[options\] \[command\]/);
+});
+
 it("renders single-quoted scripts/helpers, frames views at a simulation time, and isolates nested meshes", async () => {
   const { stderr } = await run("render", "asset.glts", "-o", "hero.png", "--size", "64");
   expect(stderr).not.toContain("Invalid asm.js");
