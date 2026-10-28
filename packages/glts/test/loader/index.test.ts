@@ -54,3 +54,36 @@ it("rejects a relative URL without a page to resolve it against, but loads absol
   await expect(loader.setPath("https://assets.test/").loadAsync("scene.glts")).rejects.toMatchObject({ phase: "fetch" });
   loader.dispose();
 });
+
+it("shares the host environment with scripts, static and dynamic helpers, nested scenes, and CDN modules", async () => {
+  const sources: Record<string, string> = {
+    "/scene.glts": `
+      import { scene, gltsLoader } from "@drawcall/glts";
+      import { env as helper } from "./helper.ts";
+      import { env as packageEnv } from "probe";
+      scene.userData.envs = [import.meta.env, helper, (await import("./dynamic.ts")).env, packageEnv];
+      scene.add(await gltsLoader.loadAsync("./child.glts"));
+    `,
+    "/helper.ts": "export const env = import.meta.env;",
+    "/dynamic.ts": "export const env = import.meta.env;",
+    "/child.glts": `import { scene } from "@drawcall/glts"; scene.userData.env = import.meta.env;`,
+    "/probe": "export const env = import.meta.env;",
+  };
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+    const source = sources[new URL(String(input)).pathname];
+    return source === undefined ? new Response(null, { status: 404 }) : new Response(source);
+  });
+  for (const production of [false, true]) {
+    const env = { MODE: production ? "production" : "development", DEV: !production, PROD: production, VITE_NAME: "asset" };
+    const expected = { ...env };
+    const loader = new GLTSLoader(new LoadingManager(), { env, cdnURL: "https://cdn.test/" });
+    env.VITE_NAME = "changed after construction";
+    try {
+      const scene = await loader.loadAsync("https://assets.test/scene.glts");
+      expect(scene.userData.envs).toEqual([expected, expected, expected, expected]);
+      expect(scene.children[0]?.userData.env).toEqual(expected);
+    } finally {
+      loader.dispose();
+    }
+  }
+});

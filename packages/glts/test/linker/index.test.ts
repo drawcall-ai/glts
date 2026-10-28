@@ -71,6 +71,31 @@ it("rejects helper cycles and cycles between CDN packages, instead of waiting on
   await expect(cdn.linker.getScript(scene)).rejects.toThrow("Cyclic imports are not supported");
 }, 1000);
 
+it.each(["helpers", "packages"])("rejects concurrent scripts whose %s wait on each other's linking", async (kind) => {
+  const imports = kind === "helpers" ? ["./a.ts", "./b.ts"] : ["a", "b"];
+  const [a, b] = imports;
+  const { linker } = serveLinker({
+    "scene.glts": `import ${JSON.stringify(a)};`,
+    "other.glts": `import ${JSON.stringify(b)};`,
+    [kind === "helpers" ? "a.ts" : "a"]: `import ${JSON.stringify(b)};`,
+    [kind === "helpers" ? "b.ts" : "b"]: `import ${JSON.stringify(a)};`,
+  });
+  await expect(Promise.all([linker.getScript(scene), linker.getScript("https://assets.test/other.glts")]))
+    .rejects.toThrow("Cyclic imports are not supported");
+}, 1000);
+
+it("shares an in-flight helper across independently linked scripts without treating the diamond as a cycle", async () => {
+  const { linker, paths } = serveLinker({
+    "scene.glts": `import "./a.ts";`,
+    "other.glts": `import "./b.ts";`,
+    "a.ts": `import "./shared.ts";`,
+    "b.ts": `import "./shared.ts";`,
+    "shared.ts": `export {};`,
+  });
+  await Promise.all([linker.getScript(scene), linker.getScript("https://assets.test/other.glts")]);
+  expect(paths().sort()).toEqual(["a.ts", "b.ts", "other.glts", "scene.glts", "shared.ts"]);
+});
+
 it.each(["scene", "bindGenerator"])("rejects helpers importing %s from @drawcall/glts at runtime", async (name) => {
   const { linker } = serveLinker({
     "scene.glts": `import "./a.ts";`,

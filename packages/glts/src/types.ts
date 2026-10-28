@@ -7,9 +7,9 @@ export type GLTSModules = Readonly<Record<string, object>>;
 
 /**
  * Resolves a bare specifier to a specifier or URL the host's `import()` resolves, such as with the host's
- * `import.meta.resolve`; linked modules import what it returns natively.
+ * `import.meta.resolve`; linked modules import what it returns natively. Return undefined to use the CDN.
  */
-export type GLTSResolve = (specifier: string) => string;
+export type GLTSResolve = (specifier: string) => string | undefined;
 
 export interface GLTSLoaderOptions {
   /** CDN for packages not supplied by the host. Defaults to https://esm.sh/. */
@@ -20,6 +20,10 @@ export interface GLTSLoaderOptions {
   modules?: GLTSModules;
   /** Resolves unversioned packages natively instead of through the CDN. */
   resolve?: GLTSResolve;
+  /** Additional package names CDN bundles import separately, sharing the host's resolver and other CDN packages. */
+  external?: readonly string[];
+  /** Values exposed as import.meta.env in linked scripts, helpers, and CDN modules; absent unless supplied by the host. */
+  env?: Readonly<Record<string, string | boolean>>;
 }
 
 export interface GLTSEffectContext {

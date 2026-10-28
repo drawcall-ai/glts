@@ -2,6 +2,7 @@
 import { parse } from "es-module-lexer/minimal/js";
 
 import { GLTSError, type GLTSPhase } from "../errors.js";
+import type { GLTSLoaderOptions } from "../types.js";
 import type { Source } from "./fetch.js";
 
 /** es-module-lexer's entry types. */
@@ -91,6 +92,7 @@ export async function rewriteModule(
   chain: readonly string[],
   link: (specifier: string) => Promise<string>,
   dynamicImportSource: string,
+  env?: GLTSLoaderOptions["env"],
 ): Promise<string> {
   const { staticImports, dynamicImports, usesImportMeta } = parseImports({ source, url }, chain);
   const edits: { start: number; end: number; text: string }[] = [];
@@ -101,7 +103,13 @@ export async function rewriteModule(
   }
 
   const prologue: string[] = [];
-  if (usesImportMeta) prologue.push(`import.meta.url = ${JSON.stringify(url)};\n`);
+  if (usesImportMeta) {
+    prologue.push(`import.meta.url = ${JSON.stringify(url)};\n`);
+    if (env !== undefined) {
+      const entries = Object.entries(env).map(([key, value]) => `[${JSON.stringify(key)}]:${JSON.stringify(value)}`);
+      prologue.push(`import.meta.env = {${entries.join(",")}};\n`);
+    }
+  }
   if (dynamicImports.length > 0) {
     // An identifier, unlike an inline expression, cannot join the previous line in code without semicolons.
     prologue.push(`const ${dynamicImportBinding} = ${dynamicImportSource};\n`);

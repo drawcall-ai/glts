@@ -10,6 +10,7 @@ import { cdnPackageURL, defaultCDNURL, hasVersion, isBareSpecifier, packageName 
 import type { GLTSURL } from "../types.js";
 import { typecheck } from "./typecheck.js";
 import { scan, type Scan } from "./scan.js";
+import { warmupBuild } from "./warmup.js";
 
 /** Replaces app imports of @drawcall/glts. */
 const loaderId = "\0glts:loader";
@@ -19,17 +20,18 @@ const cdnPrefix = "\0glts:cdn:";
 const toCDNId = (url: string): string => cdnPrefix + url;
 const fromCDNId = (id: string): string | undefined => id.startsWith(cdnPrefix) ? id.slice(cdnPrefix.length) : undefined;
 
-function loaderSource(cdnURL: string): string {
+function loaderSource(cdnURL: string, env: Readonly<Record<string, string | boolean>>): string {
   return `
 import { GLTSLoader as Loader } from "@drawcall/glts";
 import modules from "virtual:glts-modules";
 export * from "@drawcall/glts";
+const env = JSON.parse(${JSON.stringify(JSON.stringify(env))});
 
 export class GLTSLoader extends Loader {
   #reload = ({ url }) => void this.reload(new URL(url, location.href));
 
   constructor(manager, options = {}) {
-    super(manager, { cdnURL: ${JSON.stringify(cdnURL)}, ...options, modules: { ...modules, ...options.modules } });
+    super(manager, { cdnURL: ${JSON.stringify(cdnURL)}, env, ...options, modules: { ...modules, ...options.modules } });
     import.meta.hot?.on("glts:reload", this.#reload);
   }
 
@@ -69,6 +71,7 @@ async function fetchCDNSource(url: string): Promise<string> {
 }
 
 interface Project {
+  readonly root: string;
   /** Where the app serves the `.glts` files it loads by URL; none when disabled. */
   readonly publicDir: string | undefined;
   readonly packages: readonly string[];
@@ -83,7 +86,8 @@ export interface GLTSPluginOptions {
 /**
  * Bundles the packages scripts and their helpers import, sharing the
  * app's packages and fetching the rest from the CDN, type checks the
- * scripts, and hot reloads edited scripts and helpers.
+ * scripts, runs every public script during builds to warm asset caches,
+ * and hot reloads edited scripts and helpers.
  */
 export function glts(options: GLTSPluginOptions = {}): Plugin {
   const cdnURL = new URL(options.cdnURL ?? defaultCDNURL);
@@ -115,7 +119,7 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
       const root = normalizePath(resolve(config.root ?? ""));
       const publicDir = config.publicDir === false ? undefined
         : normalizePath(resolve(root, config.publicDir ?? "public"));
-      const project = { publicDir, packages: appPackages(root), scan: scan(publicDir) };
+      const project = { root, publicDir, packages: appPackages(root), scan: scan(publicDir) };
       configuredProject = project;
       // A failed scan rejects again where the map loads.
       const specifiers = await project.scan.then(({ specifiers }) => specifiers, () => []);
@@ -124,9 +128,16 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
     },
     async buildStart() {
       if (this.environment.config.command !== "build") return;
-      const errors = await typecheck((await configured().scan).scripts);
+      const { root, publicDir, packages, scan: scanning } = configured();
+      const { scripts, specifiers } = await scanning;
+      const errors = await typecheck(scripts);
       // The diagnostics locate the errors; a plugin stack trace would only bury them.
       if (errors) this.error({ message: errors, stack: "" });
+      if (publicDir && scripts.length > 0) {
+        const external = [...packages, ...specifiers.map(packageName)];
+        const env = { ...this.environment.config.env, SSR: true };
+        await warmupBuild({ root, publicDir, packages, external, scripts, env, cdnURL: cdnURL.href, base: this.environment.config.base });
+      }
     },
     configureServer({ environments: { client } }) {
       void reportTypecheck(client, configured().scan);
@@ -153,7 +164,7 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
       return toCDNId(cdnPackageURL(id, cdnURL, names).href);
     },
     async load(id) {
-      if (id === loaderId) return loaderSource(cdnURL.href);
+      if (id === loaderId) return loaderSource(cdnURL.href, { ...this.environment.config.env, SSR: false });
       if (id === hostModulesId) return hostModulesSource((await configured().scan).specifiers);
       const url = fromCDNId(id);
       if (url !== undefined) return fetchCDNSource(url);

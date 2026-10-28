@@ -15,6 +15,7 @@ import type { GLTSInstances, GLTSLoaderOptions, GLTSModules, GLTSScene, GLTSURL 
 import { canonicalize, pageURL } from "../urls.js";
 import { trackItem, type ItemFailure } from "./items.js";
 import { LoadScope, type NestedLoader } from "./scope.js";
+import { runWarmup, type Run, type Warmup } from "./warmup.js";
 
 /** The namespaces scripts share with the host, including Three's core, WebGPU, and TSL modules. */
 function hostModules(modules: GLTSModules = {}): GLTSModules {
@@ -59,6 +60,8 @@ export class GLTSLoader extends THREE.Loader {
       cdnURL: pageURL(options.cdnURL ?? defaultCDNURL),
       fetch: withFiles((input, init) => this.#fetch(input, init)),
       modules: hostModules(options.modules),
+      external: options.external,
+      env: options.env,
       resolve: options.resolve
     });
   }
@@ -97,6 +100,13 @@ export class GLTSLoader extends THREE.Loader {
     return this.#load(this.#resolveURL(url), count);
   }
 
+  /** Internal build runner; normal host loads never create a warmup session. */
+  [runWarmup](session: Warmup, urls: readonly GLTSURL[]): Promise<void> {
+    return session.run(urls.map((url) => this.#resolveURL(url)), (run) => run.count === undefined
+      ? this.#load(run.url, undefined, run.scope, run)
+      : this.#load(run.url, run.count, run.scope, run));
+  }
+
   /**
    * Invalidates the source of the script at `url`, or of the helper at `url` and every helper and script
    * importing it, and reloads the scripts' undisposed nodes. Unloaded source is fetched on the next load.
@@ -123,9 +133,9 @@ export class GLTSLoader extends THREE.Loader {
    * Loads the script at `requestedURL` as a scene, or with a `count` as that many instances, as one item of the
    * host's manager, or of the manager of the `scope` loading it.
    */
-  #load(requestedURL: string, count?: undefined, scope?: LoadScope): Promise<GLTSScene>;
-  #load(requestedURL: string, count: number, scope?: LoadScope): Promise<GLTSInstances>;
-  #load(requestedURL: string, count?: number, scope?: LoadScope): Promise<GLTSScene> {
+  #load(requestedURL: string, count?: undefined, scope?: LoadScope, run?: Run): Promise<GLTSScene>;
+  #load(requestedURL: string, count: number, scope?: LoadScope, run?: Run): Promise<GLTSInstances>;
+  #load(requestedURL: string, count?: number, scope?: LoadScope, run?: Run): Promise<GLTSScene> {
     if (count !== undefined && (!Number.isSafeInteger(count) || count < 1)) {
       throw new RangeError("GLTS instance count must be a positive integer");
     }
@@ -143,7 +153,7 @@ export class GLTSLoader extends THREE.Loader {
     const failure: ItemFailure = { message: "Unable to load GLTS script", phase: "evaluate" };
     const loading = trackItem(manager, requestedURL, this.#lifetime.signal, failure, async () => {
       const script = await this.#linker.getScript(requestedURL);
-      const execution = await this.#execute(script, request);
+      const execution = await this.#execute(script, request, run);
       try {
         this.#lifetime.signal.throwIfAborted();
         return this.#nodes.add(execution, request);
@@ -169,12 +179,16 @@ export class GLTSLoader extends THREE.Loader {
   }
 
   /** Runs `script` for `request` in a loading scope of its own, reporting to the loader's manager. */
-  async #execute(script: Script, request: LoadRequest): Promise<Execution> {
+  async #execute(script: Script, request: LoadRequest, run?: Run): Promise<Execution> {
     const signal = this.#lifetime.signal;
     signal.throwIfAborted();
     const dependencies = new Dependencies();
     dependencies.include(script.dependencies);
-    const scope = new LoadScope({ script, request, host: this.manager, dependencies, loader: this.#nested, signal });
+    const loader: NestedLoader = run ? {
+      loadAsync: (url, scope) => run.session.load(url, undefined, scope, run),
+      loadInstancesAsync: (url, count, scope) => run.session.load(url, count, scope, run),
+    } : this.#nested;
+    const scope = new LoadScope({ script, request, host: this.manager, dependencies, loader, signal });
     const execution = new Execution({ script, request, scope, dependencies });
     await execution.run();
     return execution;

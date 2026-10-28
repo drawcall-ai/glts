@@ -1,8 +1,11 @@
 import { stripVTControlCharacters } from "node:util";
+import { fileURLToPath } from "node:url";
 import type * as TS from "typescript";
 
 const missingTypeScript = "Type checking .glts scripts requires typescript 5 or 6 in the app's devDependencies";
 const shimPath = "/glts-untyped.d.ts";
+// Use the installed Vite's declarations for import.meta.env rather than copying its contract.
+const importMetaTypes = fileURLToPath(new URL("./types/importMeta.d.ts", import.meta.resolve("vite/package.json")));
 /** Types every package and URL import, but no relative one, so a missing helper is still an error. Module
  * patterns have one wildcard, so this declares one per first character a package name or URL can have. */
 const shimSource = [..."@0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"].map((first) => `declare module "${first}*";`).join("\n");
@@ -48,7 +51,7 @@ export async function typecheck(scripts: readonly string[]): Promise<string | un
     if (sourceFile) libraryFiles.set(file, sourceFile);
     return sourceFile;
   };
-  const diagnostics = ts.getPreEmitDiagnostics(ts.createProgram([...scripts, shimPath], options, host));
+  const diagnostics = ts.getPreEmitDiagnostics(ts.createProgram([...scripts, shimPath, importMetaTypes], options, host));
   if (diagnostics.length === 0) return;
   // The only formatter with code frames always colors them.
   return stripVTControlCharacters(ts.formatDiagnosticsWithColorAndContext(diagnostics, host));

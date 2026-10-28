@@ -3,9 +3,10 @@ import { REVISION } from "three";
 import { Dependencies } from "../dependencies.js";
 import { GLTSError, toGLTSError } from "../errors.js";
 import { gltsSpecifier } from "../imports.js";
-import type { GLTSModules, GLTSResolve } from "../types.js";
+import type { GLTSLoaderOptions, GLTSModules, GLTSResolve } from "../types.js";
 import { canonicalize, moduleURL } from "../urls.js";
 import { Bridge } from "./bridge.js";
+import { linkOnce, type Entry, type Link } from "./cache.js";
 import { compileHelper, compileScript } from "./compile.js";
 import { fetchSource, type Fetch, type Source } from "./fetch.js";
 import { cdnPackageURL, classifyImport, hasVersion, isBareSpecifier, peerName } from "./resolution.js";
@@ -32,37 +33,18 @@ export interface Importer extends Identity {
   readonly kind: "script" | "helper" | "package";
 }
 
-/** The module `link` makes of `url`, made once per `cache` until it fails; `link` gets the chain down to it. */
-function linkOnce<T>(
-  cache: Map<string, Promise<T>>,
-  url: string,
-  chain: readonly string[],
-  link: (chain: readonly string[]) => Promise<T>,
-): Promise<T> {
-  // Before the cache, where a module in the chain is still linking.
-  if (chain.includes(url)) {
-    throw new GLTSError("Cyclic imports are not supported", { importChain: [...chain, url], phase: "resolve", url });
-  }
-  const cached = cache.get(url);
-  if (cached) return cached;
-  const linking = link([...chain, url]);
-  cache.set(url, linking);
-  void linking.catch(() => {
-    if (cache.get(url) === linking) cache.delete(url);
-  });
-  return linking;
-}
-
 /** Links scripts and their imports into modules for one loader, sharing helpers, host modules, and packages between scripts. */
 export class Linker {
   readonly #cdnURL: URL;
   readonly #fetch: Fetch;
   readonly #resolve: GLTSResolve | undefined;
   readonly #bridge: Bridge;
+  readonly #external: readonly string[];
+  readonly #env: GLTSLoaderOptions["env"];
   /** Linked scripts, linked helpers, and package module URLs, by requested URL. */
-  readonly #scripts = new Map<string, Promise<Script>>();
-  readonly #helpers = new Map<string, Promise<Script>>();
-  readonly #packages = new Map<string, Promise<string>>();
+  readonly #scripts = new Map<string, Entry<Script>>();
+  readonly #helpers = new Map<string, Entry<Script>>();
+  readonly #packages = new Map<string, Entry<string>>();
   /**
    * Every fetched URL of each script and helper and every helper URL it has imported, by requested URL; never
    * shrinks, so fixing a helper that failed, or that an older version imports, reloads the scripts using it, and
@@ -71,22 +53,26 @@ export class Linker {
   readonly #scriptHistory = new Map<string, Set<string>>();
   readonly #helperHistory = new Map<string, Set<string>>();
 
-  constructor({ cdnURL, fetch, modules, resolve }: {
+  constructor({ cdnURL, fetch, modules, resolve, external = [], env }: {
     readonly cdnURL: URL;
     readonly fetch: Fetch;
     /** Every namespace the host shares with scripts, by bare specifier. */
     readonly modules: GLTSModules;
     readonly resolve?: GLTSResolve | undefined;
+    readonly external?: readonly string[] | undefined;
+    readonly env?: GLTSLoaderOptions["env"];
   }) {
     this.#cdnURL = cdnURL;
     this.#fetch = fetch;
     this.#resolve = resolve;
     this.#bridge = new Bridge(modules, (importer, specifier, running) => this.#linkDynamic(importer, specifier, running));
+    this.#external = [...this.#bridge.hostSpecifiers, ...external];
+    this.#env = env === undefined ? undefined : { ...env };
   }
 
   /** The script at `requestedURL`, linked once until invalidated. */
   getScript(requestedURL: string): Promise<Script> {
-    return linkOnce(this.#scripts, requestedURL, [], (chain) => this.#linkFile("script", requestedURL, chain));
+    return linkOnce(this.#scripts, requestedURL, [], (chain, link) => this.#linkFile("script", requestedURL, chain, link));
   }
 
   /**
@@ -108,7 +94,7 @@ export class Linker {
   }
 
   /** Links the script or helper at `requestedURL`, `chain` ending at it. */
-  async #linkFile(kind: "script" | "helper", requestedURL: string, chain: readonly string[]): Promise<Script> {
+  async #linkFile(kind: "script" | "helper", requestedURL: string, chain: readonly string[], link: Link): Promise<Script> {
     const fetched = await fetchSource(this.#fetch, requestedURL, true, chain);
     const identity: Identity = { requestedURL, url: fetched.url };
     const importer: Importer = { kind, ...identity };
@@ -124,6 +110,7 @@ export class Linker {
       script ? [fetched.url] : chain,
       dependencies,
       script ? "Unable to link GLTS script" : "Unable to link helper",
+      link,
     );
     return { ...identity, module: moduleURL(linked), dependencies };
   }
@@ -134,12 +121,12 @@ export class Linker {
    */
   async #linkDynamic(importer: Importer, specifier: string, running: Dependencies | undefined): Promise<string> {
     // A helper initializes outside any execution, once for every execution using it.
-    const helper = !running && importer.kind === "helper" ? await this.#helpers.get(importer.requestedURL) : undefined;
+    const helper = !running && importer.kind === "helper" ? await this.#helpers.get(importer.requestedURL)?.promise : undefined;
     return this.#link(specifier, importer, [importer.url], running ?? helper?.dependencies);
   }
 
   /** Links an import of `importer`, below `chain`, to the URL of a module it can import; helpers are added to `dependencies`. */
-  async #link(specifier: string, importer: Importer, chain: readonly string[], dependencies: Dependencies | undefined): Promise<string> {
+  async #link(specifier: string, importer: Importer, chain: readonly string[], dependencies: Dependencies | undefined, parent?: Link): Promise<string> {
     const { url } = importer;
     if (specifier.startsWith("#")) {
       throw new GLTSError(`Unsupported subpath import: ${specifier}`, { importChain: chain, phase: "resolve", url });
@@ -152,7 +139,7 @@ export class Linker {
         throw new GLTSError(`Dynamic imports cannot bind ${gltsSpecifier}; import it statically`, { importChain: chain, phase: "resolve", url });
       }
       if (target.kind === "glts") return this.#bridge.helperGLTSURL;
-      if (target.kind === "helper") return this.#linkHelper(target.url, importer, chain, dependencies);
+      if (target.kind === "helper") return this.#linkHelper(target.url, importer, chain, dependencies, parent);
     }
 
     const host = this.#bridge.hostModuleURL(specifier);
@@ -161,31 +148,32 @@ export class Linker {
     // Scripts share the host's package instances; the host imports what resolve returns natively.
     if (bare && this.#resolve && !hasVersion(specifier)) {
       try {
-        return this.#resolve(specifier);
+        const resolved = this.#resolve(specifier);
+        if (resolved !== undefined) return resolved;
       } catch (error) {
         throw new GLTSError(`Unable to resolve ${specifier} from the host`, { importChain: chain, phase: "resolve", url }, error);
       }
     }
 
     const target = bare
-      ? cdnPackageURL(specifier, this.#cdnURL, this.#bridge.hostSpecifiers, REVISION)
+      ? cdnPackageURL(specifier, this.#cdnURL, this.#external, REVISION)
       : new URL(specifier, url);
     const peer = peerName(specifier, target, this.#cdnURL);
-    if (peer) return this.#link(peer, importer, chain, dependencies);
+    if (peer) return this.#link(peer, importer, chain, dependencies, parent);
     if (target.protocol !== "http:" && target.protocol !== "https:") return target.href;
     const href = canonicalize(target);
-    return linkOnce(this.#packages, href, chain, async (chain) => {
+    return linkOnce(this.#packages, href, chain, async (chain, link) => {
       const fetched = await fetchSource(this.#fetch, href, false, chain);
       const packageImporter: Importer = { kind: "package", requestedURL: href, url: fetched.url };
-      return moduleURL(await this.#linkModule(fetched, packageImporter, chain, undefined, "Unable to link package module"));
-    });
+      return moduleURL(await this.#linkModule(fetched, packageImporter, chain, undefined, "Unable to link package module", link));
+    }, parent);
   }
 
-  async #linkHelper(url: string, importer: Importer, chain: readonly string[], dependencies: Dependencies | undefined): Promise<string> {
+  async #linkHelper(url: string, importer: Importer, chain: readonly string[], dependencies: Dependencies | undefined, parent?: Link): Promise<string> {
     // Added before the fetch, so a change from here on reloads the scripts using it, and one missing is listed.
     this.#addToHistory(importer, url);
     dependencies?.add(url);
-    const helper = await linkOnce(this.#helpers, url, chain, (chain) => this.#linkFile("helper", url, chain));
+    const helper = await linkOnce(this.#helpers, url, chain, (chain, link) => this.#linkFile("helper", url, chain, link), parent);
     dependencies?.include(helper.dependencies);
     return helper.module;
   }
@@ -218,13 +206,15 @@ export class Linker {
     chain: readonly string[],
     dependencies: Dependencies | undefined,
     message: string,
+    link: Link,
   ): Promise<string> {
     try {
       return await rewriteModule(
         source,
         chain,
-        (specifier) => this.#link(specifier, importer, chain, dependencies),
+        (specifier) => this.#link(specifier, importer, chain, dependencies, link),
         this.#bridge.dynamicImportSource(importer),
+        this.#env,
       );
     } catch (error) {
       throw toGLTSError(error, message, { importChain: chain, phase: "transform", url: source.url });

@@ -4,11 +4,12 @@ import {
   Object3D,
 } from "three/webgpu";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
-import { Canvas, ImageData } from "@napi-rs/canvas";
+import { ImageData } from "@napi-rs/canvas";
 import { requestAdapter } from "@drawcall/webgpu";
 import type { GLTSScene } from "../types.js";
 import { readBitmap } from "./bitmap.js";
 import { writeHeadless } from "./headless.js";
+import { Canvas } from "../headless/canvas.js";
 
 export interface ExportOptions {
   output: string;
@@ -16,14 +17,6 @@ export interface ExportOptions {
 
 export async function exportFile(file: string, { output }: ExportOptions): Promise<void> {
   await writeHeadless(file, output, false, 1, exportScene);
-}
-
-class ExportCanvas extends Canvas {
-  constructor(width: number, height: number) {
-    super(width, height);
-    // Canvas.data() otherwise makes GLTFExporter mistake the canvas for a DataTexture.
-    Object.defineProperty(this, "data", { value: undefined });
-  }
 }
 
 class BlobReader {
@@ -40,7 +33,7 @@ class BlobReader {
 
 /** GLTFExporter uses browser globals; these adapters are installed only while exporting, and the returned function restores the originals. */
 function installExportGlobals(): () => void {
-  const globals = { document: undefined, OffscreenCanvas: ExportCanvas, ImageData, FileReader: BlobReader };
+  const globals = { document: undefined, OffscreenCanvas: Canvas, ImageData, FileReader: BlobReader };
   const descriptors = Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
@@ -127,7 +120,7 @@ export async function exportScene(scene: GLTSScene): Promise<Uint8Array> {
         throw new Error(`Cannot export texture "${texture.name}": invalid bitmap pixels.`);
       }
       // Exporter combines PBR maps with drawImage, which requires a drawable canvas.
-      const canvas = new ExportCanvas(image.width, image.height);
+      const canvas = new Canvas(image.width, image.height);
       canvas.getContext("2d").putImageData(new ImageData(Uint8ClampedArray.from(data), image.width, image.height), 0, 0);
       originalSources.set(texture, texture.source);
       texture.source = new Source(canvas);

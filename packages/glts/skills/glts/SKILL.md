@@ -313,8 +313,11 @@ Needs `vite` 6 or later and Node.js 22.18+ or 24.11+. It works on the `.glts` fi
 - `three` and packages in the `dependencies` or `devDependencies` of the app's nearest `package.json` are the app's own instances.
 - Other packages, and versioned imports such as `pkg@2`, are fetched from the CDN during development and builds and bundled with the app. Each package that scripts import or the app declares exists once.
 - Every loader gets the plugin's `cdnURL` option (default `https://esm.sh/`) as its default `cdnURL`. Scripts outside the public directory and `https://` imports still load packages at runtime.
+- Scripts and helpers receive [Vite's resolved environment variables](https://vite.dev/guide/env-and-mode) through `import.meta.env`. `import.meta.env.SSR` is true during build warmup and false in the browser.
 - Keep helpers in the public directory too; a helper import that leaves it fails the dev server's check and the build, since the app does not serve it as source.
 - Editing or creating a public script or helper hot reloads the nodes loaded from it; changing which packages scripts import reloads the page.
+
+Builds execute every public script headlessly in Node.js to warm the caches owned by its assets, then dispose the scenes. Execution and cleanup failures fail the build. Generated scenes are not saved, and scripts still execute normally when the app loads them.
 
 Type checking: the plugin type checks the public `.glts` files and their helpers strictly, independently of the app's `tsconfig.json`, using the app's `typescript` 5 or 6; install it as a dev dependency, or `vite build` fails.
 

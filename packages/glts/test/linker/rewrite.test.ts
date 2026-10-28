@@ -110,6 +110,36 @@ it("preserves native import.meta identity, property syntax and mutations", async
   });
 });
 
+it("initializes import.meta.env without replacing import.meta or rewriting property access", async () => {
+  const url = "https://example.test/environment.glts";
+  const env = { MODE: "staging", DEV: false, PROD: true, SSR: false, VITE_LABEL: 'a "quoted" value', ["__proto__"]: "value" };
+  const transformed = await rewriteModule({ url, source: `
+    const JSON = {};
+    const meta = import.meta;
+    const { env, url } = import.meta;
+    const property = "env";
+    export const values = [env, meta[property], import.meta /* comment */ . env];
+    export const same = meta === import.meta;
+    export const prototype = Object.getPrototypeOf(meta);
+    export const source = new URL("./asset.bin", url).href;
+    export const missing = env.UNKNOWN;
+  ` }, [], async (specifier) => specifier, "load", env);
+  const module: unknown = await import(`data:text/javascript,${encodeURIComponent(transformed)}`);
+  expect(module).toMatchObject({
+    values: [env, env, env], same: true, prototype: null,
+    source: "https://example.test/asset.bin", missing: undefined,
+  });
+});
+
+it("leaves import.meta.env absent when the host supplies no environment", async () => {
+  const transformed = await rewriteModule({
+    source: "export const present = Object.hasOwn(import.meta, 'env');",
+    url: "https://example.test/no-environment.glts",
+  }, [], async (specifier) => specifier, "load");
+  const module: unknown = await import(`data:text/javascript,${encodeURIComponent(transformed)}`);
+  expect(module).toMatchObject({ present: false });
+});
+
 it.each(["\n", "\r", "\r\n", "\u2028", "\u2029"])("keeps a hashbang first with line separator %j", async (separator) => {
   const sourceURL = "https://example.test/hashbang.glts";
   const transformed = await rewriteModule({

@@ -6,8 +6,7 @@ import { pathToFileURL } from "node:url";
 import { build } from "vite";
 import { afterAll, beforeAll, expect, it } from "vitest";
 
-import { glts } from "../../src/vite/index.js";
-import { get, symlinkThree, writeFiles } from "./fixture.js";
+import { compilePlugin, get, symlinkThree, writeFiles } from "./fixture.js";
 
 const cdnFiles: Readonly<Record<string, string>> = {
   "/y": `export * from "/y@1.0.0/es2022/y.mjs";`,
@@ -38,6 +37,7 @@ const temp = await mkdtemp(join(tmpdir(), "glts-build-"));
 let built: unknown;
 
 beforeAll(async () => {
+  const { glts } = await compilePlugin(join(temp, "runtime"));
   await new Promise<void>((resolve) => cdn.listen(0, "127.0.0.1", resolve));
   const address = cdn.address();
   if (typeof address !== "object" || address === null) throw new Error("CDN server has no port");
@@ -55,7 +55,7 @@ beforeAll(async () => {
       `import { Buffer } from "buffer";`,
       `import { w } from "w@2";`,
       `import * as THREE from "three";`,
-      `console.log(marker, y, token, Buffer, w, THREE);`,
+      `if (!marker || !y || !token || !Buffer || !w || !THREE) throw new Error("Missing imports");`,
     ].join("\n"),
     "web/main.js": `export { default } from "virtual:glts-modules";`,
   });
@@ -68,7 +68,7 @@ beforeAll(async () => {
     build: { lib: { entry: "main.js", formats: ["es"], fileName: "main" }, minify: false },
   });
   built = await import(pathToFileURL(join(temp, "web/dist/main.js")).href);
-});
+}, 30_000);
 
 afterAll(async () => {
   await new Promise((resolve) => cdn.close(resolve));

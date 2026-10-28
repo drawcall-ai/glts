@@ -145,6 +145,30 @@ it("renders node materials through native TSL bloom and chained effects", async 
   expect(Array.from(pixel)).toEqual([0, 255, 0, 255]);
 }, 30_000);
 
+it("exports canvas textures created by the script", async () => {
+  await writeFile(join(project, "canvas.glts"), `
+    import { BoxGeometry, CanvasTexture, Mesh, MeshBasicMaterial } from "three";
+    import { onDispose, scene } from "@drawcall/glts";
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 4;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Missing 2D context");
+    context.fillStyle = "#00ff20";
+    context.fillRect(0, 0, 4, 4);
+    const texture = new CanvasTexture(canvas);
+    const geometry = new BoxGeometry();
+    const material = new MeshBasicMaterial({ map: texture });
+    scene.add(new Mesh(geometry, material));
+    onDispose(() => { geometry.dispose(); material.dispose(); texture.dispose(); });
+  `);
+  await run("export", "canvas.glts", "-o", "canvas.glb");
+  const bytes = await readFile(join(project, "canvas.glb"));
+  const imageOffset = bytes.indexOf(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  expect(imageOffset).toBeGreaterThan(0);
+  const pixels = await sharp(bytes.subarray(imageOffset)).raw().toBuffer();
+  expect(Array.from(pixels.subarray(0, 4))).toEqual([0, 255, 32, 255]);
+}, 30_000);
+
 it("reports invalid views and load failures without replacing an existing output", async () => {
   const output = join(project, "existing.png");
   await writeFile(output, "original");
@@ -159,5 +183,5 @@ it("keeps native packages outside browser builds of the package root", async () 
   await writeFile(join(project, "browser.js"), `export { GLTSLoader } from ${JSON.stringify(join(packageDir, "src/index.ts"))};`);
   const modules: string[] = [];
   await build({ configFile: false, logLevel: "silent", root: project, plugins: [{ name:"check-modules", moduleParsed(info) { modules.push(info.id); } }], build: { write: false, lib: { entry: join(project, "browser.js"), formats: ["es"] }, minify: false } });
-  expect(modules.some(id => /\/cli\/|@drawcall\/webgpu|@napi-rs\/canvas|\/sharp\//.test(id))).toBe(false);
+  expect(modules.some(id => /\/cli\/|\/headless\/|@drawcall\/webgpu|@napi-rs\/canvas|\/sharp\//.test(id))).toBe(false);
 }, 30_000);
