@@ -4,6 +4,7 @@ import { MeshBasicNodeMaterial } from "three/webgpu";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { GLTSLoader } from "../../src/loader/index.js";
+import { base, deferred, serve } from "./fixture.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -86,4 +87,92 @@ it("shares the host environment with scripts, static and dynamic helpers, nested
       loader.dispose();
     }
   }
+});
+
+it("shares a host helper namespace while retaining its source graph and package provenance", async () => {
+  const initialized = vi.fn();
+  const shared = { texture: {} };
+  const sources = {
+    "scene.glts": `import { scene } from "@drawcall/glts";
+      import { shared } from "./textures.ts"; scene.userData.shared = shared;`,
+    "textures.ts": `import "three/webgpu"; import "./defaults.ts";
+      import { initialized } from "library"; initialized(); export const shared = undefined;`,
+    "defaults.ts": `export const quality = 1;`,
+  };
+  const loader = serve(sources, { initialized }, { [`${base}textures.ts`]: { shared } });
+  const scenes = await Promise.all([1, 2].map((variant) => loader.loadAsync(`${base}scene.glts?variant=${variant}`)));
+  expect(initialized).not.toHaveBeenCalled();
+  for (const scene of scenes) {
+    expect(scene.userData.shared).toBe(shared);
+    expect(scene.source.dependencyUrls).toEqual([`${base}defaults.ts`, `${base}textures.ts`]);
+    expect(scene.source.packages).toEqual(["@drawcall/glts", "library", "three"]);
+  }
+  sources["defaults.ts"] = "export const quality = 2;";
+  await loader.reload(`${base}defaults.ts`);
+  expect(scenes.map((scene) => scene.userData.shared)).toEqual([shared, shared]);
+  expect(initialized).not.toHaveBeenCalled();
+  const ordinary = serve(sources, { initialized });
+  expect((await ordinary.loadAsync(`${base}scene.glts`)).userData.shared).toBeUndefined();
+  expect(initialized).toHaveBeenCalledOnce();
+});
+
+
+it("gives concurrent executions of query variants their own import.meta and source", async () => {
+  const entered = deferred();
+  const released = deferred();
+  let started = 0;
+  const loader = serve({
+    "scene.glts": `import { scene, onFrame } from "@drawcall/glts";
+      import { pause } from "library";
+      import "./helper.ts";
+      const meta = import.meta;
+      const before = scene.source;
+      await pause();
+      scene.userData = { before, after: scene.source, meta, same: meta === import.meta };
+      onFrame(() => { scene.name = import.meta.url; });`,
+    "helper.ts": `export {};`,
+  }, {
+    pause: () => { if (++started === 2) entered.resolve(); return released.promise; },
+  });
+  const urls = ["?variant=1", "?variant=2"].map((query) => `${base}scene.glts${query}`);
+  const pending = Promise.all(urls.map((url) => loader.loadAsync(url)));
+  await entered.promise;
+  released.resolve();
+  const scenes = await pending;
+  for (const [index, scene] of scenes.entries()) {
+    expect(scene.url).toBe(urls[index]);
+    expect(scene.source.url).toBe(urls[index]);
+    expect(scene.source.dependencyUrls).toEqual([`${base}helper.ts`]);
+    expect(scene.userData).toMatchObject({ before: scene.source, after: scene.source, meta: { url: urls[index] }, same: true });
+    scene.update(0);
+    expect(scene.name).toBe(urls[index]);
+  }
+  expect(scenes[0]?.userData.meta).not.toBe(scenes[1]?.userData.meta);
+});
+
+it("lists only the requested variant of a nested script, whichever variant linked first", async () => {
+  const loader = serve({
+    "child.glts": `import { scene } from "@drawcall/glts"; scene.name = import.meta.url;`,
+    "parent.glts": `import { gltsLoader, scene } from "@drawcall/glts"; scene.add(await gltsLoader.loadAsync("./child.glts?seed=2"));`,
+  });
+  await loader.loadAsync(`${base}child.glts?seed=1`);
+  const parent = await loader.loadAsync(`${base}parent.glts`);
+  expect(parent.source.dependencyUrls).toEqual([`${base}child.glts?seed=2`]);
+});
+
+it("shares package exports and explicit host overrides with CDN packages", async () => {
+  const observed: unknown[] = [];
+  const loader = serve({
+    "scene.glts": `import { work } from "https://cdn.test/library.js"; work();`,
+    "library.js": `import { GLTSLoader, marker } from "@drawcall/glts";
+      import { record } from "library";
+      export function work() {
+        record(GLTSLoader);
+        record(marker);
+      }`,
+  }, { record: (value: unknown) => { observed.push(value); } }, {
+    "@drawcall/glts": { marker: "host override" },
+  });
+  await loader.loadAsync(`${base}scene.glts`);
+  expect(observed).toEqual([GLTSLoader, "host override"]);
 });

@@ -1,8 +1,8 @@
-import { availablePlugins, disableScriptTags, transform, type registerPlugin } from "@babel/standalone";
+import { disableScriptTags, transform, type registerPlugin } from "@babel/standalone";
 import * as t from "@babel/types";
 
 import { GLTSError, toGLTSError } from "../errors.js";
-import { gltsSpecifier, importNames, runtimeSpecifier } from "../imports.js";
+import { gltsSpecifier, importNames } from "../imports.js";
 
 type Plugin = ReturnType<Parameters<typeof registerPlugin>[1]>;
 type File = Parameters<NonNullable<Plugin["pre"]>>[0];
@@ -27,8 +27,8 @@ export function compileHelper(source: string, url: string, chain: readonly strin
 }
 
 /**
- * Strips types, as TypeScript does including imports used only as types, then lowers async functions. The
- * plugins, which run in the preset's pass, see the code without types.
+ * Strips types, as TypeScript does including imports used only as types; a script's isolation, which runs in the
+ * preset's pass, sees the code without types.
  */
 function compile(source: string, url: string, isolate?: Plugin): string {
   const result = transform(source, {
@@ -36,18 +36,21 @@ function compile(source: string, url: string, isolate?: Plugin): string {
     filename: url,
     retainLines: true,
     passPerPreset: true,
-    plugins: [rejectImportAssignments, "transform-typescript"],
-    presets: [() => ({
-      plugins: [
-        ...(isolate ? [() => isolate] : []),
-        bindAsyncGenerators,
-        availablePlugins["transform-async-generator-functions"],
-        availablePlugins["transform-async-to-generator"],
-      ],
-    })],
+    plugins: [dropInterpreter, rejectImportAssignments, "transform-typescript"],
+    presets: [() => ({ plugins: isolate ? [() => isolate] : [] })],
   });
   if (typeof result?.code !== "string") throw new Error("GLTS compiler produced no code");
   return result.code;
+}
+
+/** A hashbang means nothing in a loaded module, and dropping it lets a prefix such as the precompiled marker come first. */
+function dropInterpreter(): Plugin {
+  return {
+    name: "glts-drop-interpreter",
+    pre(file) {
+      file.path.node.interpreter = null;
+    },
+  };
 }
 
 /**
@@ -62,42 +65,6 @@ function rejectImportAssignments(): Plugin {
         const [violation] = binding.constantViolations;
         if (binding.kind === "module" && violation) throw violation.buildCodeFrameError(`Cannot assign to import '${name}'`);
       }
-    },
-  };
-}
-
-/**
- * Lowered async functions resume in generator steps; binding each generator to the execution that
- * called it lets those steps read the context, which native awaits would lose.
- */
-function bindAsyncGenerators(): Plugin {
-  return {
-    name: "glts-bind-async-generators",
-    post(file) {
-      file.scope.crawl();
-      const bind = file.scope.generateUidIdentifier("bindGenerator");
-      let used = false;
-      for (const name of ["asyncToGenerator", "wrapAsyncGenerator"]) {
-        const helper = file.declarations[name];
-        if (!helper) continue;
-        const binding = file.scope.getBinding(helper.name);
-        if (!binding) throw new Error(`Missing async helper binding: ${helper.name}`);
-        for (const reference of binding.referencePaths) {
-          const call = reference.parentPath;
-          if (!call.isCallExpression() || reference.key !== "callee") {
-            throw new Error(`Unexpected async helper reference: ${helper.name}`);
-          }
-          const [generator] = call.get("arguments");
-          if (!generator?.isExpression()) throw new Error(`Missing async generator argument: ${helper.name}`);
-          generator.replaceWith(t.callExpression(t.cloneNode(bind), [generator.node]));
-          used = true;
-        }
-      }
-      if (!used) return;
-      file.path.unshiftContainer("body", t.importDeclaration(
-        [t.importSpecifier(bind, t.identifier("bindGenerator"))],
-        t.stringLiteral(runtimeSpecifier),
-      ));
     },
   };
 }
@@ -122,9 +89,15 @@ function isolateScript(url: string): Plugin {
       }
 
       const namespace = bindImports(file);
+      const meta = file.scope.generateUidIdentifier("meta");
+      file.path.traverse({
+        MetaProperty(path) {
+          if (path.node.meta.name === "import") path.replaceWith(t.cloneNode(meta));
+        },
+      });
       const imports = program.body.filter((statement) => statement.type === "ImportDeclaration");
       const statements = program.body.filter((statement) => statement.type !== "ImportDeclaration" && !isEmptyExport(statement));
-      const run = t.arrowFunctionExpression([namespace], t.blockStatement(statements, program.directives), true);
+      const run = t.arrowFunctionExpression([namespace, meta], t.blockStatement(statements, program.directives), true);
       program.body = [...imports, t.exportDefaultDeclaration(run)];
       program.directives = [];
       file.scope.crawl();

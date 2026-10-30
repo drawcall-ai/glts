@@ -1,16 +1,17 @@
 import * as THREE from "three/webgpu";
 
-import type { GLTSScriptScene, RootState } from "./types.js";
+import type { GLTSScriptScene, GLTSSource, RootState } from "./types.js";
 
 /**
  * A script's root as created, which becomes the managed node its load returns. Unlike GLTSScriptScene, its
  * methods return the node itself, so augmenting it yields a GLTSScene.
  */
-export type ScriptRoot = THREE.Scene & RootState;
+export type ScriptRoot = THREE.Scene & RootState & { readonly source: GLTSSource };
 
-export function createRoot(): ScriptRoot {
+export function createRoot(source: GLTSSource): ScriptRoot {
   return Object.assign(new THREE.Scene(), {
     defaultCamera: undefined,
+    source,
     rendering: {
       effects: [],
       shadows: false,

@@ -147,7 +147,8 @@ test("rejects concurrent host loads of cyclic nested scripts instead of deadlock
     const result = await Promise.race([
       loads.then((outcomes) => outcomes.map(({ status }) => status)),
       new Promise<string[]>((resolve) => {
-        setTimeout(() => resolve(["timeout"]), 1000);
+        // A cold dev server first transforms the loader's script compiler, which can take seconds.
+        setTimeout(() => resolve(["timeout"]), 10_000);
       })
     ]);
     loader.dispose();

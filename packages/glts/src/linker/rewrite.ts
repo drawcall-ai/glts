@@ -89,12 +89,11 @@ export function parseImports({ source, url }: Source, chain: readonly string[]):
  */
 export async function rewriteModule(
   { source, url }: Source,
-  chain: readonly string[],
+  { staticImports, dynamicImports, usesImportMeta }: ParsedImports,
   link: (specifier: string) => Promise<string>,
-  dynamicImportSource: string,
+  dynamicImportSource: () => string,
   env?: GLTSLoaderOptions["env"],
 ): Promise<string> {
-  const { staticImports, dynamicImports, usesImportMeta } = parseImports({ source, url }, chain);
   const edits: { start: number; end: number; text: string }[] = [];
 
   // Link depth-first so a failure leaves no sibling imports fetching.
@@ -112,7 +111,7 @@ export async function rewriteModule(
   }
   if (dynamicImports.length > 0) {
     // An identifier, unlike an inline expression, cannot join the previous line in code without semicolons.
-    prologue.push(`const ${dynamicImportBinding} = ${dynamicImportSource};\n`);
+    prologue.push(`const ${dynamicImportBinding} = ${dynamicImportSource()};\n`);
     for (const { start } of dynamicImports) edits.push({ start, end: start + "import".length, text: dynamicImportBinding });
   }
   // After a hashbang, which must stay first, and before an edit at the same offset.

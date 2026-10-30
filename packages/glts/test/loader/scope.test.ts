@@ -10,7 +10,7 @@ function createScope(url: string, host: LoadingManager, dependencies = new Depen
   const unexpected = async (): Promise<never> => { throw new Error("Unexpected nested load"); };
   return new LoadScope({
     host,
-    script: { requestedURL: url, url },
+    script: { requestedURL: url, executionURL: url },
     request: { ancestors: [] },
     dependencies,
     loader: { loadAsync: unexpected, loadInstancesAsync: unexpected },
@@ -86,7 +86,7 @@ describe("LoadScope", () => {
     const nested = new Promise<never>((_resolve, reject) => { fail = reject; });
     const scope = new LoadScope({
       host: new LoadingManager(),
-      script: { requestedURL: `${base}tree.glts`, url: `${base}tree.glts` },
+      script: { requestedURL: `${base}tree.glts`, executionURL: `${base}tree.glts` },
       request: { ancestors: [] },
       dependencies: new Dependencies(),
       loader: { loadAsync: () => nested, loadInstancesAsync: () => nested },
@@ -123,7 +123,7 @@ describe("LoadScope", () => {
     scope.manager.itemStart("bark.png");
     scope.manager.itemEnd("bark.png");
     await scope.settle(new Object3D());
-    expect(dependencies.snapshot()).toEqual(["https://app.test/workers/bark.png"]);
+    expect(dependencies.urls()).toEqual(["https://app.test/workers/bark.png"]);
   });
 
   it("does not invent file dependencies for relative labels without a browser base", async () => {
@@ -134,7 +134,7 @@ describe("LoadScope", () => {
       scope.manager.itemEnd(label);
     }
     await scope.settle(new Object3D());
-    expect(dependencies.snapshot()).toEqual([]);
+    expect(dependencies.urls()).toEqual([]);
   });
 });
 
@@ -208,7 +208,7 @@ it("balances failed nested loads once through the parent scope and host manager"
   expect(hostErrors.mock.calls.flat()).toEqual([`${base}missing.glts`, `${base}parent.glts`]);
 });
 
-it("fails with the phase and URL of a nested load the script does not await", async () => {
+it("fails with the phase and URL of a nested load the script catches", async () => {
   const loader = serve({
     "parent.glts": `import { gltsLoader } from "@drawcall/glts"; gltsLoader.loadAsync('./missing.glts').catch(() => undefined);`,
   });

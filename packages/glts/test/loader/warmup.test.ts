@@ -105,10 +105,10 @@ it("rejects a cycle between concurrently started initial scripts", async () => {
     "b.glts": `import { gltsLoader, scene } from "@drawcall/glts"; scene.add(await gltsLoader.loadAsync("./a.glts"));`,
   });
   await expect(warmup(loader, [base + "a.glts", base + "b.glts"]))
-    .rejects.toThrow("GLTS build warmup failed");
+    .rejects.toThrow("Cyclic GLTS warmup dependency");
 }, 2_000);
 
-it.each(["before", "after"])("rejects cycles added %s a rerun is queued, without running it", async (order) => {
+it.each(["before", "after"])("rejects cycles added %s a rerun is queued", async (order) => {
   const firstClaimed = deferred();
   const dependencyAdded = deferred();
   let bRuns = 0;
@@ -144,9 +144,11 @@ it.each(["before", "after"])("rejects cycles added %s a rerun is queued, without
     add: dependencyAdded.resolve, added: dependencyAdded.promise,
     started: () => { bRuns++; },
   });
+  // Rejected when queued, the rerun never runs; queued first, it runs after the failed run and loads its ancestor.
+  const cycle = expect.objectContaining({ phase: "resolve", message: expect.stringContaining("Cyclic") });
   await expect(warmup(loader, [base + "a.glts", base + "b.glts", base + "claim.glts"]))
-    .rejects.toThrow("GLTS build warmup failed");
-  expect(bRuns).toBe(1);
+    .rejects.toEqual(order === "before" ? cycle : expect.objectContaining({ errors: [cycle, cycle] }));
+  expect(bRuns).toBe(order === "before" ? 1 : 2);
 }, 2_000);
 
 it("reports execution failures after the other initial scripts finish", async () => {
@@ -158,4 +160,47 @@ it("reports execution failures after the other initial scripts finish", async ()
   await expect(warmup(loader, [base + "broken.glts", base + "other.glts"]))
     .rejects.toThrow("Unable to execute GLTS script");
   expect(completed).toEqual(["other"]);
+});
+
+it("runs a queued consumer of a script whose previous run failed", async () => {
+  const requested = deferred();
+  const counts: number[] = [];
+  const loader = serve({
+    "a.glts": `
+      import { gltsLoader, scene } from "@drawcall/glts";
+      import { request } from "library";
+      const child = gltsLoader.loadInstancesAsync("./child.glts", 2);
+      request();
+      scene.add(await child);
+    `,
+    "b.glts": `
+      import { gltsLoader, scene } from "@drawcall/glts";
+      import { requested } from "library";
+      await requested;
+      scene.add(await gltsLoader.loadAsync("./child.glts"));
+    `,
+    "child.glts": `
+      import { instanceCount } from "@drawcall/glts";
+      import { record } from "library";
+      record(instanceCount);
+      if (instanceCount > 1) throw new Error("No instances");
+    `,
+  }, { request: requested.resolve, requested: requested.promise, record: (count: number) => counts.push(count) });
+
+  await expect(warmup(loader, [base + "a.glts", base + "b.glts"]))
+    .rejects.toMatchObject({ url: base + "child.glts", cause: { message: "No instances" } });
+  expect(counts).toEqual([2, 1]);
+});
+
+it("reports a failure shared by several scripts once", async () => {
+  const loader = serve({
+    "parent.glts": `import { gltsLoader, scene } from "@drawcall/glts"; scene.add(await gltsLoader.loadAsync("./child.glts"));`,
+    "child.glts": `throw new Error("child exploded");`,
+    "other.glts": `throw new Error("other exploded");`,
+  });
+  const warming = warmup(loader, [base + "parent.glts", base + "child.glts", base + "other.glts"]);
+  await expect(warming).rejects.toThrow("GLTS build warmup failed");
+  await expect(warming).rejects.toMatchObject({
+    errors: [{ cause: { message: "child exploded" } }, { cause: { message: "other exploded" } }],
+  });
 });

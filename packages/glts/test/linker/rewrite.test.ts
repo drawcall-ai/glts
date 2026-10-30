@@ -1,18 +1,36 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { GLTSError } from "../../src/errors.js";
-import { rewriteModule } from "../../src/linker/rewrite.js";
+import { parseImports, rewriteModule } from "../../src/linker/rewrite.js";
+
+/** Parses `source`'s imports and rewrites it; async, so parse failures reject like rewrite failures. */
+async function parseAndRewrite(
+  source: Parameters<typeof parseImports>[0],
+  chain: readonly string[],
+  link: Parameters<typeof rewriteModule>[2],
+  dynamicImportSource: string,
+  env?: Parameters<typeof rewriteModule>[4],
+): Promise<string> {
+  return rewriteModule(source, parseImports(source, chain), link, () => dynamicImportSource, env);
+}
 
 describe("rewriteModule", () => {
+  it("registers a dynamic importer only for a module that uses import()", async () => {
+    const importer = vi.fn(() => "load");
+    const source = { source: "export const name = 'dragon';", url: "file:///dragon.ts" };
+    await rewriteModule(source, parseImports(source, []), async (specifier) => specifier, importer);
+    expect(importer).not.toHaveBeenCalled();
+  });
+
   it("quotes linked data URLs safely inside single-quoted imports", async () => {
     const linked = `data:text/javascript,export const name = 'dragon';`;
-    const transformed = await rewriteModule({ source: "import { name } from 'asset'; export { name };", url: "file:///dragon.glts" }, [], async () => linked, "load");
+    const transformed = await parseAndRewrite({ source: "import { name } from 'asset'; export { name };", url: "file:///dragon.glts" }, [], async () => linked, "load");
     const result: unknown = await import(`data:text/javascript,${encodeURIComponent(transformed)}`);
     expect(result).toMatchObject({ name: "dragon" });
   });
   it("rewrites static specifiers and initializes import.meta.url", async () => {
     const sourceURL = "https://example.test/assets/tree.glts";
-    const transformed = await rewriteModule({
+    const transformed = await parseAndRewrite({
       source: `
         import * as THREE from "three";
         import Branch from "./branch.glts";
@@ -32,7 +50,7 @@ describe("rewriteModule", () => {
   it("replaces the keyword of literal and computed dynamic imports, resolving nothing up front", async () => {
     const sourceURL = "https://example.test/assets/tree.glts";
     const resolved: string[] = [];
-    const transformed = await rewriteModule({
+    const transformed = await parseAndRewrite({
       source: 'import "three"; const a = () => import("rclnodejs"); const b = (name) => import (name);',
       url: sourceURL
     }, [sourceURL], async (specifier) => { resolved.push(specifier); return specifier; }, "load");
@@ -44,7 +62,7 @@ describe("rewriteModule", () => {
   });
 
   it("keeps a dynamic import its own statement, also at the start, in code without semicolons", async () => {
-    const transformed = await rewriteModule({
+    const transformed = await parseAndRewrite({
       source: 'import("x").catch(() => {})\nexport const f = 1\nimport("x").catch(() => {})',
       url: "https://example.test/asi.js"
     }, [], async (specifier) => specifier, "() => Promise.resolve()");
@@ -53,7 +71,7 @@ describe("rewriteModule", () => {
   });
 
   it("rejects dynamic imports with import attributes", async () => {
-    const operation = rewriteModule({
+    const operation = parseAndRewrite({
       source: 'const data = import("./data.json", { with: { type: "json" } });',
       url: "https://example.test/data.js"
     }, [], async (specifier) => specifier, "load");
@@ -65,13 +83,13 @@ describe("rewriteModule", () => {
     'import data from "./data.json" with {};',
     'export { default } from "./data.json" with { type: "json" };',
   ])("rejects static import attributes: %s", async (source) => {
-    const operation = rewriteModule({ source, url: "https://example.test/data.js" }, [], async (specifier) => specifier, "load");
+    const operation = parseAndRewrite({ source, url: "https://example.test/data.js" }, [], async (specifier) => specifier, "load");
     await expect(operation).rejects.toThrow("Import attributes are not supported (1:1)");
   });
 
   it("rejects source-phase imports with source context", async () => {
     const sourceURL = "https://example.test/assets/tree.glts";
-    const operation = rewriteModule({
+    const operation = parseAndRewrite({
       source: 'const child = await import.source("./branch.wasm")',
       url: sourceURL
     }, [sourceURL], async (specifier) => specifier, "load");
@@ -96,7 +114,7 @@ it("preserves native import.meta identity, property syntax and mutations", async
     import.meta.url = "changed";
     export const updated = meta.url;
   `;
-  const transformed = await rewriteModule({
+  const transformed = await parseAndRewrite({
     source,
     url: sourceURL
   }, [sourceURL], async (specifier) => specifier, "load");
@@ -113,7 +131,7 @@ it("preserves native import.meta identity, property syntax and mutations", async
 it("initializes import.meta.env without replacing import.meta or rewriting property access", async () => {
   const url = "https://example.test/environment.glts";
   const env = { MODE: "staging", DEV: false, PROD: true, SSR: false, VITE_LABEL: 'a "quoted" value', ["__proto__"]: "value" };
-  const transformed = await rewriteModule({ url, source: `
+  const transformed = await parseAndRewrite({ url, source: `
     const JSON = {};
     const meta = import.meta;
     const { env, url } = import.meta;
@@ -132,7 +150,7 @@ it("initializes import.meta.env without replacing import.meta or rewriting prope
 });
 
 it("leaves import.meta.env absent when the host supplies no environment", async () => {
-  const transformed = await rewriteModule({
+  const transformed = await parseAndRewrite({
     source: "export const present = Object.hasOwn(import.meta, 'env');",
     url: "https://example.test/no-environment.glts",
   }, [], async (specifier) => specifier, "load");
@@ -142,7 +160,7 @@ it("leaves import.meta.env absent when the host supplies no environment", async 
 
 it.each(["\n", "\r", "\r\n", "\u2028", "\u2029"])("keeps a hashbang first with line separator %j", async (separator) => {
   const sourceURL = "https://example.test/hashbang.glts";
-  const transformed = await rewriteModule({
+  const transformed = await parseAndRewrite({
     source: `#!/usr/bin/env node${separator}export const url = import.meta.url;`,
     url: sourceURL
   }, [sourceURL], async (specifier) => specifier, "load");
@@ -153,7 +171,7 @@ it.each(["\n", "\r", "\r\n", "\u2028", "\u2029"])("keeps a hashbang first with l
 
 it("leaves code without import.meta intact and removes sourceURL line separators", async () => {
   const source = "export const value = 1;";
-  const transformed = await rewriteModule({
+  const transformed = await parseAndRewrite({
     source,
     url: "https://example.test/\n\r\u2028\u2029plain.js"
   }, [], async (specifier) => specifier, "load");

@@ -26,10 +26,8 @@ async function app(name: string, scripts: Readonly<Record<string, string>>): Pro
     "node_modules/probe/index.js": `
       import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
       import { resolve } from "node:path";
-      import { getGLTSSource } from "@drawcall/glts";
       import { Mesh, BoxGeometry, MeshBasicMaterial } from "three";
-      export function warm(name) {
-        const source = getGLTSSource();
+      export function warm(name, source) {
         const cache = resolve("public/_cache");
         mkdirSync(cache, { recursive: true });
         const output = resolve(cache, name + ".json");
@@ -59,7 +57,7 @@ it("warms every public script during builds, reuses asset-owned caches and inclu
     import { Mesh } from "three";
     import { scene, onDispose } from "@drawcall/glts";
     import { warm, disposed } from "probe";
-    const mesh = warm(${JSON.stringify(name)});
+    const mesh = warm(${JSON.stringify(name)}, scene.source);
     if (!(mesh instanceof Mesh)) throw new Error("Multiple Three copies");
     scene.add(mesh);
     onDispose(() => { mesh.geometry.dispose(); mesh.material.dispose(); disposed(${JSON.stringify(name)}); });

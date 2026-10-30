@@ -1,7 +1,7 @@
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 
-import { getGLTSSource, GLTSLoader, GLTSRenderer } from "@drawcall/glts";
+import { GLTSLoader, GLTSRenderer } from "@drawcall/glts";
 import {
   Group,
   InstancedMesh,
@@ -22,7 +22,6 @@ function readErrorField(error: unknown, key: PropertyKey): unknown {
 declare global {
   interface Window {
     readonly bloom: typeof bloom;
-    readonly getGLTSSource: typeof getGLTSSource;
     readonly GLTFLoader: typeof GLTFLoader;
     readonly GLTSLoader: typeof GLTSLoader;
     readonly GLTSRenderer: typeof GLTSRenderer;
@@ -42,7 +41,6 @@ declare global {
 
 Object.defineProperties(window, {
   bloom: { value: bloom },
-  getGLTSSource: { value: getGLTSSource },
   GLTFLoader: { value: GLTFLoader },
   GLTSLoader: { value: GLTSLoader },
   GLTSRenderer: { value: GLTSRenderer },

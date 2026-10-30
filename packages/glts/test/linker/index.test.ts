@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { afterEach, expect, it } from "vitest";
 
-import { getGLTSSource } from "../../src/execution/current.js";
 import { Linker } from "../../src/linker/index.js";
 import type { GLTSModules, GLTSResolve } from "../../src/types.js";
 import { createExecution } from "../execution/fixture.js";
@@ -11,27 +10,26 @@ let linker: Linker | undefined;
 
 afterEach(() => linker?.dispose());
 
-/** A linker of the scripts `fetch` serves, sharing `modules` and the host's `three` and `@drawcall/glts`. */
-function createLinker(fetch: (input: RequestInfo | URL) => Promise<Response>, options: {
+interface Options {
   readonly cdnURL?: string;
   readonly modules?: GLTSModules;
   readonly resolve?: GLTSResolve;
-} = {}): Linker {
+  readonly linkDynamicImports?: boolean;
+}
+
+/** A linker of the scripts `fetch` serves, sharing `modules` and the host's `three` and `@drawcall/glts`. */
+function createLinker(fetch: (input: RequestInfo | URL) => Promise<Response>, { cdnURL, modules, ...options }: Options = {}): Linker {
   linker = new Linker({
-    cdnURL: new URL(options.cdnURL ?? "https://cdn.test/"),
-    modules: { ...options.modules, three: THREE, "@drawcall/glts": { getGLTSSource } },
-    resolve: options.resolve,
+    ...options,
+    cdnURL: new URL(cdnURL ?? "https://cdn.test/"),
+    modules: { ...modules, three: THREE, "@drawcall/glts": {} },
     fetch,
   });
   return linker;
 }
 
 /** A linker serving `sources` by path from any origin, recording each request. */
-function serveLinker(sources: Record<string, string>, options: {
-  readonly cdnURL?: string;
-  readonly modules?: GLTSModules;
-  readonly resolve?: GLTSResolve;
-} = {}): { linker: Linker; requests: URL[]; paths: () => string[] } {
+function serveLinker(sources: Record<string, string>, options: Options = {}): { linker: Linker; requests: URL[]; paths: () => string[] } {
   const requests: URL[] = [];
   const linker = createLinker(async (input) => {
     const url = new URL(String(input));
@@ -45,7 +43,7 @@ function serveLinker(sources: Record<string, string>, options: {
 /** Links and runs the script. */
 async function run(linker: Linker): Promise<void> {
   const script = await linker.getScript(scene);
-  await createExecution({ url: script.url, module: script.module }).run();
+  await createExecution({ url: script.executionURL, module: script.module }).run();
 }
 
 it("links a script's helpers once each and tracks the script as their importer", async () => {
@@ -57,9 +55,29 @@ it("links a script's helpers once each and tracks the script as their importer",
   });
   const script = await linker.getScript(scene);
   expect(paths().sort()).toEqual(["a.ts", "b.ts", "scene.glts", "shared.ts"]);
-  expect(script.dependencies.snapshot()).toEqual(["a.ts", "b.ts", "scene.glts", "shared.ts"].map((path) => `https://assets.test/${path}`));
+  expect(script.dependencies.urls()).toEqual(["a.ts", "b.ts", "scene.glts", "shared.ts"].map((path) => `https://assets.test/${path}`));
   expect(linker.invalidate("https://assets.test/shared.ts")).toEqual([scene]);
   expect(linker.invalidate("https://assets.test/other.ts")).toEqual(["https://assets.test/other.ts"]);
+});
+
+it("links query variants to one graph, fetched with the first request's query, each execution keeping its own", async () => {
+  const requests: string[] = [];
+  const redirected = "https://assets.test/redirected/";
+  const linker = createLinker(async (input) => {
+    requests.push(String(input));
+    if (String(input) === `${redirected}helper.ts`) return new Response("export const value = 1;");
+    const response = new Response(`import "./helper.ts";`);
+    Object.defineProperty(response, "url", { value: `${redirected}scene.glts?token=cdn` });
+    return response;
+  });
+  const queries = ["?signature=valid", "?variant=2", ""];
+  const variants = await Promise.all(queries.map((query) => linker.getScript(scene + query)));
+  expect(new Set(variants.map(({ module }) => module)).size).toBe(1);
+  expect(variants.map(({ executionURL }) => executionURL)).toEqual(queries.map((query) => `${redirected}scene.glts${query}`));
+  expect(requests).toEqual([`${scene}?signature=valid`, `${redirected}helper.ts`]);
+  const all = queries.map((query) => scene + query);
+  expect(linker.invalidate(`${redirected}helper.ts`)).toEqual(all);
+  expect(linker.invalidate(`${redirected}scene.glts`)).toEqual(all);
 });
 
 it("rejects helper cycles and cycles between CDN packages, instead of waiting on them", async () => {
@@ -96,13 +114,15 @@ it("shares an in-flight helper across independently linked scripts without treat
   expect(paths().sort()).toEqual(["a.ts", "b.ts", "other.glts", "scene.glts", "shared.ts"]);
 });
 
-it.each(["scene", "bindGenerator"])("rejects helpers importing %s from @drawcall/glts at runtime", async (name) => {
+it("rejects helpers importing @drawcall/glts at runtime", async () => {
   const { linker } = serveLinker({
     "scene.glts": `import "./a.ts";`,
-    "a.ts": `import { ${name} } from "@drawcall/glts"; export const value = ${name};`,
+    "a.ts": `import { scene } from "@drawcall/glts"; export const value = scene;`,
   });
-  await expect(run(linker)).rejects.toMatchObject({
-    phase: "evaluate", cause: { message: expect.stringContaining(`does not provide an export named '${name}'`) },
+  await expect(linker.getScript(scene)).rejects.toMatchObject({
+    phase: "resolve",
+    importChain: ["https://assets.test/scene.glts", "https://assets.test/a.ts"],
+    message: expect.stringContaining("Helpers import only types from @drawcall/glts"),
   });
 });
 
@@ -119,8 +139,8 @@ it("keeps fresh static dependencies separate from historical reload importers", 
   sources["scene.glts"] = `import "./new.ts";`;
   linker.invalidate(scene);
   const next = await linker.getScript(scene);
-  expect(previous.dependencies.snapshot()).toEqual(["https://assets.test/old.ts", scene]);
-  expect(next.dependencies.snapshot()).toEqual(["https://assets.test/new.ts", scene]);
+  expect(previous.dependencies.urls()).toEqual(["https://assets.test/old.ts", scene]);
+  expect(next.dependencies.urls()).toEqual(["https://assets.test/new.ts", scene]);
   expect(linker.invalidate("https://assets.test/old.ts")).toEqual([scene]);
   expect(linker.invalidate("https://assets.test/new.ts")).toEqual([scene]);
 });
@@ -133,7 +153,7 @@ it("records requested and redirected helper URLs while excluding package modules
     return response;
   }, { modules: { library: { value: 1 } } });
   const script = await linker.getScript(scene);
-  expect(script.dependencies.snapshot()).toEqual(["https://assets.test/helper.ts", "https://assets.test/redirected/helper.ts", scene]);
+  expect(script.dependencies.urls()).toEqual(["https://assets.test/helper.ts", "https://assets.test/redirected/helper.ts", scene]);
   expect(linker.invalidate("https://assets.test/redirected/helper.ts")).toEqual([scene]);
 });
 
@@ -145,11 +165,42 @@ it("links dynamic imports when they run, so one that never runs is never fetched
     "chunk.js": `export const value = 1;`,
   });
   const script = await linker.getScript(scene);
-  expect(script.dependencies.snapshot()).toEqual(["https://assets.test/helper.ts", scene]);
+  expect(script.dependencies.urls()).toEqual(["https://assets.test/helper.ts", scene]);
   expect(paths()).toEqual(["scene.glts", "helper.ts", "robotics"]);
   await run(linker);
   expect(paths()).toEqual(["scene.glts", "helper.ts", "robotics", "chunk.js"]);
 });
+
+it("links a dynamic import that statically imports its importer back, as native modules do", async () => {
+  const { linker } = serveLinker({
+    "scene.glts": `import { load } from "./a.ts"; const { doubled } = await load(); if (doubled !== 2) throw new Error("No b");`,
+    "a.ts": `export const value = 1; export const load = () => import("./b.ts");`,
+    "b.ts": `import { value } from "./a.ts"; export const doubled = value * 2;`,
+  });
+  await run(linker);
+}, 1000);
+
+it("links a bundle's dynamic chunks after the bundle, so a chunk importing it back is no cycle", async () => {
+  const lib = "https://cdn.test/lib?bundle=&external=%40drawcall%2Fglts%2Cthree&target=es2022";
+  const { linker } = serveLinker({
+    lib: `export const value = 1; export const load = () => import("./chunk.js");`,
+    "chunk.js": `import { value } from ${JSON.stringify(lib)}; export const doubled = value * 2;`,
+  }, { linkDynamicImports: true });
+  const [module] = await linker.getModules(["lib"]);
+  expect(Object.keys(module?.dependencies.moduleHashes() ?? {})).toEqual(["https://cdn.test/chunk.js", lib]);
+}, 1000);
+
+it("records a shared package's dynamic chunk for every bundle importing it", async () => {
+  const { linker } = serveLinker({
+    a: `import "p";`,
+    b: `import "p";`,
+    p: `export const load = () => import("./chunk.js");`,
+    "chunk.js": `export const value = 1;`,
+  }, { linkDynamicImports: true });
+  const modules = await linker.getModules(["a", "b"]);
+  expect(modules.map(({ dependencies }) => Object.keys(dependencies.moduleHashes()).includes("https://cdn.test/chunk.js")))
+    .toEqual([true, true]);
+}, 1000);
 
 it("links a bundle's peer import to the package the script or host has, so both share one instance", async () => {
   const peer = `import "/physics@^0.16.0?external=three";`;
@@ -170,7 +221,7 @@ it("links a bundle's peer import to the package the script or host has, so both 
 
 it("bundles a package subpath without its own package in the external list", async () => {
   const { linker, requests } = serveLinker({ "scene.glts": `import "lodash/fp";`, "lodash/fp": "export {};" }, {
-    modules: { lodash: {} },
+    modules: { lodash: {}, "https://assets.test/helper.ts": {} },
   });
   await linker.getScript(scene);
   expect(requests[1]?.searchParams.get("external")).toBe("@drawcall/glts,three");

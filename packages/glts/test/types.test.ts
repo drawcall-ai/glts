@@ -4,7 +4,6 @@ import * as THREE from "three/webgpu";
 import {
   GLTSLoader,
   GLTSRenderer,
-  getGLTSSource,
   instanceCount,
   loadingManager,
   onFrame,
@@ -21,7 +20,6 @@ import {
 it("exports the host and contextual script APIs", () => {
   expectTypeOf<GLTSScene>().toExtend<THREE.Scene>();
   expectTypeOf<GLTSScene["source"]>().toEqualTypeOf<GLTSSource>();
-  expectTypeOf(getGLTSSource).returns.toEqualTypeOf<GLTSSource>();
   expectTypeOf<GLTSScene["isScene"]>().toEqualTypeOf<boolean>();
   expectTypeOf<GLTSScene["url"]>().toEqualTypeOf<string>();
   expectTypeOf<GLTSSource["url"]>().toEqualTypeOf<string>();

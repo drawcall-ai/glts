@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import type { Dependencies } from "../dependencies.js";
+import { Dependencies } from "../dependencies.js";
 import { collectError, GLTSError } from "../errors.js";
 import { canonicalize, pageBase } from "../urls.js";
 
@@ -23,7 +23,9 @@ export class Resources {
   readonly manager = new THREE.LoadingManager();
   readonly #host: THREE.LoadingManager;
   readonly #url: string;
-  readonly #dependencies: Dependencies;
+  readonly #started = new Map<string, string>();
+  readonly #resolved = new Set<string>();
+  readonly #aliases = new Set<string>();
   readonly #failedURLs: string[] = [];
   /** Failures of the managers' callbacks. */
   readonly #callbackErrors: unknown[] = [];
@@ -33,7 +35,7 @@ export class Resources {
   constructor(options: ResourcesOptions) {
     this.#host = options.host;
     this.#url = options.url;
-    this.#dependencies = options.dependencies;
+    options.dependencies.include(() => this.#dependencies());
     this.#scopeManager(options.assertOpen);
   }
 
@@ -63,14 +65,24 @@ export class Resources {
     this.#idle?.reject(reason);
   }
 
-  /** Adds the http(s) or file resource at `url` to the dependencies. */
-  #observe(url: string): void {
+  /** `url` resolved against the page and canonicalized; undefined unless it is an http:, https:, or file: URL. */
+  #resourceURL(url: string): string | undefined {
     // Three resolves relative resource URLs against the page, not the GLTS source.
     const base = pageBase();
     if (!URL.canParse(url, base)) return;
     const resource = new URL(url, base);
     if (!["http:", "https:", "file:"].includes(resource.protocol)) return;
-    this.#dependencies.add(canonicalize(resource));
+    return canonicalize(resource);
+  }
+
+  #dependencies(): Dependencies {
+    const dependencies = new Dependencies();
+    dependencies.add(...this.#resolved);
+    // Composite loaders can report the logical URL before their FileLoader resolves it.
+    for (const [url, resource] of this.#started) {
+      if (!this.#aliases.has(url)) dependencies.add(resource);
+    }
+    return dependencies;
   }
 
   /** Makes the manager report to the host, observe its resources, and count its items. */
@@ -85,10 +97,9 @@ export class Resources {
     manager.resolveURL = (url): string => {
       const resolved = host.resolveURL(url);
       // FileLoader skips itemStart when joining another manager's in-flight request.
-      this.#observe(url);
-      if (resolved !== url) {
-        this.#observe(resolved);
-      }
+      this.#aliases.add(url);
+      const resource = this.#resourceURL(resolved) ?? this.#resourceURL(url);
+      if (resource) this.#resolved.add(resource);
       return resolved;
     };
     manager.getHandler = (url) => {
@@ -106,7 +117,8 @@ export class Resources {
     };
     manager.itemStart = (url): void => {
       assertOpen();
-      this.#observe(url);
+      const resource = this.#resourceURL(url);
+      if (resource) this.#started.set(url, resource);
       this.#items += 1;
       collectError(this.#callbackErrors, () => itemStart(url));
       collectError(this.#callbackErrors, () => host.itemStart(url));

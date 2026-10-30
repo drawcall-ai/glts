@@ -8,9 +8,7 @@ const { parser: { parse } } = packages;
 const url = "https://example.test/tree.glts";
 
 async function execute(compiled: string, exports?: object): Promise<void> {
-  const runtime = `data:text/javascript,${encodeURIComponent("export const bindGenerator = (fn) => fn;")}`;
-  const source = compiled.replaceAll("glts:runtime", runtime);
-  const module: unknown = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source)}`);
+  const module: unknown = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(compiled)}`);
   if (typeof module !== "object" || module === null || !("default" in module) || typeof module.default !== "function") {
     throw new Error("Compiled script has no execution function");
   }
@@ -76,9 +74,10 @@ describe("compileScript", () => {
     expect(() => parseOutput(isolated)).not.toThrow();
   });
 
-  it("accepts a leading hashbang", () => {
+  it("drops a leading hashbang, so a prefix can come first", () => {
     const isolated = compileScript('#!/usr/bin/env glts\nimport { scene } from "@drawcall/glts"\nscene.name = "x"', url);
 
+    expect(isolated).not.toContain("#!");
     expect(() => parseOutput(isolated)).not.toThrow();
   });
 
@@ -139,28 +138,6 @@ it("drops imports used only as types, as TypeScript does", () => {
   expect(compiled).not.toContain("./other.ts");
   expect(compiled).toContain('import "./side-effect.ts"');
 });
-
-it("preserves nested async methods, rejection handling, and async iteration", async () => {
-  await execute(compileScript(`
-    class Base { value() { return 40; } }
-    class Derived extends Base {
-      async value(increment) {
-        await Promise.resolve();
-        return super.value() + arguments[0];
-      }
-    }
-    async function* values() {
-      yield await new Derived().value(2);
-      try { await Promise.reject(new Error("expected")); }
-      catch (error) { yield error.message; }
-      finally { yield "done"; }
-    }
-    const result = [];
-    for await (const value of values()) result.push(value);
-    if (result.join() !== "42,expected,done") throw new Error(result.join());
-  `, url));
-});
-
 
 it("preserves contextual aliases, namespace identity, shadowing, shorthand, and unbound calls", async () => {
   const callbacks: (() => void)[] = [];

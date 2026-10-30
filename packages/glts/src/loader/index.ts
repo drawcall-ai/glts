@@ -7,15 +7,15 @@ import { Dependencies } from "../dependencies.js";
 import { Execution } from "../execution/index.js";
 import { withFiles } from "../files.js";
 import * as GLTS from "../index.js";
-import { gltsSpecifier, packageNamespace, type ProvidedSpecifier } from "../imports.js";
+import { gltsSpecifier, type ProvidedSpecifier } from "../imports.js";
 import { Linker, type Script } from "../linker/index.js";
 import { defaultCDNURL } from "../linker/resolution.js";
 import { NodeRegistry, type LoadRequest } from "../node.js";
-import type { GLTSInstances, GLTSLoaderOptions, GLTSModules, GLTSScene, GLTSURL } from "../types.js";
+import type { GLTSInstances, GLTSLoaderOptions, GLTSModules, GLTSModuleSource, GLTSScene, GLTSURL } from "../types.js";
 import { canonicalize, pageURL } from "../urls.js";
 import { trackItem, type ItemFailure } from "./items.js";
 import { LoadScope, type NestedLoader } from "./scope.js";
-import { runWarmup, type Run, type Warmup } from "./warmup.js";
+import { resolveWarmup, type WarmupScripts } from "./warmup.js";
 
 /** The namespaces scripts share with the host, including Three's core, WebGPU, and TSL modules. */
 function hostModules(modules: GLTSModules = {}): GLTSModules {
@@ -23,7 +23,8 @@ function hostModules(modules: GLTSModules = {}): GLTSModules {
     three: THREE,
     "three/webgpu": WebGPU,
     "three/tsl": TSL,
-    [gltsSpecifier]: packageNamespace(GLTS, modules[gltsSpecifier]),
+    // The package CDN and npm packages import, with the host's overrides.
+    [gltsSpecifier]: { ...GLTS, ...modules[gltsSpecifier] },
   };
   return { ...modules, ...provided };
 }
@@ -33,6 +34,8 @@ type GLTSProgressCallback = (event: ProgressEvent<EventTarget>) => void;
 type GLTSErrorCallback = (error: unknown) => void;
 
 export class GLTSLoader extends THREE.Loader {
+  /** Current bundled namespace provenance, available without fetching scripts. Runtime CDN imports are absent. */
+  readonly moduleSources: Readonly<Record<string, GLTSModuleSource>>;
   readonly #isPreview: boolean;
   readonly #linker: Linker;
   readonly #lifetime = new AbortController();
@@ -55,11 +58,13 @@ export class GLTSLoader extends THREE.Loader {
       throw new TypeError("GLTSLoader requires a Three.js LoadingManager");
     }
 
+    this.moduleSources = options.moduleSources ?? {};
     this.#isPreview = options.isPreview ?? false;
     this.#linker = new Linker({
       cdnURL: pageURL(options.cdnURL ?? defaultCDNURL),
       fetch: withFiles((input, init) => this.#fetch(input, init)),
       modules: hostModules(options.modules),
+      moduleSources: this.moduleSources,
       external: options.external,
       env: options.env,
       resolve: options.resolve
@@ -96,15 +101,23 @@ export class GLTSLoader extends THREE.Loader {
     return this.#load(resolvedURL);
   }
 
+  /**
+   * Runs one scene for a positive integer instance count. Without onMatrixUpdateAt, converts its meshes to
+   * InstancedMesh and rejects cameras, lights, lines, points, sprites, LODs, skins, existing instances/batches,
+   * morph targets, onFrame callbacks, nested GLTS scenes, or a hierarchy with no meshes.
+   */
   async loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances> {
     return this.#load(this.#resolveURL(url), count);
   }
 
-  /** Internal build runner; normal host loads never create a warmup session. */
-  [runWarmup](session: Warmup, urls: readonly GLTSURL[]): Promise<void> {
-    return session.run(urls.map((url) => this.#resolveURL(url)), (run) => run.count === undefined
-      ? this.#load(run.url, undefined, run.scope, run)
-      : this.#load(run.url, run.count, run.scope, run));
+  /** The build warmup's access to this loader; normal host loads never create a warmup session. */
+  [resolveWarmup](urls: readonly GLTSURL[]): WarmupScripts {
+    return {
+      urls: urls.map((url) => this.#resolveURL(url)),
+      execute: (run) => run.count === undefined
+        ? this.#load(run.url, undefined, run.scope, run)
+        : this.#load(run.url, run.count, run.scope, run),
+    };
   }
 
   /**
@@ -115,8 +128,8 @@ export class GLTSLoader extends THREE.Loader {
   async reload(url: GLTSURL): Promise<void> {
     const resolvedURL = this.#resolveURL(url);
     this.#lifetime.signal.throwIfAborted();
-    const scripts = this.#linker.invalidate(resolvedURL);
-    const results = await Promise.allSettled(scripts.map((script) => this.#reloadScript(script)));
+    const invalidated = this.#linker.invalidate(resolvedURL);
+    const results = await Promise.allSettled(invalidated.map((script) => this.#reloadScript(script)));
     const errors: unknown[] = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
     if (errors.length === 0) return;
     const primary = toGLTSError(errors[0], "Unable to reload GLTS script", { phase: "reload", url: resolvedURL });
@@ -133,9 +146,9 @@ export class GLTSLoader extends THREE.Loader {
    * Loads the script at `requestedURL` as a scene, or with a `count` as that many instances, as one item of the
    * host's manager, or of the manager of the `scope` loading it.
    */
-  #load(requestedURL: string, count?: undefined, scope?: LoadScope, run?: Run): Promise<GLTSScene>;
-  #load(requestedURL: string, count: number, scope?: LoadScope, run?: Run): Promise<GLTSInstances>;
-  #load(requestedURL: string, count?: number, scope?: LoadScope, run?: Run): Promise<GLTSScene> {
+  #load(requestedURL: string, count?: undefined, scope?: LoadScope, nested?: NestedLoader): Promise<GLTSScene>;
+  #load(requestedURL: string, count: number, scope?: LoadScope, nested?: NestedLoader): Promise<GLTSInstances>;
+  #load(requestedURL: string, count?: number, scope?: LoadScope, nested?: NestedLoader): Promise<GLTSScene> {
     if (count !== undefined && (!Number.isSafeInteger(count) || count < 1)) {
       throw new RangeError("GLTS instance count must be a positive integer");
     }
@@ -153,7 +166,7 @@ export class GLTSLoader extends THREE.Loader {
     const failure: ItemFailure = { message: "Unable to load GLTS script", phase: "evaluate" };
     const loading = trackItem(manager, requestedURL, this.#lifetime.signal, failure, async () => {
       const script = await this.#linker.getScript(requestedURL);
-      const execution = await this.#execute(script, request, run);
+      const execution = await this.#execute(script, request, nested);
       try {
         this.#lifetime.signal.throwIfAborted();
         return this.#nodes.add(execution, request);
@@ -179,15 +192,11 @@ export class GLTSLoader extends THREE.Loader {
   }
 
   /** Runs `script` for `request` in a loading scope of its own, reporting to the loader's manager. */
-  async #execute(script: Script, request: LoadRequest, run?: Run): Promise<Execution> {
+  async #execute(script: Script, request: LoadRequest, loader: NestedLoader = this.#nested): Promise<Execution> {
     const signal = this.#lifetime.signal;
     signal.throwIfAborted();
     const dependencies = new Dependencies();
     dependencies.include(script.dependencies);
-    const loader: NestedLoader = run ? {
-      loadAsync: (url, scope) => run.session.load(url, undefined, scope, run),
-      loadInstancesAsync: (url, count, scope) => run.session.load(url, count, scope, run),
-    } : this.#nested;
     const scope = new LoadScope({ script, request, host: this.manager, dependencies, loader, signal });
     const execution = new Execution({ script, request, scope, dependencies });
     await execution.run();
@@ -213,7 +222,7 @@ export class GLTSLoader extends THREE.Loader {
           requestedURL,
           (request) => this.#execute(script, request),
           // So the next load or reload fetches the source again.
-          () => this.#linker.invalidate(requestedURL)
+          () => { this.#linker.invalidate(requestedURL); }
         );
       });
     });

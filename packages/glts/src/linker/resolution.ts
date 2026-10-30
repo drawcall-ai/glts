@@ -1,5 +1,7 @@
+import { REVISION } from "three";
+
 import { GLTSError, type GLTSErrorDetails } from "../errors.js";
-import { gltsSpecifier, runtimeSpecifier } from "../imports.js";
+import { gltsSpecifier } from "../imports.js";
 import { canonicalize } from "../urls.js";
 
 /** Where packages come from unless configured otherwise. */
@@ -22,21 +24,18 @@ export function hasVersion(specifier: string): boolean {
   return specifier.startsWith(`${packageName(specifier)}@`);
 }
 
-/** The CDN path of a Three addon, in either spelling, pinned to `threeRevision`. */
-function threeAddonPath(specifier: string, threeRevision: string): string | undefined {
+/** The CDN path of a Three addon, in either spelling, pinned to the revision of the `three` it shares. */
+function threeAddonPath(specifier: string): string | undefined {
   if (specifier.startsWith("three/addons/")) {
-    return `three@0.${threeRevision}.0/examples/jsm/${specifier.slice("three/addons/".length)}`;
+    return `three@0.${REVISION}.0/examples/jsm/${specifier.slice("three/addons/".length)}`;
   }
-  if (specifier.startsWith("three/examples/")) return `three@0.${threeRevision}.0/${specifier.slice("three/".length)}`;
+  if (specifier.startsWith("three/examples/")) return `three@0.${REVISION}.0/${specifier.slice("three/".length)}`;
   return undefined;
 }
 
-/**
- * The CDN bundle of the bare `specifier`, importing the `shared` packages instead of inlining them. Three addons
- * are pinned to `threeRevision` when given, the revision of the `three` they share.
- */
-export function cdnPackageURL(specifier: string, cdnURL: URL, shared: readonly string[], threeRevision?: string): URL {
-  const addon = threeRevision === undefined ? undefined : threeAddonPath(specifier, threeRevision);
+/** The CDN bundle of the bare `specifier`, importing the `shared` packages instead of inlining them. */
+export function cdnPackageURL(specifier: string, cdnURL: URL, shared: readonly string[]): URL {
+  const addon = threeAddonPath(specifier);
   // A package in its own external list comes back unbundled, one module per file; an addon must share `three`.
   const external = addon ? shared : shared.filter((name) => packageName(name) !== packageName(specifier));
   const url = new URL(addon ?? specifier, cdnURL);
@@ -47,19 +46,28 @@ export function cdnPackageURL(specifier: string, cdnURL: URL, shared: readonly s
 }
 
 /**
- * The package a CDN bundle imports as a peer, which the CDN writes as an unbundled root path such as
- * `/pkg@^1.0.0?external=three`. Linked by name instead, it shares the script's or host's instance.
+ * What an import from the module at `importerURL` names: a package, by bare specifier, which the host may provide
+ * and `cdnPackageURL` otherwise bundles, or the module at a URL. The loader and the bundler both resolve through
+ * this, so provenance names the modules a bundle ships.
  */
-export function peerName(specifier: string, url: URL, cdnURL: URL): string | undefined {
-  if (!specifier.startsWith("/") || url.origin !== cdnURL.origin || !url.pathname.startsWith(cdnURL.pathname)) return;
-  if (url.searchParams.has("bundle")) return;
+export function resolveImport(specifier: string, importerURL: string, cdnURL: URL): { readonly package: string } | { readonly url: string } {
+  if (isBareSpecifier(specifier)) return { package: specifier };
+  const url = new URL(specifier, importerURL);
+  const peer = specifier.startsWith("/") ? peerName(url, cdnURL) : undefined;
+  return peer ? { package: peer } : { url: canonicalize(url) };
+}
+
+/**
+ * The package a CDN bundle imports as a peer, which the CDN writes as an unbundled root path such as
+ * `/pkg@^1.0.0?external=three`. Imported by name instead, it shares the host's or the CDN's instance.
+ */
+function peerName(url: URL, cdnURL: URL): string | undefined {
+  if (url.origin !== cdnURL.origin || !url.pathname.startsWith(cdnURL.pathname) || url.searchParams.has("bundle")) return;
   return /^((?:@[^/]+\/)?[^/@]+)@[^/]+$/.exec(url.pathname.slice(cdnURL.pathname.length))?.[1];
 }
 
 /** What an import of a script or helper refers to. */
 export type ScriptImport =
-  /** `glts:runtime`, which compiled async functions import. */
-  | { readonly kind: "runtime" }
   /** `@drawcall/glts`. */
   | { readonly kind: "glts" }
   | { readonly kind: "helper"; readonly url: string }
@@ -68,7 +76,6 @@ export type ScriptImport =
 
 /** Classifies an import of the script or helper at `importerURL`, throwing for one it cannot make. */
 export function classifyImport(specifier: string, importerURL: string, chain: readonly string[]): ScriptImport {
-  if (specifier === runtimeSpecifier) return { kind: "runtime" };
   if (specifier === gltsSpecifier) return { kind: "glts" };
   const helper = helperURL(specifier, importerURL);
   if (helper) return { kind: "helper", url: canonicalize(helper) };

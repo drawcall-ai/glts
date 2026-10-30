@@ -42,7 +42,7 @@ function recordOf(node: GLTSScene): NodeRecord {
 }
 
 /** Throws unless `delta`, the time a frame advances by, is a non-negative finite number. */
-export function assertDelta(delta: number): void {
+function assertDelta(delta: number): void {
   if (!Number.isFinite(delta) || delta < 0) {
     throw new RangeError("GLTS frame delta must be a non-negative finite number");
   }

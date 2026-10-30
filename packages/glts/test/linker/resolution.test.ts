@@ -3,8 +3,7 @@ import { classifyImport } from "../../src/linker/resolution.js";
 
 const importer = "https://assets.test/path/asset.glts";
 
-it("classifies the runtime, @drawcall/glts, packages, and http(s) imports", () => {
-  expect(classifyImport("glts:runtime", importer, [])).toEqual({ kind: "runtime" });
+it("classifies @drawcall/glts, packages, and http(s) imports", () => {
   expect(classifyImport("@drawcall/glts", importer, [])).toEqual({ kind: "glts" });
   expect(classifyImport("simplex-noise@4", importer, [])).toEqual({ kind: "package" });
   expect(classifyImport("https://cdn.test/library.js", importer, [])).toEqual({ kind: "package" });

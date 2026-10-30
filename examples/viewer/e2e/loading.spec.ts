@@ -1,7 +1,80 @@
 import { expect, test } from "@playwright/test";
 
 import { deferred } from "./deferred.js";
-import { routeScript, routeScriptRevisions } from "./routes.js";
+import { fulfillScript, routeScript, routeScriptRevisions } from "./routes.js";
+
+test("evaluates shared helpers and packages once and constructs query variants independently", async ({ page }) => {
+  const requests: string[] = [];
+  const sources: Record<string, string> = {
+    "/assets/variants.glts": `
+      import { scene } from "@drawcall/glts"
+      import { value } from "./variants-helper.ts"
+      import { suffix } from "variants-package"
+      globalThis.__variantExecutions = (globalThis.__variantExecutions ?? 0) + 1
+      scene.name = value + suffix
+      scene.userData.execution = globalThis.__variantExecutions
+      scene.userData.importURL = import.meta.url
+      scene.userData.contextURL = scene.source.url
+      await Promise.resolve()
+      scene.userData.resumedURL = import.meta.url
+    `,
+    "/assets/variants-helper.ts": `
+      globalThis.__variantHelpers = (globalThis.__variantHelpers ?? 0) + 1
+      export const value: string = "shared"
+    `,
+    "/cdn/variants-package": `
+      globalThis.__variantPackages = (globalThis.__variantPackages ?? 0) + 1
+      export const suffix = " graph"
+    `
+  };
+  await page.route(/\/(?:assets|cdn)\/variants/, (route) => {
+    const path = new URL(route.request().url()).pathname;
+    requests.push(path);
+    const source = sources[path];
+    return source === undefined ? route.fulfill({ status: 404 }) : fulfillScript(route, source);
+  });
+
+  await page.goto("/test-harness.html");
+  const result = await page.evaluate(async () => {
+    const loader = new window.GLTSLoader(new window.LoadingManager(), {
+      cdnURL: new URL("/cdn/", location.href)
+    });
+    try {
+      const scenes = await Promise.all([
+        loader.loadAsync("/assets/variants.glts?variant=1"),
+        loader.loadAsync("/assets/variants.glts?variant=2")
+      ]);
+      return {
+        distinct: scenes[0] !== scenes[1],
+        helpers: Reflect.get(globalThis, "__variantHelpers"),
+        packages: Reflect.get(globalThis, "__variantPackages"),
+        scenes: scenes.map((scene) => ({
+          name: scene.name,
+          url: scene.url,
+          source: scene.source.url,
+          ...scene.userData
+        }))
+      };
+    } finally {
+      loader.dispose();
+    }
+  });
+
+  expect(requests.sort()).toEqual([
+    "/assets/variants-helper.ts",
+    "/assets/variants.glts",
+    "/cdn/variants-package"
+  ]);
+  expect(result.distinct).toBe(true);
+  expect(result.helpers).toBe(1);
+  expect(result.packages).toBe(1);
+  // Concurrent variants run in either order, each once.
+  expect(result.scenes.map((scene) => Reflect.get(scene, "execution")).sort()).toEqual([1, 2]);
+  expect(result.scenes).toEqual([1, 2].map((variant) => {
+    const url = new URL(`/assets/variants.glts?variant=${variant}`, page.url()).href;
+    return { name: "shared graph", execution: expect.any(Number), url, source: url, importURL: url, contextURL: url, resumedURL: url };
+  }));
+});
 
 test("rejects unsupported per-load progress callbacks", async ({ page }) => {
   await page.goto("/test-harness.html");

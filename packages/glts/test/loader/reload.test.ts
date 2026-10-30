@@ -139,3 +139,28 @@ it("keeps the source URL when rebuilding fails and updates it when the replaceme
   expect(node.source.url).toBe(fetched);
   expect(source.url).toBe(initialURL);
 });
+
+it("keeps the replacement execution's scene bound to the existing node on reload", async () => {
+  const sources: unknown[] = [];
+  const source = `import { capture } from "library";
+    import { scene as root, onFrame } from "@drawcall/glts";
+    import * as glts from "@drawcall/glts";
+    capture(root.source);
+    onFrame(() => {
+      if (root !== glts.scene) throw new Error("Stale scene");
+      root.userData.updated = true;
+    });
+    if (Object.getPrototypeOf(glts) !== null || !Object.isFrozen(glts)) throw new Error("Invalid namespace");
+    const names = Object.keys(glts).sort().join();
+    if (names !== "gltsLoader,instanceCount,isPreview,loadingManager,onDispose,onFrame,onMatrixUpdateAt,scene") {
+      throw new Error("Unexpected script exports: " + names);
+    }`;
+  const loader = serve({ "scene.glts": source }, { capture: (source: unknown) => { sources.push(source); } });
+  const scene = await loader.loadAsync(`${base}scene.glts`);
+  await loader.reload(`${base}scene.glts`);
+  expect(sources).toHaveLength(2);
+  expect(sources[1]).not.toBe(sources[0]);
+  expect(scene.source).toBe(sources[1]);
+  scene.update(0.1);
+  expect(scene.userData.updated).toBe(true);
+});
