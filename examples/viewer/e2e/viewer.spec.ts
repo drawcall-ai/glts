@@ -60,7 +60,9 @@ test("precompiles the racecar graph without loading Babel and compiles local fil
   const loaded = new Set<string>();
   const scripts: Promise<string>[] = [];
   page.on("response", (response) => {
-    if (response.request().resourceType() === "script") scripts.push(response.text());
+    // Refetch instead of response.text(): Chromium may evict a script's body before it can be read.
+    // blob: scripts are compiled GLTS modules, never Babel.
+    if (response.request().resourceType() === "script" && response.url().startsWith("http")) scripts.push(page.request.get(response.url()).then((script) => script.text()));
   });
   // Vite may bundle Babel into an optimized dependency instead of requesting it by name.
   const loadedBabel = async () => (await Promise.all(scripts)).some((source) => source.includes("@babel/standalone"));
