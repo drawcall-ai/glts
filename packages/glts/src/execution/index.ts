@@ -1,6 +1,5 @@
 import type * as THREE from "three";
 
-import { runWithExecution } from "./current.js";
 import type { Dependencies } from "../dependencies.js";
 import { aggregate, cleanUpAndThrow, GLTSError, runAll, toGLTSError } from "../errors.js";
 import { importNamespace, type Bindings } from "../imports.js";
@@ -38,7 +37,7 @@ export interface ExecutionScope {
 }
 
 export interface ExecutionOptions {
-  readonly script: Pick<Script, "requestedURL" | "url" | "module">;
+  readonly script: Pick<Script, "requestedURL" | "executionURL" | "module" | "env">;
   readonly request: Pick<LoadRequest, "matrices" | "isPreview" | "instanced">;
   /** Disposed with the execution, first. */
   readonly scope: ExecutionScope;
@@ -49,7 +48,7 @@ export interface ExecutionOptions {
 /** One run of a script: its source, the root it builds, and the callbacks it registers. */
 export class Execution {
   /** The script's own root, until this execution, replacing another on reload, adopts that one's node. */
-  root = createRoot();
+  root: ScriptRoot;
   readonly url: string;
   /** The URL of the linked module it runs. */
   readonly module: string;
@@ -62,24 +61,36 @@ export class Execution {
   readonly #matrices: readonly THREE.Matrix4[];
   readonly #instanced: boolean;
   readonly #scope: ExecutionScope;
+  readonly #env: Script["env"];
   #autoInstances: AutoInstances | undefined;
   #disposed = false;
 
   constructor(options: ExecutionOptions) {
     const { script, request, dependencies } = options;
-    this.url = script.url;
+    this.url = script.executionURL;
     this.module = script.module;
+    this.#env = script.env;
     this.#matrices = request.matrices;
     this.#instanced = request.instanced;
     this.#scope = options.scope;
     this.dependencies = dependencies;
     this.source = Object.freeze({
-      url: script.url,
+      url: script.executionURL,
+      get packages() {
+        return Object.freeze(dependencies.packages());
+      },
+      get moduleHashes() {
+        return Object.freeze(dependencies.moduleHashes());
+      },
+      get runtimeModules() {
+        return Object.freeze(dependencies.runtimeModules());
+      },
       // A parent lists a nested script's own URLs; the script itself does not.
       get dependencyUrls() {
-        return Object.freeze(dependencies.snapshot().filter((url) => url !== script.requestedURL && url !== script.url));
+        return Object.freeze(dependencies.urls().filter((url) => url !== script.requestedURL && url !== script.executionURL));
       },
     });
+    this.root = createRoot(this.source);
     const execution = this;
     this.bindings = Object.freeze({
       gltsLoader: options.scope.gltsLoader,
@@ -88,21 +99,19 @@ export class Execution {
       onDispose: (callback: GLTSDisposeCallback) => {
         this.#assertUndisposed();
         assertCallback(callback, "onDispose");
-        this.#onDispose.push(() => runWithExecution(this, callback));
+        this.#onDispose.push(callback);
       },
       onFrame: (callback: GLTSFrameCallback) => {
         this.#assertUndisposed();
         assertCallback(callback, "onFrame");
-        this.#onFrame.push((delta) => runWithExecution(this, () => callback(delta)));
+        this.#onFrame.push(callback);
       },
       onMatrixUpdateAt: (callback: GLTSMatrixUpdateCallback) => {
         this.#assertUndisposed();
         assertCallback(callback, "onMatrixUpdateAt");
-        const update: GLTSMatrixUpdateCallback = (index, matrix) =>
-          runWithExecution(this, () => callback(index, matrix));
-        this.#onMatrixUpdateAt.push(update);
+        this.#onMatrixUpdateAt.push(callback);
         for (const [index, matrix] of this.#matrices.entries()) {
-          update(index, matrix.clone());
+          callback(index, matrix.clone());
         }
       },
       isPreview: request.isPreview,
@@ -134,7 +143,9 @@ export class Execution {
       const namespace: { default?: unknown } = await import(/* @vite-ignore */ /* webpackIgnore: true */ this.module);
       const entry = namespace.default;
       if (typeof entry !== "function") throw new Error("Compiled GLTS script has no entry point");
-      await runWithExecution(this, () => entry(importNamespace(this.bindings)));
+      const meta = { url: this.url, ...(this.#env === undefined ? {} : { env: { ...this.#env } }) };
+      Object.setPrototypeOf(meta, null);
+      await entry(importNamespace(this.bindings), meta);
     } catch (error) {
       throw toGLTSError(error, "Unable to execute GLTS script", { importChain: [this.url], phase: "evaluate", url: this.url });
     }

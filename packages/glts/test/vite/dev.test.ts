@@ -5,6 +5,8 @@ import { createLogger, createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, expect, it, vi, type MockInstance } from "vitest";
 
 import { glts } from "../../src/vite/index.js";
+import { Linker } from "../../src/linker/index.js";
+import { precompiledPrefix } from "../../src/linker/precompiled.js";
 import { writeFiles } from "./fixture.js";
 
 const temp = await mkdtemp(join(tmpdir(), "glts-dev-"));
@@ -26,11 +28,13 @@ beforeAll(async () => {
     "public/typed.glts": `import { marker } from "x";`,
     "public/helped.glts": `import { value } from "./helper.ts"; import "x"; console.log(value);`,
     "public/helper.ts": `export const value = 1;`,
+    "src/app.ts": `export const app: number = 1;`,
   });
   server = await createServer({
     configFile: false,
     customLogger: logger,
     root: temp,
+    base: "/app/",
     plugins: [glts()],
     server: { port: 0 },
   });
@@ -59,16 +63,42 @@ async function write(event: "add" | "change", name: string, source: string, ...p
   await vi.waitFor(() => expect(sent).toHaveBeenCalledWith(...payload), checked);
 }
 
+function served(path: string): URL {
+  const url = server.resolvedUrls?.local[0];
+  if (!url) throw new Error("Development server has no URL");
+  return new URL(path, url);
+}
+
+async function source(path: string): Promise<string> {
+  const response = await fetch(served(path));
+  expect(response.ok).toBe(true);
+  return response.text();
+}
+
+it("serves precompiled scripts and helpers at their public URLs, including query variants", async () => {
+  const script = await source("scene.glts?variant=1");
+  expect(script.startsWith(precompiledPrefix)).toBe(true);
+  expect(script).toContain("export default");
+  expect(await source("scene.glts?variant=2")).toBe(script);
+  expect(await source("helper.ts")).toBe(precompiledPrefix + "export const value = 1;");
+});
+
+it("leaves malformed escapes in other requests to Vite", async () => {
+  const response = await fetch(served("/app/%E0%A4%A.png"));
+  expect(response.status).toBe(404);
+});
+
 it("reloads an edited script in place", async () => {
-  await edit("scene.glts", `import { marker } from "x";\nconsole.log(marker);`, "glts:reload", { url: "/scene.glts" });
+  await edit("scene.glts", `import { marker } from "x";\nconsole.log(marker);`, "glts:reload", { url: "/app/scene.glts" });
 });
 
 it("reloads the scripts importing an edited helper", async () => {
-  await edit("helper.ts", `export const value = 2;`, "glts:reload", { url: "/helper.ts" });
+  await edit("helper.ts", `export const value = 2;`, "glts:reload", { url: "/app/helper.ts" });
+  expect(await source("helper.ts")).toBe(precompiledPrefix + "export const value = 2;");
 });
 
 it("reloads the scripts importing a created helper", async () => {
-  await write("add", "created.ts", `export const value = 1;`, "glts:reload", { url: "/created.ts" });
+  await write("add", "created.ts", `export const value = 1;`, "glts:reload", { url: "/app/created.ts" });
 });
 
 it("reloads the page when a helper's imports change", async () => {
@@ -81,10 +111,26 @@ it("reloads the page when a script's imports change", async () => {
 
 // scene.glts always imports x too, so these edits keep the scripts' imports.
 it("logs type errors until they are fixed", async () => {
-  const reload = ["glts:reload", { url: "/typed.glts" }];
+  const reload = ["glts:reload", { url: "/app/typed.glts" }];
   await edit("typed.glts", `import { marker } from "x";\nconst size: number = marker;`, ...reload);
   await vi.waitFor(() => expect(logger.error).toHaveBeenCalledWith(
     expect.stringContaining("typed.glts:2:7 - error TS2322"), expect.anything()), checked);
   await edit("typed.glts", `import { marker } from "x";\nconst size: object = marker;`, ...reload);
   await vi.waitFor(() => expect(logger.info).toHaveBeenCalledWith("glts: type errors fixed", expect.anything()), checked);
+});
+
+// Last: the broken script keeps the type check failing.
+it("serves a script that does not compile as source, so its load reports the error, and keeps serving app modules", async () => {
+  await write("add", "broken.glts", "const = 1;", "glts:reload", { url: "/app/broken.glts" });
+  expect(await source("src/app.ts")).toContain("app");
+  expect(await source("broken.glts")).toBe("const = 1;");
+  const linker = new Linker({ cdnURL: new URL("https://cdn.test/"), modules: {}, fetch });
+  try {
+    await expect(linker.getScript(served("broken.glts").href)).rejects.toMatchObject({
+      phase: "transform",
+      cause: expect.objectContaining({ message: expect.stringContaining("(1:6)") }),
+    });
+  } finally {
+    linker.dispose();
+  }
 });

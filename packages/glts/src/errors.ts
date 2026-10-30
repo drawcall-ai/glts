@@ -15,6 +15,7 @@ export interface GLTSErrorDetails {
   readonly importChain?: readonly string[];
 }
 
+/** Load and reload failure with its source URL, failing phase, import chain, and original cause. */
 export class GLTSError extends Error {
   readonly url: string;
   readonly phase: GLTSPhase;

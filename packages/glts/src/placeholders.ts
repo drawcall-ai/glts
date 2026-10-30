@@ -16,7 +16,7 @@ function unavailable(name: string): never {
 }
 
 /** The script's root scene; follows the stable loaded scene after reload. */
-export const scene: GLTSScriptScene = new Proxy(createRoot(), {
+export const scene: GLTSScriptScene = new Proxy(createRoot({ url: "glts:context", packages: [], moduleHashes: {}, runtimeModules: [], dependencyUrls: [] }), {
   get: () => unavailable("scene"),
   set: () => unavailable("scene")
 });
@@ -27,7 +27,10 @@ export const loadingManager: LoadingManager = new Proxy(new LoadingManager(), {
   set: () => unavailable("loadingManager")
 });
 
-/** Loads nested assets relative to this script. Attach each result beneath scene. */
+/**
+ * Loads nested assets relative to this script. Attach each result beneath scene. A failed nested load fails this
+ * script too, even when the script catches it.
+ */
 export const gltsLoader: GLTSScriptLoader = {
   loadAsync: () => unavailable("gltsLoader"),
   loadInstancesAsync: () => unavailable("gltsLoader")

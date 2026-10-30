@@ -19,7 +19,7 @@ export interface LoadScopeOptions {
   /** The host's manager, which gets the scope's items and resolves its URLs. */
   readonly host: THREE.LoadingManager;
   /** The script the execution runs, whose URL nested URLs resolve against. */
-  readonly script: Pick<Script, "requestedURL" | "url">;
+  readonly script: Pick<Script, "requestedURL" | "executionURL">;
   /** The load the execution runs for. */
   readonly request: Pick<LoadRequest, "ancestors">;
   /** The execution's dependencies, which get its resources and nested nodes. */
@@ -62,14 +62,14 @@ export class LoadScope implements ExecutionScope {
   constructor(options: LoadScopeOptions) {
     this.#host = options.host;
     const { script, request } = options;
-    this.#url = script.url;
-    this.chain = [...new Set([...request.ancestors, script.requestedURL, script.url])];
+    this.#url = script.executionURL;
+    this.chain = [...new Set([...request.ancestors, script.requestedURL, script.executionURL])];
     this.#dependencies = options.dependencies;
     this.#signal = options.signal;
     this.#signal.addEventListener("abort", this.#onAbort);
     this.#resources = new Resources({
       host: options.host,
-      url: script.url,
+      url: script.executionURL,
       dependencies: options.dependencies,
       assertOpen: () => this.#assertOpen("resources"),
     });

@@ -1,67 +1,61 @@
 import { toGLTSError } from "../errors.js";
-import { bindGenerator, currentExecution } from "../execution/current.js";
-import type { Dependencies } from "../dependencies.js";
-import { helperExports } from "../imports.js";
 import type { GLTSModules } from "../types.js";
-import { moduleURL, realmUnique } from "../urls.js";
-import type { Importer } from "./index.js";
+import { importsBlobs, moduleURL, realmUnique } from "../urls.js";
 
-type LinkDynamic = (importer: Importer, specifier: string, running: Dependencies | undefined) => Promise<string>;
+/** Links a dynamic import of one linked module, recording it where that module's own imports are recorded. */
+type LinkDynamic = (specifier: string) => Promise<string>;
+
+interface DynamicImporter {
+  /** The URL the importing module was fetched from, which import failures name. */
+  readonly url: string;
+  readonly link: LinkDynamic;
+}
 
 /** What a linked module throws once its loader is disposed. */
 const disposedMessage = "The GLTS loader of this module has been disposed";
 
 /** Hands host values to linked modules through a global only they know the key of. */
 export class Bridge {
-  /** Host namespaces by bare specifier; host modules read them. */
+  /** Host namespaces by bare specifier or absolute helper URL; host modules read them. */
   readonly namespaces: GLTSModules;
   readonly #hostModuleURLs = new Map<string, string>();
-  /** Links a dynamic import of a linked module as it runs, adding it to the running execution's dependencies. */
-  readonly #linkDynamic: LinkDynamic;
+  readonly #moduleURLs = new Set<string>();
+  #disposed = false;
+  /** The modules that use `import()`, by the index their stand-in passes; kept until disposal, like their module URLs. */
+  readonly #importers: DynamicImporter[] = [];
   readonly #key = realmUnique("__glts_bridge_");
-  /** Starts every linked module; a module evaluated after disposal fails. */
-  readonly #prologue = [
-    `const bridge = globalThis[${JSON.stringify(this.#key)}];`,
-    `if (!bridge) throw new Error(${JSON.stringify(disposedMessage)});`,
-  ];
-  /** The `glts:runtime` module compiled async functions import. */
-  readonly runtimeURL = moduleURL([...this.#prologue, "export const { bindGenerator } = bridge;"].join("\n"));
-  /** A helper's `@drawcall/glts`. */
-  readonly helperGLTSURL = moduleURL([
-    ...this.#prologue,
-    `export const { ${Object.keys(helperExports).join(", ")} } = bridge.helperExports;`,
-  ].join("\n"));
-  readonly bindGenerator = bindGenerator;
-  readonly helperExports = helperExports;
 
-  constructor(namespaces: GLTSModules, linkDynamic: LinkDynamic) {
+  constructor(namespaces: GLTSModules) {
     this.namespaces = namespaces;
-    this.#linkDynamic = linkDynamic;
     Reflect.set(globalThis, this.#key, this);
     for (const [specifier, namespace] of Object.entries(namespaces)) {
-      this.#hostModuleURLs.set(specifier, moduleURL(this.#hostModuleSource(specifier, namespace)));
+      this.#hostModuleURLs.set(specifier, this.module(this.#hostModuleSource(specifier, namespace)));
     }
   }
 
-  /** The bare specifiers the host shares with scripts. */
+  /** The specifier and helper URL keys the host shares with scripts. */
   get hostSpecifiers(): readonly string[] {
     return [...this.#hostModuleURLs.keys()];
   }
 
-  /** The source of the function that stands in for the `import()` keyword in the linked module of `importer`. */
-  dynamicImportSource(importer: Importer): string {
+  /**
+   * The source of the function that stands in for the `import()` keyword in the module fetched from `url`, whose
+   * dynamic imports `link` links when they run.
+   */
+  dynamicImportSource(url: string, link: LinkDynamic): string {
+    const index = this.#importers.push({ url, link }) - 1;
     const bridge = `globalThis[${JSON.stringify(this.#key)}]`;
-    return `(specifier) => ${bridge} ? ${bridge}.import(${JSON.stringify(importer)}, specifier)` +
+    return `(specifier) => ${bridge} ? ${bridge}.import(${index}, specifier)` +
       ` : Promise.reject(new Error(${JSON.stringify(disposedMessage)}))`;
   }
 
-  async import(importer: Importer, specifier: unknown): Promise<unknown> {
-    // Read before any await, while the importing code's execution is still the running one.
-    const running = currentExecution()?.dependencies;
+  async import(index: number, specifier: unknown): Promise<unknown> {
+    const importer = this.#importers[index];
+    if (!importer) throw new Error(`Unknown GLTS dynamic importer: ${index}`);
     let url: string;
-    // Outside the import, as Vite wraps it in a function that is not async.
+    // Only linking fails as a resolve error; the imported module's own evaluation errors propagate unchanged.
     try {
-      url = await this.#linkDynamic(importer, String(specifier), running);
+      url = await importer.link(String(specifier));
     } catch (error) {
       throw toGLTSError(error, `Unable to import ${String(specifier)}`, { phase: "resolve", url: importer.url });
     }
@@ -73,14 +67,30 @@ export class Bridge {
     return this.#hostModuleURLs.get(specifier);
   }
 
+  /** Short browser URLs avoid embedding imported source graphs again in every parent module. */
+  module(source: string): string {
+    if (this.#disposed) throw new Error(disposedMessage);
+    if (!importsBlobs()) return moduleURL(source);
+    const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+    this.#moduleURLs.add(url);
+    return url;
+  }
+
   dispose(): void {
+    this.#disposed = true;
     Reflect.deleteProperty(globalThis, this.#key);
+    // Retain old graphs until disposal: a failed reload can leave their scenes alive.
+    for (const url of this.#moduleURLs) URL.revokeObjectURL(url);
+    this.#moduleURLs.clear();
+    this.#importers.length = 0;
   }
 
   #hostModuleSource(specifier: string, namespace: object): string {
     const names = Object.keys(namespace).filter((name) => /^[$A-Z_a-z][$\w]*$/.test(name));
     return [
-      ...this.#prologue,
+      // A host module evaluated after disposal fails.
+      `const bridge = globalThis[${JSON.stringify(this.#key)}];`,
+      `if (!bridge) throw new Error(${JSON.stringify(disposedMessage)});`,
       `const namespace = bridge.namespaces[${JSON.stringify(specifier)}];`,
       ...names.map((name, index) => `const moduleExport${index} = namespace[${JSON.stringify(name)}];`),
       `export { ${names.map((name, index) => `moduleExport${index} as ${name}`).join(", ")} };`,

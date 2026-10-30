@@ -7,12 +7,12 @@ import { Execution } from "../../src/execution/index.js";
 export function createExecution(options: {
   readonly url?: string;
   readonly module?: string;
-  readonly matrices?: Matrix4[];
 } = {}): Execution {
   const url = options.url ?? "https://example.test/scene.glts";
+  const module = options.module ?? "data:text/javascript,export default () => {}";
   return new Execution({
-    script: { requestedURL: url, url, module: options.module ?? "data:text/javascript,export default () => {}" },
-    request: { matrices: options.matrices ?? [new Matrix4()], isPreview: false, instanced: false },
+    script: { requestedURL: url, executionURL: url, module },
+    request: { matrices: [new Matrix4()], isPreview: false, instanced: false },
     scope: {
       gltsLoader: {
         loadAsync: async () => { throw new Error("Unexpected nested load"); },
@@ -27,3 +27,4 @@ export function createExecution(options: {
     dependencies: new Dependencies(),
   });
 }
+

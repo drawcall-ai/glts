@@ -2,7 +2,11 @@ import type * as THREE from "three/webgpu";
 
 export type GLTSURL = string | URL;
 
-/** Host namespaces by exact bare specifier, imported by scripts instead of the CDN. */
+/**
+ * Host namespaces by exact bare specifier or absolute helper URL. Helpers still link their source graph
+ * for provenance, but import the supplied namespace without evaluating that helper. The host owns and
+ * disposes shared resources; scripts dispose only resources they create.
+ */
 export type GLTSModules = Readonly<Record<string, object>>;
 
 /**
@@ -11,13 +15,28 @@ export type GLTSModules = Readonly<Record<string, object>>;
  */
 export type GLTSResolve = (specifier: string) => string | undefined;
 
+/** Provenance of a bundled namespace whose code came from remote modules. */
+export interface GLTSModuleSource {
+  /** Names of the installed or host-supplied packages it imports, sorted. */
+  readonly packages: readonly string[];
+  /** Remote module URLs mapped to source-content hashes. */
+  readonly moduleHashes: Readonly<Record<string, string>>;
+}
+
 export interface GLTSLoaderOptions {
   /** CDN for packages not supplied by the host. Defaults to https://esm.sh/. */
   cdnURL?: GLTSURL;
   /** Enables preview staging for directly loaded scenes. Defaults to false. */
   isPreview?: boolean;
-  /** Host namespaces shared with scripts by exact import specifier. */
+  /** Host namespaces shared by exact bare specifier or absolute helper URL. */
   modules?: GLTSModules;
+  /**
+   * Provenance (packages and module hashes) reported through scene.source for bare specifiers supplied in modules,
+   * replacing the package name otherwise derived from the specifier. A versioned key needs an entry with non-empty
+   * moduleHashes: without one the script still loads, but reading scene.source.packages or scene.source.moduleHashes
+   * throws. The Vite plugin supplies it automatically.
+   */
+  moduleSources?: Readonly<Record<string, GLTSModuleSource>>;
   /** Resolves unversioned packages natively instead of through the CDN. */
   resolve?: GLTSResolve;
   /** Additional package names CDN bundles import separately, sharing the host's resolver and other CDN packages. */
@@ -61,17 +80,28 @@ export interface RootState {
 
 /** The `scene` scripts build, whose `clone()` makes a plain scene. */
 export type GLTSScriptScene = Omit<THREE.Scene, "clone"> & RootState & {
+  /** This execution's discovered source provenance, including resources loaded so far. */
+  readonly source: GLTSSource;
   clone(recursive?: boolean): THREE.Scene;
 };
 
-/** Source files observed by one script run, shared by getGLTSSource() and the loaded scene's source. */
-export interface GLTSSource {
-  /** Script source URL after redirects. */
+/** Source files observed by one script run, shared by contextual and loaded scenes. */
+export interface GLTSSource extends GLTSModuleSource {
+  /** Names of the installed or host-supplied packages it imports, its helpers' and nested scripts' included, sorted. */
+  readonly packages: readonly string[];
+  /**
+   * Remote URLs fetched at runtime. Bundled moduleSources cannot establish their freshness, so a cache validated
+   * without running the script should regenerate its results when this is nonempty.
+   */
+  readonly runtimeModules: readonly string[];
+  /** This execution's script URL: the source URL after redirects, with this request's query. */
   readonly url: string;
   /**
-   * URLs observed so far for helpers, nested scripts, and resources requested through the script's
-   * loadingManager, transitively. Each read returns a frozen, sorted snapshot, following nested reloads.
-   * Excludes this script's own URLs, packages, and requests outside that manager.
+   * URLs observed so far for helpers, nested scripts, and resources requested or resolved (resolveURL) through
+   * the script's loadingManager, transitively. Resources use resolved URLs; transient blob/data replacements retain
+   * their requested file identity. A script's dynamic imports count for every query variant of it. Each read returns
+   * a frozen, sorted snapshot, following nested reloads. Excludes this script's own URLs, packages, and requests
+   * outside that manager.
    */
   readonly dependencyUrls: readonly string[];
 }
@@ -87,7 +117,10 @@ interface GLTSSceneMethods {
   clear(): this;
   clone(recursive?: boolean): THREE.Scene;
   copy(source: THREE.Scene, recursive?: boolean): this;
-  /** Disposes this execution, nested scenes, and GLTSRenderer effect graphs. */
+  /**
+   * Disposes this execution, nested scenes, and GLTSRenderer effect graphs. Throws an `AggregateError` when disposal
+   * callbacks throw; the node is disposed anyway.
+   */
   dispose(): void;
   remove(...objects: THREE.Object3D[]): this;
   removeFromParent(): this;

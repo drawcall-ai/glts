@@ -16,9 +16,8 @@ export type {
   GLTSEffectContext,
   GLTSInstances,
   GLTSLoaderOptions,
+  GLTSModuleSource,
   GLTSRenderingProfile,
   GLTSScene,
   GLTSSource
 } from "./types.js";
-
-export { getGLTSSource } from "./execution/current.js";

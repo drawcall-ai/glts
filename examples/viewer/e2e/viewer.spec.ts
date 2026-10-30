@@ -56,8 +56,14 @@ test("renders the bundled racecar", async ({ page }, testInfo) => {
   expect(errors).toEqual([]);
 });
 
-test("composes the racecar from its own nested GLTS files and helper", async ({ page }) => {
+test("precompiles the racecar graph without loading Babel and compiles local files at runtime", async ({ page }) => {
   const loaded = new Set<string>();
+  const scripts: Promise<string>[] = [];
+  page.on("response", (response) => {
+    if (response.request().resourceType() === "script") scripts.push(response.text());
+  });
+  // Vite may bundle Babel into an optimized dependency instead of requesting it by name.
+  const loadedBabel = async () => (await Promise.all(scripts)).some((source) => source.includes("@babel/standalone"));
   page.on("request", (request) => {
     const path = new URL(request.url()).pathname;
     const prefix = "/assets/showcases/vintage-racecar/";
@@ -78,6 +84,15 @@ test("composes the racecar from its own nested GLTS files and helper", async ({ 
     "paddock.glts",
     "wheel.glts"
   ]);
+  expect(await loadedBabel()).toBe(false);
+
+  await page.locator("#file-input").setInputFiles({
+    name: "runtime.glts",
+    mimeType: "text/plain",
+    buffer: Buffer.from(localScene)
+  });
+  await expect(page.locator("#status")).toHaveText("runtime.glts · local file");
+  expect(await loadedBabel()).toBe(true);
 });
 
 test("opens a dropped local GLTS file", async ({ page }) => {

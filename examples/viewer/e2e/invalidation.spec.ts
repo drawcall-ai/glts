@@ -126,13 +126,15 @@ test("reload waits for a pending load and refreshes its live result and future l
   const requested = deferred();
   const release = deferred();
   let requests = 0;
-  await page.route("**/pending.glts", async (route) => {
+  await page.route("**/pending.glts", (route) => fulfillScript(route,
+    'import { scene } from "@drawcall/glts"; import { version } from "./pending-helper.ts"; scene.name = version'));
+  await page.route("**/pending-helper.ts", async (route) => {
     const version = ++requests;
     if (version === 1) {
       requested.resolve();
       await release.promise;
     }
-    await fulfillScript(route, `import { scene } from "@drawcall/glts"; scene.name = "v${version}"`);
+    await fulfillScript(route, `export const version = "v${version}"`);
   });
 
   await page.goto("/test-harness.html");
@@ -144,7 +146,7 @@ test("reload waits for a pending load and refreshes its live result and future l
   await requested.promise;
   await page.evaluate(() => {
     const loader = Reflect.get(globalThis, "__pendingLoader");
-    Reflect.set(globalThis, "__pendingReload", loader.reload("/pending.glts#edit"));
+    Reflect.set(globalThis, "__pendingReload", loader.reload("/pending-helper.ts#edit"));
   });
   release.resolve();
   const result = await page.evaluate(async () => {

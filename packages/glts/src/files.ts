@@ -1,11 +1,13 @@
+import { isNode } from "./urls.js";
+
 /** The part of Node.js's `process` that reads files, declared here so GLTS needs no Node.js types. */
 declare const process: {
   getBuiltinModule(id: "node:fs/promises"): { readFile(url: URL): Promise<Uint8Array<ArrayBuffer>> };
 };
 
 /** Reads a `file:` URL from disk like `fetch` reads http(s) ones; `fetch` does not implement `file:`, and only Node.js can read it. */
-export async function fetchFile(url: string): Promise<Response> {
-  if (typeof process === "undefined") throw new Error("file: URLs can only be loaded in Node.js");
+async function fetchFile(url: string): Promise<Response> {
+  if (!isNode()) throw new Error("file: URLs can only be loaded in Node.js");
   try {
     return new Response(await process.getBuiltinModule("node:fs/promises").readFile(new URL(url)));
   } catch (error) {

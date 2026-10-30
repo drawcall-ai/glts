@@ -1,36 +1,52 @@
-import { REVISION } from "three";
-
 import { Dependencies } from "../dependencies.js";
 import { GLTSError, toGLTSError } from "../errors.js";
 import { gltsSpecifier } from "../imports.js";
 import type { GLTSLoaderOptions, GLTSModules, GLTSResolve } from "../types.js";
-import { canonicalize, moduleURL } from "../urls.js";
+import { withoutQuery } from "../urls.js";
+import type { Waiter } from "../waits.js";
 import { Bridge } from "./bridge.js";
-import { linkOnce, type Entry, type Link } from "./cache.js";
-import { compileHelper, compileScript } from "./compile.js";
+import { linkOnce, type Entry } from "./cache.js";
 import { fetchSource, type Fetch, type Source } from "./fetch.js";
-import { cdnPackageURL, classifyImport, hasVersion, isBareSpecifier, peerName } from "./resolution.js";
-import { rewriteModule } from "./rewrite.js";
+import { ImportHistory } from "./history.js";
+import { recordHost, sourceHash } from "./provenance.js";
+import { precompiledPrefix } from "./precompiled.js";
+import { cdnPackageURL, classifyImport, hasVersion, isBareSpecifier, packageName, resolveImport } from "./resolution.js";
+import { parseImports, rewriteModule } from "./rewrite.js";
 
-/** Which file a script, helper, or package module is. */
-export interface Identity {
-  /** The URL it was requested by, which keys it in the linker. */
-  readonly requestedURL: string;
-  /** The URL it was fetched from, after redirects, which its relative imports resolve against. */
-  readonly url: string;
-}
-
-/** A linked script or helper. */
-export interface Script extends Identity {
-  /** The URL of its module, with its imports linked. */
+/** A linked module: its URL, with its imports linked, and the files it uses, its dynamic imports' included. */
+interface Module {
   readonly module: string;
-  /** The files it uses, its own requested and fetched URLs included; a helper's importers include them. */
   readonly dependencies: Dependencies;
 }
 
-/** The script, helper, or package a linked module was made from; the module passes it back for each dynamic import. */
-export interface Importer extends Identity {
+/** A linked script or helper; a script's dependencies exclude its own URLs, since its query variants share it. */
+interface LinkedFile extends Module {
+  readonly fetchedURL: string;
+}
+
+/** A script linked for one request. */
+export interface Script {
+  /** The URL of its module, shared by the script's query variants. */
+  readonly module: string;
+  /** The URL this request named, with its query. */
+  readonly requestedURL: string;
+  /** Fetched script path with this request's query. */
+  readonly executionURL: string;
+  /** The files it uses, its requested and execution URLs included. */
+  readonly dependencies: Dependencies;
+  readonly env?: GLTSLoaderOptions["env"];
+}
+
+/** The script, helper, or package a linked module was made from. */
+export interface Importer {
   readonly kind: "script" | "helper" | "package";
+  /**
+   * The URL its linked module is shared under: a script's requested URL without its query, so query variants share
+   * it, or a helper's or package's requested URL, as an import that differs by query is another module.
+   */
+  readonly key: string;
+  /** The URL it was fetched from, after redirects, which its relative imports resolve against. */
+  readonly fetchedURL: string;
 }
 
 /** Links scripts and their imports into modules for one loader, sharing helpers, host modules, and packages between scripts. */
@@ -41,23 +57,27 @@ export class Linker {
   readonly #bridge: Bridge;
   readonly #external: readonly string[];
   readonly #env: GLTSLoaderOptions["env"];
-  /** Linked scripts, linked helpers, and package module URLs, by requested URL. */
-  readonly #scripts = new Map<string, Entry<Script>>();
-  readonly #helpers = new Map<string, Entry<Script>>();
-  readonly #packages = new Map<string, Entry<string>>();
-  /**
-   * Every fetched URL of each script and helper and every helper URL it has imported, by requested URL; never
-   * shrinks, so fixing a helper that failed, or that an older version imports, reloads the scripts using it, and
-   * a script is found by the URL it was redirected to.
-   */
-  readonly #scriptHistory = new Map<string, Set<string>>();
-  readonly #helperHistory = new Map<string, Set<string>>();
+  readonly #moduleSources: GLTSLoaderOptions["moduleSources"];
+  readonly #linkDynamicImports: boolean;
+  readonly #history = new ImportHistory();
+  /** The literal dynamic imports getModules links after their importers. */
+  readonly #dynamicLinks: (() => Promise<string>)[] = [];
+  // Linked files and modules, by Importer.key.
+  readonly #scripts = new Map<string, Entry<LinkedFile>>();
+  readonly #helpers = new Map<string, Entry<LinkedFile>>();
+  readonly #packages = new Map<string, Entry<Module>>();
 
-  constructor({ cdnURL, fetch, modules, resolve, external = [], env }: {
+  constructor({ cdnURL, fetch, modules, moduleSources, resolve, external = [], env, linkDynamicImports = false }: {
     readonly cdnURL: URL;
     readonly fetch: Fetch;
-    /** Every namespace the host shares with scripts, by bare specifier. */
+    /** Every namespace the host shares by bare specifier or absolute helper URL. */
     readonly modules: GLTSModules;
+    readonly moduleSources?: GLTSLoaderOptions["moduleSources"];
+    /**
+     * Whether getModules also links literal dynamic imports, which bundlers include before a caller takes that branch.
+     * Fixed per linker, as linked modules are cached and record their dynamic imports only when first linked.
+     */
+    readonly linkDynamicImports?: boolean;
     readonly resolve?: GLTSResolve | undefined;
     readonly external?: readonly string[] | undefined;
     readonly env?: GLTSLoaderOptions["env"];
@@ -65,14 +85,36 @@ export class Linker {
     this.#cdnURL = cdnURL;
     this.#fetch = fetch;
     this.#resolve = resolve;
-    this.#bridge = new Bridge(modules, (importer, specifier, running) => this.#linkDynamic(importer, specifier, running));
-    this.#external = [...this.#bridge.hostSpecifiers, ...external];
+    this.#bridge = new Bridge(modules);
+    this.#external = [...this.#bridge.hostSpecifiers.filter(isBareSpecifier), ...external];
     this.#env = env === undefined ? undefined : { ...env };
+    this.#moduleSources = moduleSources;
+    this.#linkDynamicImports = linkDynamicImports;
   }
 
-  /** The script at `requestedURL`, linked once until invalidated. */
-  getScript(requestedURL: string): Promise<Script> {
-    return linkOnce(this.#scripts, requestedURL, [], (chain, link) => this.#linkFile("script", requestedURL, chain, link));
+  /** Links package graphs for bundlers that supply their namespaces separately, one module per specifier. */
+  async getModules(specifiers: readonly string[]): Promise<Module[]> {
+    const url = this.#cdnURL.href;
+    const modules = await Promise.all(specifiers.map(async (specifier) => {
+      const dependencies = new Dependencies();
+      const module = await this.#link(specifier, { kind: "package", key: url, fetchedURL: url }, [], dependencies);
+      return { module, dependencies };
+    }));
+    // Includes links added while iterating, so every graph's dependencies are complete.
+    for (const linkDynamic of this.#dynamicLinks) await linkDynamic();
+    return modules;
+  }
+
+  /** The script at `requestedURL`, sharing its linked source file until invalidated. */
+  async getScript(requestedURL: string): Promise<Script> {
+    this.#history.request(requestedURL);
+    const script = await linkOnce(this.#scripts, withoutQuery(requestedURL), [], (chain, waiter) => this.#linkFile("script", requestedURL, chain, waiter));
+    const executionURL = new URL(script.fetchedURL);
+    executionURL.search = new URL(requestedURL).search;
+    const dependencies = new Dependencies();
+    dependencies.add(requestedURL, executionURL.href);
+    dependencies.include(script.dependencies);
+    return { module: script.module, requestedURL, executionURL: executionURL.href, dependencies, env: this.#env };
   }
 
   /**
@@ -80,13 +122,10 @@ export class Linker {
    * fetching it, so they link fresh. Returns the scripts using it, or else `url` itself, which may be a script.
    */
   invalidate(url: string): string[] {
-    for (const helper of this.#helpers.keys()) {
-      if (this.#uses([helper], url)) this.#helpers.delete(helper);
-    }
-    const users = [...this.#scriptHistory].filter(([, helpers]) => this.#uses(helpers, url)).map(([script]) => script);
-    const scripts = users.length > 0 ? users : [url];
+    const { helpers, scripts, requests } = this.#history.affected(url, this.#helpers.keys());
+    for (const helper of helpers) this.#helpers.delete(helper);
     for (const script of scripts) this.#scripts.delete(script);
-    return scripts;
+    return requests.length > 0 ? requests : [url];
   }
 
   dispose(): void {
@@ -94,15 +133,20 @@ export class Linker {
   }
 
   /** Links the script or helper at `requestedURL`, `chain` ending at it. */
-  async #linkFile(kind: "script" | "helper", requestedURL: string, chain: readonly string[], link: Link): Promise<Script> {
-    const fetched = await fetchSource(this.#fetch, requestedURL, true, chain);
-    const identity: Identity = { requestedURL, url: fetched.url };
-    const importer: Importer = { kind, ...identity };
-    const dependencies = new Dependencies();
-    dependencies.add(requestedURL, fetched.url);
-    this.#addToHistory(importer, fetched.url);
+  async #linkFile(kind: "script" | "helper", requestedURL: string, chain: readonly string[], waiter: Waiter): Promise<LinkedFile> {
     const script = kind === "script";
-    const source = script ? compileScript(fetched.source, fetched.url) : compileHelper(fetched.source, fetched.url, chain);
+    const fetched = await fetchSource(this.#fetch, requestedURL, true, chain);
+    const importer: Importer = { kind, key: script ? withoutQuery(requestedURL) : requestedURL, fetchedURL: fetched.url };
+    const dependencies = new Dependencies();
+    // Query variants share a script's linked file; each execution records its own URLs (getScript).
+    if (script) dependencies.addPackage(gltsSpecifier);
+    else dependencies.add(fetched.url, requestedURL);
+    this.#history.add(importer, fetched.url);
+    let source = fetched.source;
+    if (!source.startsWith(precompiledPrefix)) {
+      const { compileScript, compileHelper } = await import("./compile.js");
+      source = script ? compileScript(source, fetched.url) : compileHelper(source, fetched.url, chain);
+    }
     const linked = await this.#linkModule(
       { source, url: fetched.url },
       importer,
@@ -110,110 +154,104 @@ export class Linker {
       script ? [fetched.url] : chain,
       dependencies,
       script ? "Unable to link GLTS script" : "Unable to link helper",
-      link,
+      waiter,
     );
-    return { ...identity, module: moduleURL(linked), dependencies };
-  }
-
-  /**
-   * Links a dynamic import as it runs, adding it to the dependencies of the `running` execution, or else of the
-   * importing helper.
-   */
-  async #linkDynamic(importer: Importer, specifier: string, running: Dependencies | undefined): Promise<string> {
-    // A helper initializes outside any execution, once for every execution using it.
-    const helper = !running && importer.kind === "helper" ? await this.#helpers.get(importer.requestedURL)?.promise : undefined;
-    return this.#link(specifier, importer, [importer.url], running ?? helper?.dependencies);
+    const module = this.#bridge.module(linked);
+    return { fetchedURL: fetched.url, module, dependencies };
   }
 
   /** Links an import of `importer`, below `chain`, to the URL of a module it can import; helpers are added to `dependencies`. */
-  async #link(specifier: string, importer: Importer, chain: readonly string[], dependencies: Dependencies | undefined, parent?: Link): Promise<string> {
-    const { url } = importer;
+  async #link(specifier: string, importer: Importer, chain: readonly string[], dependencies: Dependencies, waiter?: Waiter): Promise<string> {
+    const { fetchedURL: url } = importer;
     if (specifier.startsWith("#")) {
       throw new GLTSError(`Unsupported subpath import: ${specifier}`, { importChain: chain, phase: "resolve", url });
     }
     if (importer.kind !== "package") {
       const target = classifyImport(specifier, url, chain);
-      if (target.kind === "runtime") return this.#bridge.runtimeURL;
       // A script's static imports of it are compiled to reads of its exports, which no module can provide.
-      if (target.kind === "glts" && importer.kind === "script") {
-        throw new GLTSError(`Dynamic imports cannot bind ${gltsSpecifier}; import it statically`, { importChain: chain, phase: "resolve", url });
+      if (target.kind === "glts") {
+        const message = importer.kind === "script"
+          ? `Dynamic imports cannot bind ${gltsSpecifier}; import it statically`
+          : `Helpers import only types from ${gltsSpecifier}; pass script bindings to them instead`;
+        throw new GLTSError(message, { importChain: chain, phase: "resolve", url });
       }
-      if (target.kind === "glts") return this.#bridge.helperGLTSURL;
-      if (target.kind === "helper") return this.#linkHelper(target.url, importer, chain, dependencies, parent);
+      if (target.kind === "helper") return this.#linkHelper(target.url, importer, chain, dependencies, waiter);
     }
 
-    const host = this.#bridge.hostModuleURL(specifier);
-    if (host) return host;
-    const bare = isBareSpecifier(specifier);
+    const target = resolveImport(specifier, url, this.#cdnURL);
+    // A peer the CDN left unbundled imports like its package name.
+    const name = "package" in target ? target.package : specifier;
+    const host = this.#bridge.hostModuleURL(name);
+    if (host) {
+      recordHost(name, this.#moduleSources, dependencies, { phase: "resolve", url, importChain: chain });
+      return host;
+    }
     // Scripts share the host's package instances; the host imports what resolve returns natively.
-    if (bare && this.#resolve && !hasVersion(specifier)) {
+    if ("package" in target && this.#resolve && !hasVersion(name)) {
       try {
-        const resolved = this.#resolve(specifier);
-        if (resolved !== undefined) return resolved;
+        const resolved = this.#resolve(name);
+        if (resolved !== undefined) {
+          dependencies.addPackage(packageName(name));
+          return resolved;
+        }
       } catch (error) {
-        throw new GLTSError(`Unable to resolve ${specifier} from the host`, { importChain: chain, phase: "resolve", url }, error);
+        throw new GLTSError(`Unable to resolve ${name} from the host`, { importChain: chain, phase: "resolve", url }, error);
       }
     }
 
-    const target = bare
-      ? cdnPackageURL(specifier, this.#cdnURL, this.#external, REVISION)
-      : new URL(specifier, url);
-    const peer = peerName(specifier, target, this.#cdnURL);
-    if (peer) return this.#link(peer, importer, chain, dependencies, parent);
-    if (target.protocol !== "http:" && target.protocol !== "https:") return target.href;
-    const href = canonicalize(target);
-    return linkOnce(this.#packages, href, chain, async (chain, link) => {
+    const href = "url" in target ? target.url : cdnPackageURL(name, this.#cdnURL, this.#external).href;
+    if (!/^https?:/.test(href)) return href;
+    const linked = await linkOnce(this.#packages, href, chain, async (chain, packageWaiter) => {
       const fetched = await fetchSource(this.#fetch, href, false, chain);
-      const packageImporter: Importer = { kind: "package", requestedURL: href, url: fetched.url };
-      return moduleURL(await this.#linkModule(fetched, packageImporter, chain, undefined, "Unable to link package module", link));
-    }, parent);
+      const dependencies = new Dependencies();
+      dependencies.addModule(fetched.url, await sourceHash(fetched.source), "runtime");
+      const packageImporter: Importer = { kind: "package", key: href, fetchedURL: fetched.url };
+      const module = this.#bridge.module(await this.#linkModule(fetched, packageImporter, chain, dependencies, "Unable to link package module", packageWaiter));
+      return { module, dependencies };
+    }, waiter);
+    dependencies.include(linked.dependencies);
+    return linked.module;
   }
 
-  async #linkHelper(url: string, importer: Importer, chain: readonly string[], dependencies: Dependencies | undefined, parent?: Link): Promise<string> {
+  async #linkHelper(url: string, importer: Importer, chain: readonly string[], dependencies: Dependencies, waiter?: Waiter): Promise<string> {
     // Added before the fetch, so a change from here on reloads the scripts using it, and one missing is listed.
-    this.#addToHistory(importer, url);
-    dependencies?.add(url);
-    const helper = await linkOnce(this.#helpers, url, chain, (chain, link) => this.#linkFile("helper", url, chain, link), parent);
-    dependencies?.include(helper.dependencies);
-    return helper.module;
+    this.#history.add(importer, url);
+    dependencies.add(url);
+    const helper = await linkOnce(this.#helpers, url, chain, (chain, helperWaiter) => this.#linkFile("helper", url, chain, helperWaiter), waiter);
+    dependencies.include(helper.dependencies);
+    return this.#bridge.hostModuleURL(url) ?? this.#bridge.hostModuleURL(helper.fetchedURL) ?? helper.module;
   }
 
-  /** Adds `url`, its own fetched URL or a helper it imports, to the import history of `importer`. */
-  #addToHistory(importer: Importer, url: string): void {
-    const history = importer.kind === "script" ? this.#scriptHistory : this.#helperHistory;
-    const urls = history.get(importer.requestedURL) ?? new Set<string>();
-    history.set(importer.requestedURL, urls);
-    urls.add(url);
-  }
-
-  /** Whether the files at `urls` are, or transitively import, the file at `url`. */
-  #uses(urls: Iterable<string>, url: string): boolean {
-    const pending = [...urls];
-    const visited = new Set<string>();
-    for (const next of pending) {
-      if (next === url) return true;
-      if (visited.has(next)) continue;
-      visited.add(next);
-      pending.push(...this.#helperHistory.get(next) ?? []);
-    }
-    return false;
-  }
-
-  /** Links a module's static imports now and its dynamic imports when they run. */
+  /**
+   * Links a module's static imports now and its dynamic imports when they run, or in getModules, recording both into
+   * `dependencies`. A dynamic import links apart from this module's link, so one importing the module back is no
+   * cycle; getModules links them after their importer, as the two would otherwise wait on each other.
+   */
   async #linkModule(
     source: Source,
     importer: Importer,
     chain: readonly string[],
-    dependencies: Dependencies | undefined,
+    dependencies: Dependencies,
     message: string,
-    link: Link,
+    waiter: Waiter,
   ): Promise<string> {
     try {
+      const imports = parseImports(source, chain);
+      const linkDynamic = (specifier: string): Promise<string> =>
+        this.#link(specifier, importer, [importer.fetchedURL], dependencies);
+      for (const { specifier } of imports.dynamicImports) {
+        if (!specifier) continue;
+        // Host identities are known before execution, even for imports generation has not used yet; they never fetch.
+        const host = specifier !== gltsSpecifier && isBareSpecifier(specifier) && this.#bridge.hostModuleURL(specifier);
+        if (host) await this.#link(specifier, importer, chain, dependencies, waiter);
+        else if (this.#linkDynamicImports) this.#dynamicLinks.push(() => linkDynamic(specifier));
+      }
       return await rewriteModule(
         source,
-        chain,
-        (specifier) => this.#link(specifier, importer, chain, dependencies, link),
-        this.#bridge.dynamicImportSource(importer),
+        imports,
+        (specifier) => this.#link(specifier, importer, chain, dependencies, waiter),
+        // Bound now, so an import running after invalidation still records into this module's dependencies.
+        () => this.#bridge.dynamicImportSource(importer.fetchedURL, linkDynamic),
         this.#env,
       );
     } catch (error) {

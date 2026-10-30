@@ -15,7 +15,7 @@ afterEach(() => {
 /** A loader fetching `sources` by path below `base`, with `library` as a host module. */
 export function serve(sources: Record<string, string>, library: object = {}, modules: GLTSModules = {}): GLTSLoader {
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
-    const source = sources[new URL(String(input)).pathname.slice(1)];
+    const source = sources[new URL(input instanceof Request ? input.url : String(input)).pathname.slice(1)];
     return source === undefined ? new Response(null, { status: 404 }) : new Response(source);
   });
   const loader = new GLTSLoader(new LoadingManager(), { modules: { ...modules, library } });

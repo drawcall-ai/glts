@@ -7,6 +7,13 @@ export function canonicalize(url: URL): string {
   return canonical.href;
 }
 
+/** `url` canonicalized without its query, which varies per request of a script or helper. */
+export function withoutQuery(url: string): string {
+  const file = new URL(url);
+  file.search = "";
+  return canonicalize(file);
+}
+
 /** The URL the page resolves relative URLs against, or undefined outside a page. */
 export function pageBase(): string | undefined {
   if (typeof document !== "undefined") return document.baseURI;
@@ -35,8 +42,21 @@ export function realmUnique(prefix: string): string {
   return `${prefix}${copy}-${sequence}`;
 }
 
+/** The part of Node.js's `process` that identifies it, declared here so GLTS needs no Node.js types. */
+declare const process: { versions?: { node?: string } } | undefined;
+
+/** Whether this is Node.js, rather than a page or Web Worker, which a bundle's `process` shim may also define. */
+export function isNode(): boolean {
+  return typeof process !== "undefined" && process.versions?.node !== undefined;
+}
+
+/** Whether this runtime imports `blob:` URLs: pages and Web Workers do; Node.js creates them but cannot import them. */
+export function importsBlobs(): boolean {
+  return typeof URL.createObjectURL === "function" && !isNode();
+}
+
 /**
- * A `data:` URL that evaluates `source` as a module; unlike `blob:` URLs, browsers and Node.js both import it.
+ * A `data:` URL that evaluates `source` as a module, for runtimes that cannot import `blob:` URLs, such as Node.js.
  * The fragment keeps every URL distinct, as engines evaluate one module per URL, and leaves the source untouched.
  */
 export function moduleURL(source: string): string {

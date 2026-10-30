@@ -27,13 +27,11 @@ onDispose(() => {
 })
 ```
 
-Import contextual values by name from `@drawcall/glts`: `scene`, `onDispose`,
-`onFrame`, `loadingManager`, `gltsLoader`, `isPreview`, `instanceCount`, and
-`onMatrixUpdateAt`. Each script execution gets its own context.
+Import contextual bindings, the per-execution values and hooks such as `scene` and `onDispose`, by name from `@drawcall/glts`. Each script execution gets its own context.
 
 Rules:
 
-- Export no values, and from `@drawcall/glts` import only these context names; types are fine.
+- Export no values. From `@drawcall/glts`, import only contextual bindings or types.
 - Import `three/webgpu`, `three/tsl`, `three/addons/*`, browser-compatible npm packages, full `https://` module URLs, or helpers (see Helpers).
 - Never import `.glts` files (load them with `gltsLoader.loadAsync()`) or other local files such as `./data.json`, and never use import attributes.
 - Dynamic `import()` follows the same rules and resolves when it runs, so an import on a path that never runs is never fetched. `@drawcall/glts` must be imported statically. The Vite plugin bundles a literal specifier such as `import("pkg")` like a static import, loaded with the app; a computed one such as `import(name)` loads from the CDN.
@@ -41,7 +39,6 @@ Rules:
 
 ## Scene and presentation
 
-- Use native scene properties directly: `background`, `environment`, `fog`, `overrideMaterial`, and the normal `Object3D` API.
 - The host owns the root transform. Put authored placement on a child group; never set `scene.position`, `rotation`, `quaternion`, `scale`, or `matrix`.
 - Assign `scene.defaultCamera` when the asset has a useful view. The host may override it; GLTSRenderer sizes its projection to the active viewport. GLTS never searches the hierarchy for cameras. Add it to the scene graph only if it depends on an authored parent.
 - Do not create a renderer, canvas, resize handler, animation loop, controls, or `PMREMGenerator`. The app owns those.
@@ -80,16 +77,9 @@ if (isPreview) {
 
 ### Rendering profile
 
-The rendering profile applies when this scene is the root passed to `GLTSRenderer`.
-Set it during script evaluation. Effect factories transform the incoming TSL
-color node; their outputs feed the next factory. Build fresh effect nodes each
-time, and let GLTS dispose the returned graph when the camera, effects, or scene
-changes. Keep script-owned geometry, materials, and textures in `onDispose`.
-Animate effect uniforms through `onFrame` when they should follow the asset's
-simulation time.
+The rendering profile applies when this scene is the root passed to `GLTSRenderer`. Set it during script evaluation. Effect factories transform the incoming TSL color node; their outputs feed the next factory. Build fresh effect nodes each time, and let GLTS dispose the returned graph when the camera, effects, or scene changes. Keep script-owned geometry, materials, and textures in `onDispose`. Animate effect uniforms through `onFrame` when they should follow the asset's simulation time.
 
-Use Three.js `ClippingGroup` for local clipping. For TSL composition and available
-effects, use the [Three.js TSL documentation](https://github.com/mrdoob/three.js/wiki/Three.js-Shading-Language).
+Use Three.js `ClippingGroup` for local clipping. For TSL composition and available effects, use the [Three.js TSL documentation](https://github.com/mrdoob/three.js/wiki/Three.js-Shading-Language).
 
 When the asset is nested, its background, environment, fog, override material, default camera, and rendering profile are ignored; the outer root wins.
 
@@ -131,13 +121,32 @@ onDispose(() => {
 })
 ```
 
-- A helper may export anything and import what a script can, including other helpers.
-- Pass script bindings such as `scene` and `loadingManager` to helpers instead of importing those bindings there.
+- A helper may export anything and import what a script can, including other helpers, except that it imports only types from `@drawcall/glts`.
+- Pass script bindings such as `scene`, `loadingManager`, and `scene.source` to helpers as arguments; a helper importing a value from `@drawcall/glts` fails to load.
 - Return what a helper creates and dispose it in the script.
 - Keep no module-level state in helpers: a loader runs each helper once, so its state is shared by every script the loader runs and outlives their disposal.
 - `import.meta.url` in a helper is the helper's own URL.
-- Cyclic helper imports fail.
+- Static cyclic helper imports fail.
 - An asset is its `.glts` file plus the helpers and files it references. Copy them together.
+
+## Caching generated content
+
+When expensive generation belongs to the asset, capture its code and package dependencies from contextual `scene.source`. It lists only what the script has used so far, so read it after loading generation inputs. Put query parameters and other generator arguments in a `{ value }` dependency. This avoids hand-maintained helper and package lists. For persistence, use the [vitecache skill](https://github.com/drawcall-ai/vitecache/blob/main/packages/vitecache/skills/vitecache/SKILL.md).
+
+```ts
+import { scene } from "@drawcall/glts"
+
+const source = scene.source
+const dependencies = {
+  params: { value: Object.fromEntries(new URL(import.meta.url).searchParams) },
+  source: { url: source.url },
+  ...Object.fromEntries(source.dependencyUrls.map((url) => [`resource:${url}`, { url }])),
+  ...Object.fromEntries(source.packages.map((name) => [`package:${name}`, { package: name }])),
+  ...Object.fromEntries(Object.entries(source.moduleHashes).map(([url, hash]) => [`module:${url}`, { value: hash }])),
+}
+```
+
+Prefer immutable versions for remote generators whose generated assets are cached: with a mutable range, a CDN content change silently invalidates every cached result.
 
 ## Composition
 
@@ -153,17 +162,11 @@ scene.add(wheel)
 - Add every loaded result beneath `scene` before the script finishes; an unattached result fails the load.
 - Attached results are disposed with their parent.
 - Cyclic loads fail.
+- A failed nested load fails this script too, even when caught, so it cannot serve as an optional fallback.
 
 ## Instancing
 
-When the host calls `loadInstancesAsync(url, count)` on an ordinary mesh hierarchy, GLTS converts each mesh to a `THREE.InstancedMesh` automatically. The load fails if the hierarchy contains:
-
-- a `Camera`, `Light`, `Line`, `Points`, `Sprite`, `LOD`, `SkinnedMesh`, `InstancedMesh`, or `BatchedMesh`;
-- morph targets, or no mesh at all;
-- an `onFrame` callback;
-- a nested GLTS scene.
-
-Keep instanceable assets static and let the parent pose instances with `setMatrixAt()`.
+Use automatic instancing for static mesh hierarchies and let the parent pose the instances. Choose native instancing for assets with their own per-instance behavior or nested GLTS scenes.
 
 When the asset needs its own per-instance behavior, implement native instancing:
 
@@ -213,18 +216,13 @@ tree.dispose()
 loader.dispose() // also disposes every scene it loaded
 ```
 
-- `load()` (Three.js callback style), `loadAsync()`, `loadInstancesAsync()`, and `reload()` take a string or `URL`. Strings resolve against `loader.path` and then the page's `document.baseURI`; the manager's URL modifier applies. Without a page, pass absolute URLs.
 - In Node.js, load scripts from disk with `file:` URLs, such as `pathToFileURL("scene.glts")`; their helpers and nested scripts are read from disk too, and `reload()` of an edited file re-reads it. Resources that scripts load with Three.js loaders go through the global `fetch`, which in Node.js does not read `file:` URLs; install one that does to load them from disk.
 - Per-load progress callbacks are rejected. Track progress with `manager.onProgress`; nested scripts and their resources report through the same manager.
-- `setRequestHeader()` and `setWithCredentials()` apply to script and package requests.
-- Serve cross-origin scripts and packages with CORS, and allow `data:` ES modules in the page's CSP.
+- Serve cross-origin scripts and packages with CORS, and allow `blob:` ES modules in the page's or worker's CSP.
 
-The returned scene participates in ordinary Three.js composition. Advance it
-from the host's frame loop and dispose it when removed. Disposing the loader
-also disposes its scenes; cloning creates an unmanaged Three.js scene.
+The returned scene participates in ordinary Three.js composition. Advance it from the host's frame loop and dispose it when removed. Cloning creates an unmanaged Three.js scene.
 
-For package resolution and shared namespaces, see Packages below. Use the
-loader's exported option types for configuration.
+For package resolution and shared namespaces, see Packages below. Use the loader's exported option types for configuration.
 
 ## Instances
 
@@ -237,18 +235,14 @@ for (let index = 0; index < rocks.count; index += 1) {
 scene.add(rocks)
 ```
 
-The result is a `GLTSInstances` with a fixed `count`, `getMatrixAt(index, target)`, and `setMatrixAt(index, matrix)`, plus the scene members above.
-
 ## Reload and errors
 
-- `loader.reload(url)` invalidates the cached source and reloads every undisposed node loaded from that URL; with none, it fetches nothing and the next load gets fresh source. Pending loads of that URL finish first. For a helper's URL, it also re-reads the helpers importing it and does the same for every script that imports the helper, directly or through other helpers.
+- `loader.reload(url)` invalidates the cached source and reloads every undisposed node loaded from that file, including query variants; with none, it fetches nothing and the next load gets fresh source. Pending loads of that file finish first. For a helper's URL, it also re-reads the helpers importing it and does the same for every script that imports the helper, directly or through other helpers.
 - A reload builds the replacement before touching the live node. Inspect the scene after a cleanup error, since the replacement may already be committed.
 - A reload keeps the node's identity, host transform, and instance matrices, and refreshes its root properties, `defaultCamera`, and `rendering`.
 - A reload replaces the asset's children; look them up again instead of keeping references.
-- Source requests use HTTP `no-cache`. Later loads of the same URL reuse the cached source until it is invalidated.
-- Load and reload failures reject with `GLTSError`: `url`, `phase` (`resolve`, `fetch`, `transform`, `evaluate`, `construct`, `resource`, `reload`, `dispose`), `importChain`, and `cause`.
-- Invalid arguments raise `RangeError`: `loadInstancesAsync()` rejects a count that is not a positive integer; `update()` throws on a negative or non-finite delta, and `getMatrixAt()`/`setMatrixAt()` on an out-of-range index.
-- `dispose()` throws an `AggregateError` when disposal callbacks throw; the node is disposed anyway.
+- Source requests use HTTP `no-cache`. Loads of the same script file reuse its linked graph until it is invalidated, including across query variants such as `tree.glts?seed=1` and `tree.glts?seed=2`. Each load executes separately with its own query parameters in `import.meta.url`. The server sees only the first query's request for a script file until invalidation, so use parameters inside the script; a server that generates different source per query does not work with this sharing.
+- Use the source location and import chain on `GLTSError` to find the failing asset or helper.
 
 ## Rendering with GLTSRenderer
 
@@ -281,7 +275,7 @@ gltsRenderer.dispose()
 
 - `three`, `three/webgpu`, and `three/tsl` always share the app's own namespaces.
 - Without the Vite plugin, other bare imports load at runtime from `cdnURL` (esm.sh) and share the app's `three` and every `modules` entry; `three/addons/*` matches the app's Three.js version.
-- `modules` gives scripts the app's own package instead. Keys match import specifiers exactly, so `simplex-noise@4` still comes from the CDN unless listed:
+- `modules` gives scripts the app's own package instead. Keys match import specifiers exactly, so `simplex-noise@4` still comes from the CDN unless that exact key is listed. A listed versioned key also needs a `moduleSources` entry to report provenance; the Vite plugin supplies these:
 
 ```ts
 import * as simplexNoise from "simplex-noise"
@@ -290,6 +284,16 @@ const loader = new GLTSLoader(manager, { modules: { "simplex-noise": simplexNois
 ```
 
 Share every package whose objects the app must recognize (`instanceof` checks, registries, singletons); a CDN copy is a different instance whose objects the app won't recognize.
+
+For app-owned resources shared across assets, keep the helper's ordinary relative import in each script and supply a host namespace keyed by that helper's absolute URL. The helper still contributes its source and imported packages to provenance; its initialization is replaced by the host namespace. A shared resource the host already loaded is not requested by the script, so resolve its URL through the script's contextual `loadingManager` (`loadingManager.resolveURL(url)`) when handing it out; that records it in `scene.source`, and caches keyed on the source then see its changes. The app disposes shared resources after its assets, while a script disposes only resources it creates. This also lets the helper provide a local implementation for hosts that do not share one.
+
+```ts
+const loader = new GLTSLoader(manager, {
+  modules: {
+    [new URL("/content/textures.ts", location.href).href]: textureModule,
+  },
+})
+```
 
 In Node.js, pass the app's `import.meta.resolve` as `resolve` to load every bare import from the app's `node_modules`, sharing the app's instances like the Vite plugin does. Imports with a version, such as `simplex-noise@4`, still come from the CDN, and a package the app cannot resolve fails the load:
 
@@ -307,14 +311,16 @@ import { glts } from "@drawcall/glts/vite"
 export default defineConfig({ plugins: [glts()] })
 ```
 
-Needs `vite` 6 or later and Node.js 22.18+ or 24.11+. It works on the `.glts` files in Vite's public directory, which the app loads by their served URL (for example `public/tree.glts` as `/tree.glts`).
+It works on the `.glts` files in Vite's public directory, which the app loads by their served URL (for example `public/tree.glts` as `/tree.glts`).
 
+- Public scripts avoid browser compilation; external scripts compile when loaded.
 - Every `GLTSLoader` in the app receives, as `modules`, the packages those scripts and their helpers import; the app's own `modules` entries take precedence.
 - `three` and packages in the `dependencies` or `devDependencies` of the app's nearest `package.json` are the app's own instances.
 - Other packages, and versioned imports such as `pkg@2`, are fetched from the CDN during development and builds and bundled with the app. Each package that scripts import or the app declares exists once.
-- Every loader gets the plugin's `cdnURL` option (default `https://esm.sh/`) as its default `cdnURL`. Scripts outside the public directory and `https://` imports still load packages at runtime.
+- Scripts outside the public directory and `https://` imports still load packages at runtime.
 - Scripts and helpers receive [Vite's resolved environment variables](https://vite.dev/guide/env-and-mode) through `import.meta.env`. `import.meta.env.SSR` is true during build warmup and false in the browser.
 - Keep helpers in the public directory too; a helper import that leaves it fails the dev server's check and the build, since the app does not serve it as source.
+- The plugin compiles every `.ts` file in the public directory as a helper, serving and building it in that form instead of its source; keep other TypeScript out of the public directory.
 - Editing or creating a public script or helper hot reloads the nodes loaded from it; changing which packages scripts import reloads the page.
 
 Builds execute every public script headlessly in Node.js to warm the caches owned by its assets, then dispose the scenes. Execution and cleanup failures fail the build. Generated scenes are not saved, and scripts still execute normally when the app loads them.
@@ -326,9 +332,7 @@ Type checking: the plugin type checks the public `.glts` files and their helpers
 
 ## CLI inspection and export
 
-Use the `drawcall glts` command for headless image checks and GLB export, without
-creating a viewer app. It needs Node.js 22.18+ or 24.11+. The CLI uses
-`@drawcall/webgpu`; for supported headless asset-loading patterns, see its [WebGPU skill](https://github.com/drawcall-ai/webgpu/blob/main/skills/webgpu/SKILL.md).
+Use the `drawcall glts` command for headless image checks and GLB export, without creating a viewer app. The CLI uses `@drawcall/webgpu`; for supported headless asset-loading patterns, see its [WebGPU skill](https://github.com/drawcall-ai/webgpu/blob/main/skills/webgpu/SKILL.md).
 
 ```sh
 npx drawcall glts render dragon.glts -o dragon.png
@@ -337,27 +341,13 @@ npx drawcall glts render dragon.glts -o inspection.png --size 512 --time 0.5 \
 npx drawcall glts export dragon.glts -o dragon.glb
 ```
 
-Views are inline JSON rows. Axis cameras are orthographic and look from the named
-side toward the subject; `persp` fits a three-quarter perspective view. Omit views
-to use `scene.defaultCamera`, or a fitted perspective view when none is authored.
-Use `focus: "part-name"` to frame a uniquely named object's subtree while keeping
-surroundings; use `isolate: "part-name"` to show only that subtree. Bone joints
-have no mesh bounds, so inspect them with a world-space sphere focus.
+Views are inline JSON rows. Axis cameras are orthographic and look from the named side toward the subject; `persp` fits a three-quarter perspective view. Omit views to use `scene.defaultCamera`, or a fitted perspective view when none is authored. Use `focus: "part-name"` to frame a uniquely named object's subtree while keeping surroundings; use `isolate: "part-name"` to show only that subtree. Bone joints have no mesh bounds, so inspect them with a world-space sphere focus.
 
-Rendering loads with `isPreview: true` and advances frame callbacks in fixed steps
-to the requested time, then holds that state for every view. Lights, backgrounds,
-and effects belong in the asset's existing preview staging.
+Rendering loads with `isPreview: true` and advances frame callbacks in fixed steps to the requested time, then holds that state for every view. Lights, backgrounds, and effects belong in the asset's existing preview staging.
 
-Export loads with `isPreview: false` and does not call frame callbacks. Assign
-explicit `THREE.AnimationClip`s to `scene.animations` to include animation. Use
-standard/physical or basic materials for GLB output; unsupported content fails
-instead of being silently discarded. Rendering profiles, environments, fog, and
-procedural behavior do not become GLB features. Export creates a new self-contained
-GLB from the constructed scene; it does not preserve an imported file byte for byte.
+Export loads with `isPreview: false` and does not call frame callbacks. Assign explicit `THREE.AnimationClip`s to `scene.animations` to include animation. Use standard/physical or basic materials for GLB output; unsupported content fails instead of being silently discarded. Rendering profiles, environments, fog, and procedural behavior do not become GLB features. Export creates a new self-contained GLB from the constructed scene; it does not preserve an imported file byte for byte.
 
-Bare packages resolve from the asset's project, and Three.js is shared with the
-host. Install additional packages in that project. Helpers and adjacent resource
-URLs work from disk; keep using `new URL("./resource", import.meta.url)`.
+Bare packages resolve from the asset's project, and Three.js is shared with the host. Install additional packages in that project. Helpers and adjacent resource URLs work from disk; keep using `new URL("./resource", import.meta.url)`.
 
 ## Verify
 
