@@ -12,7 +12,8 @@ type File = Parameters<NonNullable<Plugin["pre"]>>[0];
 // Standalone is used only as a compiler; never execute host-page script tags.
 if (typeof window !== "undefined") disableScriptTags();
 
-// Standalone's registry types plugins loosely; this one is typed against Babel 7, whose types Babel 8's do not accept.
+// Passed through standalone's untyped registry: the plugin types its `this` as TypeGPU's own plugin state, which no
+// Babel plugin type describes.
 availablePlugins.typegpu = typegpu;
 
 export function compileScript(source: string, url: string): string {

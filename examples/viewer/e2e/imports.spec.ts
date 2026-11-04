@@ -143,8 +143,9 @@ test("resolves nested URLs against their script while reading current host reque
     return fulfillScript(route, url.pathname.endsWith("parent.glts") ? `
       import { gltsLoader, scene } from "@drawcall/glts";
       globalThis.__contextHost.setRequestHeader({ "x-context": "child" });
+      gltsLoader.setRequestHeader({ "x-context": "ignored" });
       scene.add(await gltsLoader.loadAsync("child.glts"));
-      scene.userData.contextualHost = "setPath" in gltsLoader;
+      scene.userData.contextualHost = gltsLoader === globalThis.__contextHost;
     ` : `import { scene } from "@drawcall/glts"; scene.name = "child";`);
   });
 

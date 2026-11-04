@@ -68,8 +68,8 @@ export function bitmapPixels(image: ImageBitmap): Uint8ClampedArray {
 type CreateImageBitmap = (source: ImageBitmapSource, options?: ImageBitmapOptions) => Promise<ImageBitmap>;
 
 /**
- * Wraps the native `createImageBitmap` so 2D canvases can draw its bitmaps, reading each back from the GPU once.
- * `dispose` destroys the device that reads them.
+ * Wraps the native `createImageBitmap` so 2D canvases can draw its bitmaps, reading each back from the GPU as it is
+ * decoded, since `drawImage` cannot wait for a readback. `dispose` destroys the device that reads them.
  */
 export function readableBitmaps(create: CreateImageBitmap): { createImageBitmap: CreateImageBitmap; dispose: () => Promise<void> } {
   let device: Promise<GPUDevice> | undefined;
