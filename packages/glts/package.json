@@ -59,11 +59,11 @@
   "dependencies": {
     "@babel/standalone": "^8.0.7",
     "@babel/types": "^8.0.6",
-    "@drawcall/webgpu": "^0.1.1",
+    "@drawcall/webgpu": "^0.2.0",
     "@napi-rs/canvas": "^1.0.11",
     "commander": "^15.0.0",
     "es-module-lexer": "^3.0.4",
-    "sharp": "^0.34.5"
+    "sharp": "^0.35.5"
   },
   "peerDependencies": {
     "three": ">=0.185.0",
