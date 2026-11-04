@@ -3,7 +3,9 @@ import { Canvas as NativeCanvas, ImageData, type SKRSContext2D } from "@napi-rs/
 import { readBitmap } from "./bitmap.js";
 
 /** The pixels of the native ImageBitmaps createImageBitmap made, which a 2D canvas cannot read from the bitmap itself. */
-const bitmaps = new WeakMap<WeakKey, { readonly pixels: Uint8ClampedArray; readonly canvas: NativeCanvas }>();
+const bitmaps = new WeakMap<WeakKey, ImageData>();
+/** Copies of the bitmaps 2D canvases drew, made on their first draw: most bitmaps are only uploaded as textures. */
+const drawable = new WeakMap<ImageData, NativeCanvas>();
 const adapted = new WeakSet<SKRSContext2D>();
 
 /**
@@ -34,8 +36,8 @@ function adapt(context: SKRSContext2D): void {
   const { drawImage, getImageData } = context;
   Object.defineProperty(context, "drawImage", {
     value: (image: unknown, ...rest: number[]): void => {
-      const bitmap = typeof image === "object" && image !== null ? bitmaps.get(image) : undefined;
-      Reflect.apply(drawImage, context, [bitmap?.canvas ?? image, ...rest]);
+      const pixels = typeof image === "object" && image !== null ? bitmaps.get(image) : undefined;
+      Reflect.apply(drawImage, context, [pixels ? canvasOf(pixels) : image, ...rest]);
     },
   });
   Object.defineProperty(context, "getImageData", {
@@ -46,11 +48,20 @@ function adapt(context: SKRSContext2D): void {
   });
 }
 
+function canvasOf(pixels: ImageData): NativeCanvas {
+  let canvas = drawable.get(pixels);
+  if (canvas) return canvas;
+  canvas = new NativeCanvas(pixels.width, pixels.height);
+  canvas.getContext("2d").putImageData(pixels, 0, 0);
+  drawable.set(pixels, canvas);
+  return canvas;
+}
+
 /** The straight-alpha RGBA pixels of a native ImageBitmap the session's createImageBitmap made. */
 export function bitmapPixels(image: ImageBitmap): Uint8ClampedArray {
-  const bitmap = bitmaps.get(image);
-  if (!bitmap) throw new Error("This ImageBitmap was not decoded by the headless createImageBitmap");
-  return bitmap.pixels;
+  const pixels = bitmaps.get(image);
+  if (!pixels) throw new Error("This ImageBitmap was not decoded by the headless createImageBitmap");
+  return pixels.data;
 }
 
 /** The native function's form; it rejects cropping. */
@@ -70,9 +81,7 @@ export function readableBitmaps(create: CreateImageBitmap): { createImageBitmap:
   const decode = async (source: ImageBitmapSource, options?: ImageBitmapOptions): Promise<ImageBitmap> => {
     const bitmap = await create(source, options);
     const pixels = new Uint8ClampedArray((await readBitmap(await (device ??= readback()), bitmap)).buffer);
-    const canvas = new NativeCanvas(bitmap.width, bitmap.height);
-    canvas.getContext("2d").putImageData(new ImageData(pixels, bitmap.width, bitmap.height), 0, 0);
-    bitmaps.set(bitmap, { pixels, canvas });
+    bitmaps.set(bitmap, new ImageData(pixels, bitmap.width, bitmap.height));
     return bitmap;
   };
   return {
