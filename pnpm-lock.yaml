@@ -80,8 +80,8 @@ importers:
         specifier: ^8.0.6
         version: 8.0.6
       '@drawcall/webgpu':
-        specifier: ^0.2.0
-        version: 0.2.0(@types/node@24.13.3)
+        specifier: ^0.2.1
+        version: 0.2.1(@types/node@24.13.3)
       '@napi-rs/canvas':
         specifier: ^1.0.11
         version: 1.0.11
@@ -265,48 +265,48 @@ packages:
     peerDependencies:
       three: '>=0.177.0'
 
-  '@drawcall/webgpu-darwin-arm64@0.2.0':
-    resolution: {integrity: sha512-1hxIghVxfY2sG9Gws9NMxV4ihEoj2NBwWuMQUELVrlKG59p/MfOLp7cKtFPYeAXAp0o5VcacxnbHO6KwU155XA==}
+  '@drawcall/webgpu-darwin-arm64@0.2.1':
+    resolution: {integrity: sha512-oWSqF2VfHp07yfg0ajkigtpY1Dt2nf8arrRL3qtpE/KpuGfb74qF9u9X5Id4Xbh7gmJaW0LDN/Fzd9ANH1f5vw==}
     cpu: [arm64]
     os: [darwin]
 
-  '@drawcall/webgpu-darwin-x64@0.2.0':
-    resolution: {integrity: sha512-KaHvNXEEBA1H+POdEBuZ0VrOJZDqiew5f+JfVPInGklA/KYilpryIuYyTsQm6nAiSOkeledtsixLMxcf2eJ77Q==}
+  '@drawcall/webgpu-darwin-x64@0.2.1':
+    resolution: {integrity: sha512-gY47D3zofLH/IyRX/Pnhrqlrup0uW4loC83shPsawUX0hVRqIV+BWYLMX+fOV2GPHogiNIt7wQX46j8a/byjuw==}
     cpu: [x64]
     os: [darwin]
 
-  '@drawcall/webgpu-linux-arm64@0.2.0':
-    resolution: {integrity: sha512-ntQvVb8KJ0SWd/oByYBNNIMgnKgLyYcpbyFxWCWIByGiZ5OBrs9toAlyVtA6YRQ6kJ5CUpU+jxU4JJNx8pn9rg==}
+  '@drawcall/webgpu-linux-arm64@0.2.1':
+    resolution: {integrity: sha512-28WE1Ysv1pB8veTVXJyHMpG+PuJ4tXehE/qPARCSDATiiYit8ixelaZlw4xeKnFUWyETUhH8nxg6jr9DDKLocg==}
     cpu: [arm64]
     os: [linux]
 
-  '@drawcall/webgpu-linux-x64@0.2.0':
-    resolution: {integrity: sha512-v0cYVq88QSZ+Uqi/j1gHGD9W/8R+btDXQrAmNJ4qw30JNqAm5cgPzZt09ktHml+dzXnvOHBsXwK0EJgcCqUieA==}
+  '@drawcall/webgpu-linux-x64@0.2.1':
+    resolution: {integrity: sha512-SoiVjq+d8+uIUlxWgKEIqOfrvSy1k3KedcOqrvP3s67J8oF1Nd2ur32hFg/8IvhhpEm+NGF7GIjk3GTlxNSb0g==}
     cpu: [x64]
     os: [linux]
 
-  '@drawcall/webgpu-linuxmusl-arm64@0.2.0':
-    resolution: {integrity: sha512-jR058GRqM5jN/A/DfOQIHTdQ41REt0/PVZ7Ibjjq7ZaSP0ry7k3yLb6fBpL31QVoe0D9GmcSq2VVFFpwQkdh5Q==}
+  '@drawcall/webgpu-linuxmusl-arm64@0.2.1':
+    resolution: {integrity: sha512-vz/BAAQO+8960aenEVKm8a/i0asPwKzQYZJxMQ+hHWv8/ar87PF27OrettiYCbEMPN8AcALUTHckvjFhWDEzOA==}
     cpu: [arm64]
     os: [linux]
 
-  '@drawcall/webgpu-linuxmusl-x64@0.2.0':
-    resolution: {integrity: sha512-rJwuqEu/wKItD1OiPkYXEFf3spcenHDJghnswd6QM9kJqHmWIv6UcRG+Lto5khv0d0rwywqc8cR9lDm9sF8Vhw==}
+  '@drawcall/webgpu-linuxmusl-x64@0.2.1':
+    resolution: {integrity: sha512-hY2Mkksn0kwTNpTP7i6ocwW8+fuXRVs1Yd5emcDXRQ5tYERqX4cKYdOB7yL2mnjECJ+aPUCXwCQgBwlt0LlM3g==}
     cpu: [x64]
     os: [linux]
 
-  '@drawcall/webgpu-win32-arm64@0.2.0':
-    resolution: {integrity: sha512-ZSP9LxAtJwY9AEyhSTizOp0lUdOrSWcktnQZrF2fzTuYGuEkowbAWjhsfuYgZAcVIVecxSJ6QRiCNJxplUGfYA==}
+  '@drawcall/webgpu-win32-arm64@0.2.1':
+    resolution: {integrity: sha512-b0kylwLRUQ7DRaYr4mF7T+nlyl4tlFvHeUjPELJb5U33KReq8FfAMR2VBp/Phn3D4WEpl7lkYFI7lZwVaTXzCA==}
     cpu: [arm64]
     os: [win32]
 
-  '@drawcall/webgpu-win32-x64@0.2.0':
-    resolution: {integrity: sha512-qcEdvma3xSaq8bs6mcoPuWo90t5tZPw/XqqUBdjFi8SY+yYtH468Y9uXLNGRkyx04zeNqzXQN83KAcvah3+gCA==}
+  '@drawcall/webgpu-win32-x64@0.2.1':
+    resolution: {integrity: sha512-igr2YXJyfsZF54wqDDeawG0MgEPPVf44MXXWXlhyQSHBljulsj+e13QoYiFkE/2sFiV0tbf4cECLXOkbqPwF9g==}
     cpu: [x64]
     os: [win32]
 
-  '@drawcall/webgpu@0.2.0':
-    resolution: {integrity: sha512-W+FhRv0oMB7DGLu1/32MIPDEC0UyE2uuWh5X43FL05rgYo1GA6CrGBVILr23tB/V+wFYBfAobQ4QCjiZEISwqg==}
+  '@drawcall/webgpu@0.2.1':
+    resolution: {integrity: sha512-yXPZiGK4ZPbF7vImCeNQ4wXu/KS5XmEJ8BIfI49tg5GZUlI5cE9rMKVtYrIMESjmzyK1RO/6RCCEnQIFR59Idw==}
     engines: {node: '>=22'}
 
   '@emnapi/runtime@1.11.3':
@@ -1351,43 +1351,43 @@ snapshots:
     dependencies:
       three: 0.185.1
 
-  '@drawcall/webgpu-darwin-arm64@0.2.0':
+  '@drawcall/webgpu-darwin-arm64@0.2.1':
     optional: true
 
-  '@drawcall/webgpu-darwin-x64@0.2.0':
+  '@drawcall/webgpu-darwin-x64@0.2.1':
     optional: true
 
-  '@drawcall/webgpu-linux-arm64@0.2.0':
+  '@drawcall/webgpu-linux-arm64@0.2.1':
     optional: true
 
-  '@drawcall/webgpu-linux-x64@0.2.0':
+  '@drawcall/webgpu-linux-x64@0.2.1':
     optional: true
 
-  '@drawcall/webgpu-linuxmusl-arm64@0.2.0':
+  '@drawcall/webgpu-linuxmusl-arm64@0.2.1':
     optional: true
 
-  '@drawcall/webgpu-linuxmusl-x64@0.2.0':
+  '@drawcall/webgpu-linuxmusl-x64@0.2.1':
     optional: true
 
-  '@drawcall/webgpu-win32-arm64@0.2.0':
+  '@drawcall/webgpu-win32-arm64@0.2.1':
     optional: true
 
-  '@drawcall/webgpu-win32-x64@0.2.0':
+  '@drawcall/webgpu-win32-x64@0.2.1':
     optional: true
 
-  '@drawcall/webgpu@0.2.0(@types/node@24.13.3)':
+  '@drawcall/webgpu@0.2.1(@types/node@24.13.3)':
     dependencies:
       detect-libc: 2.1.2
       sharp: 0.35.5(@types/node@24.13.3)
     optionalDependencies:
-      '@drawcall/webgpu-darwin-arm64': 0.2.0
-      '@drawcall/webgpu-darwin-x64': 0.2.0
-      '@drawcall/webgpu-linux-arm64': 0.2.0
-      '@drawcall/webgpu-linux-x64': 0.2.0
-      '@drawcall/webgpu-linuxmusl-arm64': 0.2.0
-      '@drawcall/webgpu-linuxmusl-x64': 0.2.0
-      '@drawcall/webgpu-win32-arm64': 0.2.0
-      '@drawcall/webgpu-win32-x64': 0.2.0
+      '@drawcall/webgpu-darwin-arm64': 0.2.1
+      '@drawcall/webgpu-darwin-x64': 0.2.1
+      '@drawcall/webgpu-linux-arm64': 0.2.1
+      '@drawcall/webgpu-linux-x64': 0.2.1
+      '@drawcall/webgpu-linuxmusl-arm64': 0.2.1
+      '@drawcall/webgpu-linuxmusl-x64': 0.2.1
+      '@drawcall/webgpu-win32-arm64': 0.2.1
+      '@drawcall/webgpu-win32-x64': 0.2.1
     transitivePeerDependencies:
       - '@types/node'
 
