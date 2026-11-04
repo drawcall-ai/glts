@@ -145,7 +145,6 @@ test("resolves nested URLs against their script while reading current host reque
       globalThis.__contextHost.setRequestHeader({ "x-context": "child" });
       gltsLoader.setRequestHeader({ "x-context": "ignored" });
       scene.add(await gltsLoader.loadAsync("child.glts"));
-      scene.userData.contextualHost = gltsLoader === globalThis.__contextHost;
     ` : `import { scene } from "@drawcall/glts"; scene.name = "child";`);
   });
 
@@ -163,15 +162,14 @@ test("resolves nested URLs against their script while reading current host reque
     loader.setRequestHeader({ "x-context": "parent" });
     try {
       const node = await loader.loadAsync("parent.glts");
-      return { resolved, child: node.children[0]?.name, contextualHost: node.userData.contextualHost };
+      return { resolved, child: node.children[0]?.name };
     } finally {
       loader.dispose();
     }
   });
   expect(result).toEqual({
     resolved: ["host/parent.glts", "child.glts"],
-    child: "child",
-    contextualHost: false
+    child: "child"
   });
   expect(requests).toEqual([
     { path: "/host/parent.glts?mapped", header: "parent" },

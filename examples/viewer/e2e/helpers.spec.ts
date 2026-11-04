@@ -66,3 +66,31 @@ test("runs helpers, shares them within a script, and reloads their scripts when 
     three: true,
   });
 });
+
+test("compiles TypeGPU 'use gpu' functions of scripts and helpers in the browser", async ({ page }) => {
+  const sources: Record<string, string> = {
+    "/assets/gpu.glts": `
+      import { scene } from "@drawcall/glts"
+      import { triple } from "./triple.ts"
+      const double = (x: number): number => { "use gpu"; return x * 2 }
+      const meta: WeakMap<object, unknown> | undefined = Reflect.get(globalThis, "__TYPEGPU_META__")
+      scene.userData.compiled = [meta?.has(double), meta?.has(triple)]
+    `,
+    "/assets/triple.ts": `export function triple(x: number): number { "use gpu"; return x * 3 }`,
+  };
+  await page.route(/\/assets\/.*\.(glts|ts)$/, (route) => {
+    const source = sources[new URL(route.request().url()).pathname];
+    return source === undefined ? route.fulfill({ status: 404 }) : fulfillScript(route, source);
+  });
+
+  await page.goto("/test-harness.html");
+  const compiled = await page.evaluate(async () => {
+    const loader = new window.GLTSLoader(new window.LoadingManager());
+    try {
+      return (await loader.loadAsync("/assets/gpu.glts")).userData.compiled;
+    } finally {
+      loader.dispose();
+    }
+  });
+  expect(compiled).toEqual([true, true]);
+});

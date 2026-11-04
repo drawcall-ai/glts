@@ -192,13 +192,11 @@ it.each([
   expect(() => compileHelper(source, url, [url])).toThrow(rejected);
 });
 
-it("gives 'use gpu' functions of scripts and helpers the metadata TypeGPU resolves", async () => {
+it("gives 'use gpu' functions the metadata TypeGPU resolves", async () => {
   let shader: string | undefined;
   await execute(compileScript(
     "import { scene } from '@drawcall/glts'; const double = (x: number): number => { 'use gpu'; return x * 2; }; scene.add(double);",
     url,
   ), { scene: { add: (double: (x: number) => number) => { shader = tgpu.resolve([tgpu.fn([d.f32], d.f32)(double)]); } } });
   expect(shader).toMatch(/return \(x \* 2f\);/);
-  expect(compileHelper("export function triple(x: number) { 'use gpu'; return x * 3; }", url, [url]))
-    .toContain("__TYPEGPU_META__");
 });
