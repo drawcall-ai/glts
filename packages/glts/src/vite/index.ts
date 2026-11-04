@@ -146,7 +146,11 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
       if (publicDir && scripts.length > 0) {
         const external = await shared();
         const env = { ...this.environment.config.env, SSR: true };
-        await warmupBuild({ root, publicDir, packages, external, scripts, env, cdnURL: cdnURL.href, base: this.environment.config.base });
+        // The app's loaders publish these too, so caches keyed on a loader's moduleSources match the browser's.
+        const sources = await moduleSources((await scanning).specifiers);
+        await warmupBuild({
+          root, publicDir, packages, external, scripts, env, moduleSources: sources, cdnURL: cdnURL.href, base: this.environment.config.base,
+        });
       }
     },
     configureServer({ environments: { client }, config, middlewares }) {
