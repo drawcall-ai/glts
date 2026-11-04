@@ -6,7 +6,7 @@ import { gltsSpecifier } from "../imports.js";
 import { isBareSpecifier } from "../linker/resolution.js";
 import { GLTSLoader } from "../loader/index.js";
 import type { GLTSLoaderOptions } from "../types.js";
-import { Canvas, readableBitmaps } from "./canvas.js";
+import { Canvas, copyableCanvases, readableBitmaps } from "./canvas.js";
 import { setGlobals } from "./globals.js";
 import { moduleWorkers } from "./workers.js";
 
@@ -80,7 +80,7 @@ async function run<T>(options: HeadlessOptions, use: (loader: GLTSLoader, canvas
     });
     cleanups.push(() => hooks.deregister());
     const canvas = await createCanvas(options.size, options.size);
-    cleanups.push(() => canvas.dispose());
+    cleanups.push(() => canvas.dispose(), copyableCanvases());
     // The canvas installs createImageBitmap and a classic Worker, which these extend until it is disposed.
     const bitmaps = readableBitmaps(globalThis.createImageBitmap);
     const workers = moduleWorkers(Reflect.get(globalThis, "Worker"));

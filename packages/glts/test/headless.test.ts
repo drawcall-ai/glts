@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { inspect } from "node:util";
+import { requestAdapter } from "@drawcall/webgpu";
 import { afterAll, expect, it } from "vitest";
 
 import { withHeadless } from "../src/headless/index.js";
@@ -57,6 +58,32 @@ it("rejects overlapping and nested sessions without disturbing the active one", 
   await withHeadless(options, async () => { order.push("second"); });
   expect(order).toEqual(["first", "first done", "second"]);
   expect(descriptors()).toEqual(before);
+});
+
+it("uploads 2D canvases to textures as Three's CanvasTexture does", async () => {
+  await withHeadless(options, async () => {
+    const canvas = new OffscreenCanvas(1, 2);
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Missing 2D context");
+    context.fillStyle = "#ff0000";
+    context.fillRect(0, 0, 1, 1);
+    context.fillStyle = "#0000ff";
+    context.fillRect(0, 1, 1, 1);
+
+    const adapter = await requestAdapter();
+    if (!adapter) throw new Error("WebGPU is unavailable");
+    const device = await adapter.requestDevice();
+    const texture = device.createTexture({ size: [1, 2], format: "rgba8unorm", usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC });
+    const buffer = device.createBuffer({ size: 512, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    device.queue.copyExternalImageToTexture({ source: canvas, flipY: true }, { texture }, [1, 2]);
+    const encoder = device.createCommandEncoder();
+    encoder.copyTextureToBuffer({ texture }, { buffer, bytesPerRow: 256 }, [1, 2]);
+    device.queue.submit([encoder.finish()]);
+    await buffer.mapAsync(GPUMapMode.READ);
+    const rows = new Uint8Array(buffer.getMappedRange());
+    expect([...rows.subarray(0, 4), ...rows.subarray(256, 260)]).toEqual([0, 0, 255, 255, 255, 0, 0, 255]);
+    device.destroy();
+  });
 });
 
 it("runs browser code that needs canvases, decoded images, and module workers", async () => {
