@@ -1,4 +1,4 @@
-/** Read a native ImageBitmap for the GLB exporter's 2D canvas, which cannot draw WebGPU's native images. */
+/** The straight-alpha RGBA pixels of a native ImageBitmap, read back from the GPU. */
 export async function readBitmap(device: GPUDevice, image: ImageBitmap): Promise<Uint8Array> {
   const rowBytes = image.width * 4;
   const bytesPerRow = Math.ceil(rowBytes / 256) * 256;

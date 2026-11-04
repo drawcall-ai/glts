@@ -5,11 +5,10 @@ import {
 } from "three/webgpu";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { ImageData } from "@napi-rs/canvas";
-import { requestAdapter } from "@drawcall/webgpu";
 import type { GLTSScene } from "../types.js";
-import { readBitmap } from "./bitmap.js";
 import { writeHeadless } from "./headless.js";
-import { Canvas } from "../headless/canvas.js";
+import { bitmapPixels, Canvas } from "../headless/canvas.js";
+import { setGlobals } from "../headless/globals.js";
 
 export interface ExportOptions {
   output: string;
@@ -29,21 +28,6 @@ class BlobReader {
       this.onloadend?.();
     });
   }
-}
-
-/** GLTFExporter uses browser globals; these adapters are installed only while exporting, and the returned function restores the originals. */
-function installExportGlobals(): () => void {
-  const globals = { document: undefined, OffscreenCanvas: Canvas, ImageData, FileReader: BlobReader };
-  const descriptors = Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
-  for (const [key, value] of Object.entries(globals)) {
-    Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
-  }
-  return () => {
-    for (const [key, descriptor] of descriptors) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-      else Reflect.deleteProperty(globalThis, key);
-    }
-  };
 }
 
 
@@ -97,8 +81,8 @@ export async function exportScene(scene: GLTSScene): Promise<Uint8Array> {
   }
 
   const originalSources = new Map<Texture, Source<unknown>>();
-  let device: GPUDevice | undefined;
-  const restore = installExportGlobals();
+  // GLTFExporter uses these browser globals; they are installed only while exporting.
+  const restore = setGlobals({ document: undefined, OffscreenCanvas: Canvas, ImageData, FileReader: BlobReader });
   try {
     for (const texture of textures) {
       const image: unknown = texture.image;
@@ -107,14 +91,7 @@ export async function exportScene(scene: GLTSScene): Promise<Uint8Array> {
         throw new Error(`Cannot export data texture "${texture.name}"; use unsigned-byte RGBA pixels.`);
       }
       let data: unknown = "data" in image ? image.data : undefined;
-      if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) {
-        if (!device) {
-          const adapter = await requestAdapter();
-          if (!adapter) throw new Error("WebGPU is unavailable for exporting bitmap textures.");
-          device = await adapter.requestDevice();
-        }
-        data = await readBitmap(device, image);
-      }
+      if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) data = bitmapPixels(image);
       if (data === undefined) continue;
       if (!(data instanceof Uint8Array || data instanceof Uint8ClampedArray) || !("width" in image) || typeof image.width !== "number" || !("height" in image) || typeof image.height !== "number" || data.length !== image.width * image.height * 4) {
         throw new Error(`Cannot export texture "${texture.name}": invalid bitmap pixels.`);
@@ -129,7 +106,6 @@ export async function exportScene(scene: GLTSScene): Promise<Uint8Array> {
     if (!(result instanceof ArrayBuffer)) throw new Error("GLTFExporter did not produce a binary GLB.");
     return new Uint8Array(result);
   } finally {
-    device?.destroy();
     for (const [texture, source] of originalSources) texture.source = source;
     restore();
   }

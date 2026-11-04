@@ -10,7 +10,7 @@ import { withHeadless } from "../src/headless/index.js";
 const directory = await mkdtemp(join(tmpdir(), "glts-headless-"));
 const baseURL = pathToFileURL(`${directory}/`);
 const options = { projectURL: baseURL, baseURL, size: 1, loader: {} };
-const descriptors = () => ["fetch", "document", "self", "createImageBitmap", "Worker"].map((key) => Object.getOwnPropertyDescriptor(globalThis, key));
+const descriptors = () => ["fetch", "document", "self", "createImageBitmap", "Worker", "OffscreenCanvas"].map((key) => Object.getOwnPropertyDescriptor(globalThis, key));
 
 afterAll(() => rm(directory, { recursive: true, force: true }));
 
@@ -56,5 +56,40 @@ it("rejects overlapping and nested sessions without disturbing the active one", 
   await first;
   await withHeadless(options, async () => { order.push("second"); });
   expect(order).toEqual(["first", "first done", "second"]);
+  expect(descriptors()).toEqual(before);
+});
+
+it("runs browser code that needs canvases, decoded images, and module workers", async () => {
+  const before = descriptors();
+  const worker = join(directory, "worker.js");
+  await writeFile(worker, `
+    await Promise.resolve();
+    addEventListener("message", ({ data }) => {
+      postMessage({ scope: globalThis instanceof WorkerGlobalScope, sum: new Uint8Array(data).reduce((a, b) => a + b) }, [data]);
+    });
+  `);
+  await withHeadless(options, async () => {
+    const canvas = document.createElementNS("http://www.w3.org/1999/xhtml", "canvas");
+    expect(canvas instanceof OffscreenCanvas && canvas.getContext("2d")).toBeTruthy();
+
+    const sharp = (await import("sharp")).default;
+    const pixels = Buffer.from([255, 0, 0, 255, 0, 0, 255, 128]);
+    const file = await sharp(pixels, { raw: { width: 2, height: 1, channels: 4 } }).png().toBuffer();
+    const bitmap = await createImageBitmap(new Blob([new Uint8Array(file)]), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+    const context = new OffscreenCanvas(2, 1).getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Missing 2D context");
+    context.drawImage(bitmap, 0, 0);
+    expect([...context.getImageData(0, 0, 2, 1, { colorSpace: "srgb" }).data]).toEqual([255, 0, 0, 255, 0, 0, 255, 128]);
+
+    const thread = new Worker(pathToFileURL(worker), { type: "module" });
+    const reply = new Promise<unknown>((resolve, reject) => {
+      thread.onmessage = (event) => resolve(event.data);
+      thread.onerror = (event) => reject(new Error(String(Reflect.get(event, "message"))));
+    });
+    const data = new Uint8Array([1, 2, 3]).buffer;
+    thread.postMessage(data, [data]);
+    expect(await reply).toEqual({ scope: true, sum: 6 });
+    thread.terminate();
+  });
   expect(descriptors()).toEqual(before);
 });
