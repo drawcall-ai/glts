@@ -3,7 +3,7 @@ import { Canvas as NativeCanvas, ImageData, type SKRSContext2D } from "@napi-rs/
 import { readBitmap } from "./bitmap.js";
 
 /** The pixels of the native ImageBitmaps createImageBitmap made, which a 2D canvas cannot read from the bitmap itself. */
-const bitmaps = new WeakMap<WeakKey, ImageData>();
+const bitmapPixels = new WeakMap<WeakKey, ImageData>();
 /** Copies of the bitmaps 2D canvases drew, made on their first draw: most bitmaps are only uploaded as textures. */
 const drawable = new WeakMap<ImageData, NativeCanvas>();
 const adapted = new WeakSet<SKRSContext2D>();
@@ -36,7 +36,7 @@ function adapt(context: SKRSContext2D): void {
   const { drawImage, getImageData } = context;
   Object.defineProperty(context, "drawImage", {
     value: (image: unknown, ...rest: number[]): void => {
-      const pixels = typeof image === "object" && image !== null ? bitmaps.get(image) : undefined;
+      const pixels = typeof image === "object" && image !== null ? bitmapPixels.get(image) : undefined;
       Reflect.apply(drawImage, context, [pixels ? canvasOf(pixels) : image, ...rest]);
     },
   });
@@ -100,13 +100,6 @@ function canvasOf(pixels: ImageData): NativeCanvas {
   return canvas;
 }
 
-/** The straight-alpha RGBA pixels of a native ImageBitmap the session's createImageBitmap made. */
-export function bitmapPixels(image: ImageBitmap): Uint8ClampedArray {
-  const pixels = bitmaps.get(image);
-  if (!pixels) throw new Error("This ImageBitmap was not decoded by the headless createImageBitmap");
-  return pixels.data;
-}
-
 /** The native function's form; it rejects cropping. */
 type CreateImageBitmap = (source: ImageBitmapSource, options?: ImageBitmapOptions) => Promise<ImageBitmap>;
 
@@ -116,19 +109,19 @@ type CreateImageBitmap = (source: ImageBitmapSource, options?: ImageBitmapOption
  */
 export function readableBitmaps(create: CreateImageBitmap): { createImageBitmap: CreateImageBitmap; dispose: () => Promise<void> } {
   let device: Promise<GPUDevice> | undefined;
-  const readback = async (): Promise<GPUDevice> => {
+  const startDevice = async (): Promise<GPUDevice> => {
     const adapter = await requestAdapter();
     if (!adapter) throw new Error("WebGPU is unavailable for reading ImageBitmaps");
     return adapter.requestDevice();
   };
-  const decode = async (source: ImageBitmapSource, options?: ImageBitmapOptions): Promise<ImageBitmap> => {
+  const createReadable = async (source: ImageBitmapSource, options?: ImageBitmapOptions): Promise<ImageBitmap> => {
     const bitmap = await create(source, options);
-    const pixels = new Uint8ClampedArray((await readBitmap(await (device ??= readback()), bitmap)).buffer);
-    bitmaps.set(bitmap, new ImageData(pixels, bitmap.width, bitmap.height));
+    const pixels = new Uint8ClampedArray((await readBitmap(await (device ??= startDevice()), bitmap)).buffer);
+    bitmapPixels.set(bitmap, new ImageData(pixels, bitmap.width, bitmap.height));
     return bitmap;
   };
   return {
-    createImageBitmap: decode,
+    createImageBitmap: createReadable,
     // A device that failed to start already rejected the createImageBitmap call that requested it.
     dispose: async () => { await device?.then((value) => value.destroy(), () => undefined); },
   };

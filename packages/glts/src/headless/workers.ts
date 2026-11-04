@@ -30,7 +30,10 @@ const workerScope = `(async () => {
   });
 })()`;
 
-/** A browser module worker running in a Node thread; the module must be a file. */
+/**
+ * A browser module worker running in a Node thread; the module must be a file. Unlike a browser's, an error the worker
+ * throws ends its thread after the error event, and later messages go nowhere.
+ */
 class ModuleWorker extends EventTarget {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onmessageerror: ((event: MessageEvent) => void) | null = null;
