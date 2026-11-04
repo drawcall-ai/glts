@@ -39,7 +39,7 @@ async function app(name: string, scripts: Readonly<Record<string, string>>): Pro
       }
       export function disposed(name) { appendFileSync(resolve("disposed.txt"), name + "\\n"); }
       export function environment(script, helper) {
-        writeFileSync(resolve("env.json"), JSON.stringify({ script, helper, nodeEnv: process.env.NODE_ENV }));
+        writeFileSync(resolve("env.json"), JSON.stringify({ script, helper, package: import.meta.env, nodeEnv: process.env.NODE_ENV }));
       }
     `,
     ...scripts,
@@ -112,7 +112,7 @@ it.each([
   ["development", "production", true],
   ["production", "development", false],
   ["staging", "test", false],
-])("passes resolved Vite env for mode=%s and NODE_ENV=%s to scripts and helpers", async (mode, nodeEnv, production) => {
+])("passes resolved Vite env for mode=%s and NODE_ENV=%s to scripts, helpers, and their packages", async (mode, nodeEnv, production) => {
   vi.stubEnv("NODE_ENV", nodeEnv);
   const root = await app(`env-${mode}-${nodeEnv}`, {
     ".env": "VITE_LABEL=wrong-directory\n",
@@ -133,5 +133,5 @@ it.each([
   });
   const snapshot: unknown = JSON.parse(await readFile(join(root, "env.json"), "utf8"));
   const env = { MODE: mode, DEV: !production, PROD: production, SSR: true, BASE_URL: "/assets/", VITE_LABEL: mode, PUBLIC_LABEL: "exposed" };
-  expect(snapshot).toEqual({ script: env, helper: env, nodeEnv });
+  expect(snapshot).toEqual({ script: env, helper: env, package: env, nodeEnv });
 });

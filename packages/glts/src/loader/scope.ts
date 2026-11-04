@@ -4,10 +4,11 @@ import type { Dependencies } from "../dependencies.js";
 import { aggregate, GLTSError, runAll, toGLTSError } from "../errors.js";
 import type { ExecutionScope } from "../execution/index.js";
 import type { Script } from "../linker/index.js";
-import { nodeDependencies, type LoadRequest } from "../node.js";
-import type { GLTSScriptLoader, GLTSInstances, GLTSScene, GLTSURL } from "../types.js";
+import { nodeDependencies, onNodeDispose, type LoadRequest } from "../node.js";
+import type { GLTSInstances, GLTSModuleSource, GLTSScene, GLTSURL } from "../types.js";
 import { canonicalize } from "../urls.js";
 import { Resources } from "./resources.js";
+import { ScriptLoader } from "./script.js";
 
 /** Loads the script at a resolved URL for `scope`, as one item of its manager. */
 export interface NestedLoader {
@@ -25,6 +26,8 @@ export interface LoadScopeOptions {
   /** The execution's dependencies, which get its resources and nested nodes. */
   readonly dependencies: Dependencies;
   readonly loader: NestedLoader;
+  /** The loader's moduleSources, which its contextual gltsLoader publishes too. */
+  readonly moduleSources: Readonly<Record<string, GLTSModuleSource>>;
   /** The loader's lifetime, whose abort aborts the scope. */
   readonly signal: AbortSignal;
 }
@@ -35,7 +38,7 @@ export interface LoadScopeOptions {
  * nested loads.
  */
 export class LoadScope implements ExecutionScope {
-  readonly gltsLoader: GLTSScriptLoader;
+  readonly gltsLoader: ScriptLoader;
   /**
    * The import path of the scope's nested loads, which they must not repeat: the URLs of the scripts that loaded
    * the execution and its own requested and fetched URLs.
@@ -74,11 +77,12 @@ export class LoadScope implements ExecutionScope {
       assertOpen: () => this.#assertOpen("resources"),
     });
     const { loader } = options;
-    this.gltsLoader = {
-      loadAsync: async (url) => this.#load(url, (resolved) => loader.loadAsync(resolved, this)),
-      loadInstancesAsync: async (url, count) =>
-        this.#load(url, (resolved) => loader.loadInstancesAsync(resolved, count, this)),
-    };
+    this.gltsLoader = new ScriptLoader(
+      this.#resources.manager,
+      options.moduleSources,
+      (url) => this.#load(url, (resolved) => loader.loadAsync(resolved, this)),
+      (url, count) => this.#load(url, (resolved) => loader.loadInstancesAsync(resolved, count, this)),
+    );
   }
 
   /** The contextual loadingManager. */
@@ -86,14 +90,14 @@ export class LoadScope implements ExecutionScope {
     return this.#resources.manager;
   }
 
-  /** The nodes of the nested loads that succeeded. */
+  /** The nodes of the nested loads that succeeded, until they are disposed. */
   get nodes(): readonly GLTSScene[] {
     return [...this.#nodes];
   }
 
   /**
    * Waits for the nested loads, including ones started meanwhile, and throws their failures, the first with its own
-   * phase, URL, and import chain; then requires their
+   * phase, URL, and import chain; then requires their undisposed
    * nodes below `root`, waits for the resources, and throws theirs.
    */
   async settle(root: THREE.Object3D): Promise<void> {
@@ -148,6 +152,8 @@ export class LoadScope implements ExecutionScope {
     this.#assertOpen("loads");
     const loading = load(resolved).then((node) => {
       this.#nodes.add(node);
+      // A node the script disposes, such as a library's temporary build input, is no longer the scope's to attach.
+      onNodeDispose(node, () => this.#nodes.delete(node));
       this.#dependencies.include(nodeDependencies(node));
       return node;
     });

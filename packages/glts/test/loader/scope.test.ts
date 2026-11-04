@@ -1,7 +1,8 @@
-import { FileLoader, LoadingManager, Object3D } from "three";
+import { FileLoader, Loader, LoadingManager, Object3D } from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Dependencies } from "../../src/dependencies.js";
+import { GLTSLoader } from "../../src/loader/index.js";
 import { LoadScope } from "../../src/loader/scope.js";
 import { base, deferred, serve } from "./fixture.js";
 
@@ -14,6 +15,7 @@ function createScope(url: string, host: LoadingManager, dependencies = new Depen
     request: { ancestors: [] },
     dependencies,
     loader: { loadAsync: unexpected, loadInstancesAsync: unexpected },
+    moduleSources: {},
     signal: new AbortController().signal,
   });
 }
@@ -90,6 +92,7 @@ describe("LoadScope", () => {
       request: { ancestors: [] },
       dependencies: new Dependencies(),
       loader: { loadAsync: () => nested, loadInstancesAsync: () => nested },
+      moduleSources: {},
       signal: controller.signal,
     });
     const loading = scope.gltsLoader.loadAsync("child.glts");
@@ -247,4 +250,40 @@ it("balances a nested load of a reloading script when its parent fails", async (
   expect(await parentResult).toMatchObject({ phase: "evaluate", cause: { message: "parent failed" } });
   expect(hostEnds.mock.calls.flat()).toEqual([`${base}child.glts`, `${base}child.glts`, `${base}parent.glts`]);
   expect(hostErrors.mock.calls.flat()).toEqual([`${base}parent.glts`]);
+});
+
+it("serves as its loading manager's .glts handler, publishing the host's moduleSources", async () => {
+  serve({
+    "parent.glts": `import { scene, gltsLoader, loadingManager } from "@drawcall/glts";
+      import { library } from "library";
+      loadingManager.addHandler(/\\.glts$/, gltsLoader);
+      scene.add(await library(loadingManager, "./child.glts"));`,
+    "child.glts": `import { scene } from "@drawcall/glts"; scene.name = "child";`,
+  });
+  let handler: Loader | null = null;
+  const library = async (manager: LoadingManager, url: string): Promise<unknown> => {
+    handler = manager.getHandler(url);
+    return handler?.loadAsync(url);
+  };
+  const moduleSources = { "pkg@1": { packages: ["pkg"], moduleHashes: { "https://cdn.test/pkg.js": "hash" } } };
+  const loader = new GLTSLoader(new LoadingManager(), { moduleSources, modules: { "pkg@1": {}, library: { library } } });
+  try {
+    const parent = await loader.loadAsync(`${base}parent.glts`);
+    expect(parent.children.map((child) => child.name)).toEqual(["child"]);
+    expect(handler).toBeInstanceOf(Loader);
+    expect(Reflect.get(handler ?? {}, "moduleSources")).toEqual(moduleSources);
+  } finally {
+    loader.dispose();
+  }
+});
+
+it("requires nested scenes beneath scene unless the script disposed them", async () => {
+  const loader = serve({
+    "detached.glts": `import { gltsLoader } from "@drawcall/glts"; await gltsLoader.loadAsync("./child.glts");`,
+    "disposed.glts": `import { gltsLoader } from "@drawcall/glts"; (await gltsLoader.loadAsync("./child.glts")).dispose();`,
+    "child.glts": "",
+  });
+  await expect(loader.loadAsync(`${base}detached.glts`)).rejects.toThrow("Nested GLTS scenes must be added to scene");
+  const parent = await loader.loadAsync(`${base}disposed.glts`);
+  expect(parent.source.dependencyUrls).toContain(`${base}child.glts`);
 });

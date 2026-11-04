@@ -137,7 +137,7 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
     async buildStart() {
       if (this.environment.config.command !== "build") return;
       const { root, publicDir, packages, scan: scanning } = configured();
-      const { scripts, failures } = await scanning;
+      const { scripts, specifiers, failures } = await scanning;
       // Each message names its file; a plugin stack trace would only bury them.
       if (failures.size > 0) this.error({ message: [...failures.values()].map(errorMessage).join("\n\n"), stack: "" });
       const errors = await typecheck(scripts);
@@ -146,7 +146,11 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
       if (publicDir && scripts.length > 0) {
         const external = await shared();
         const env = { ...this.environment.config.env, SSR: true };
-        await warmupBuild({ root, publicDir, packages, external, scripts, env, cdnURL: cdnURL.href, base: this.environment.config.base });
+        // The app's loaders publish these too, so caches keyed on a loader's moduleSources match the browser's.
+        const sources = await moduleSources(specifiers);
+        await warmupBuild({
+          root, publicDir, packages, external, scripts, env, moduleSources: sources, cdnURL: cdnURL.href, base: this.environment.config.base,
+        });
       }
     },
     configureServer({ environments: { client }, config, middlewares }) {

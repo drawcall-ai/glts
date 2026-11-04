@@ -9,4 +9,10 @@ declare module "@drawcall/webgpu" {
   }
   export function createCanvas(width: number, height: number): Promise<Canvas>;
   export function requestAdapter(options?: GPURequestAdapterOptions): Promise<GPUAdapter | null>;
+  export function readImageBitmap(bitmap: ImageBitmap): {
+    readonly width: number;
+    readonly height: number;
+    readonly data: Uint8ClampedArray;
+    readonly colorSpace: "srgb";
+  };
 }

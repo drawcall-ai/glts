@@ -7,6 +7,7 @@ import type {
   GLTSScriptLoader,
   GLTSScriptScene
 } from "./types.js";
+import { ScriptLoader } from "./loader/script.js";
 import { createRoot } from "./root.js";
 
 function unavailable(name: string): never {
@@ -28,13 +29,13 @@ export const loadingManager: LoadingManager = new Proxy(new LoadingManager(), {
 });
 
 /**
- * Loads nested assets relative to this script. Attach each result beneath scene. A failed nested load fails this
+ * Loads nested assets relative to this script. Attach each result beneath scene, or dispose it. A failed nested load fails this
  * script too, even when the script catches it.
  */
-export const gltsLoader: GLTSScriptLoader = {
-  loadAsync: () => unavailable("gltsLoader"),
-  loadInstancesAsync: () => unavailable("gltsLoader")
-};
+export const gltsLoader: GLTSScriptLoader = new Proxy(
+  new ScriptLoader(new LoadingManager(), {}, () => unavailable("gltsLoader"), () => unavailable("gltsLoader")),
+  { get: () => unavailable("gltsLoader"), set: () => unavailable("gltsLoader") }
+);
 
 // Annotated so scripts may compare them with any value when type checked.
 /** Requested instance count, or 1 for a plain scene load. */

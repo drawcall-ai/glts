@@ -1,5 +1,5 @@
 import type { Canvas } from "@drawcall/webgpu";
-import sharp from "sharp";
+import sharp, { type OverlayOptions } from "sharp";
 import * as THREE from "three/webgpu";
 import { GLTSRenderer } from "../renderer/index.js";
 import type { GLTSScene } from "../types.js";
@@ -99,7 +99,7 @@ async function renderScene(scene: GLTSScene, canvas: Canvas, { size, time, views
     await renderer.init();
     renderer.setPixelRatio(1);
     renderer.setSize(size, size, false);
-    const tiles: sharp.OverlayOptions[] = [];
+    const tiles: OverlayOptions[] = [];
     const labeled = shots.flat().length > 1 || shots.some(row => row.some(shot => shot.view.title !== undefined));
     const height = size + (labeled ? 28 : 0);
     for (const [row, rowShots] of shots.entries()) for (const [column, shot] of rowShots.entries()) {

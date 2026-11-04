@@ -5,7 +5,14 @@ import { inspect } from "node:util";
 import { withHeadless } from "../headless/index.js";
 import { packageName } from "../linker/resolution.js";
 import { warmup } from "../loader/warmup.js";
+import type { GLTSModuleSource } from "../types.js";
 import type { WarmupBuild } from "./warmup.js";
+
+/** The entries of a plain object field, whose values the caller checks. */
+function fields(value: unknown, name: string): [string, unknown][] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`Invalid GLTS warmup ${name}`);
+  return Object.entries(value);
+}
 
 function options(value: unknown): WarmupBuild {
   if (typeof value !== "object" || value === null) throw new Error("Missing GLTS warmup options");
@@ -16,22 +23,31 @@ function options(value: unknown): WarmupBuild {
   };
   const strings = (key: string): string[] => {
     const field: unknown = Reflect.get(value, key);
-    if (!Array.isArray(field) || !field.every((item: unknown) => typeof item === "string")) {
+    if (!Array.isArray(field) || !field.every((item: unknown): item is string => typeof item === "string")) {
       throw new Error(`Invalid GLTS warmup ${key}`);
     }
     return field;
   };
-  const environment: unknown = Reflect.get(value, "env");
-  if (typeof environment !== "object" || environment === null || Array.isArray(environment)) {
-    throw new Error("Invalid GLTS warmup env");
-  }
-  const env = Object.fromEntries(Object.entries(environment).map(([key, field]): [string, string | boolean] => {
+  const env = Object.fromEntries(fields(Reflect.get(value, "env"), "env").map(([key, field]): [string, string | boolean] => {
     if (typeof field !== "string" && typeof field !== "boolean") throw new Error(`Invalid GLTS warmup env.${key}`);
     return [key, field];
   }));
+  const moduleSources = Object.fromEntries(fields(Reflect.get(value, "moduleSources"), "moduleSources")
+    .map(([specifier, source]): [string, GLTSModuleSource] => {
+      const name = `moduleSources.${specifier}`;
+      const { packages, moduleHashes } = Object.fromEntries(fields(source, name));
+      if (!Array.isArray(packages) || !packages.every((item: unknown): item is string => typeof item === "string")) {
+        throw new Error(`Invalid GLTS warmup ${name}.packages`);
+      }
+      const hashes = Object.fromEntries(fields(moduleHashes, `${name}.moduleHashes`).map(([url, hash]): [string, string] => {
+        if (typeof hash !== "string") throw new Error(`Invalid GLTS warmup ${name}.moduleHashes`);
+        return [url, hash];
+      }));
+      return [specifier, { packages, moduleHashes: hashes }];
+    }));
   return {
     root: string("root"), publicDir: string("publicDir"), cdnURL: string("cdnURL"), base: string("base"),
-    scripts: strings("scripts"), packages: strings("packages"), external: strings("external"), env,
+    scripts: strings("scripts"), packages: strings("packages"), external: strings("external"), env, moduleSources,
   };
 }
 
@@ -48,7 +64,7 @@ async function run(config: WarmupBuild): Promise<void> {
   await withHeadless({
     projectURL: appURL, baseURL: publicURL, size: 1, resolveURL: servedFile,
     loader: {
-      cdnURL: config.cdnURL, external: config.external, env: config.env,
+      cdnURL: config.cdnURL, external: config.external, env: config.env, moduleSources: config.moduleSources,
       resolve: (specifier) => config.packages.includes(packageName(specifier)) ? specifier : undefined,
     },
   }, (loader) => warmup(loader, config.scripts.map((script) => pathToFileURL(resolve(script)))));

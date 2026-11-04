@@ -197,7 +197,7 @@ export class GLTSLoader extends THREE.Loader {
     signal.throwIfAborted();
     const dependencies = new Dependencies();
     dependencies.include(script.dependencies);
-    const scope = new LoadScope({ script, request, host: this.manager, dependencies, loader, signal });
+    const scope = new LoadScope({ script, request, host: this.manager, dependencies, loader, signal, moduleSources: this.moduleSources });
     const execution = new Execution({ script, request, scope, dependencies });
     await execution.run();
     return execution;

@@ -1,4 +1,5 @@
 import { fork } from "node:child_process";
+import type { GLTSModuleSource } from "../types.js";
 
 export interface WarmupBuild {
   readonly root: string;
@@ -9,6 +10,7 @@ export interface WarmupBuild {
   readonly cdnURL: string;
   readonly base: string;
   readonly env: Readonly<Record<string, string | boolean>>;
+  readonly moduleSources: Readonly<Record<string, GLTSModuleSource>>;
 }
 
 /** Runs before Vite copies public files, with asset caches rooted in the app and headless globals isolated. */

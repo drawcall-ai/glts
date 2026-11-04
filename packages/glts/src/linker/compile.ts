@@ -1,14 +1,20 @@
-import { disableScriptTags, transform, type registerPlugin } from "@babel/standalone";
+import { availablePlugins, disableScriptTags, transform, type registerPlugin } from "@babel/standalone";
 import * as t from "@babel/types";
 
 import { GLTSError, toGLTSError } from "../errors.js";
 import { gltsSpecifier, importNames } from "../imports.js";
+import typegpu from "./typegpu.js";
 
 type Plugin = ReturnType<Parameters<typeof registerPlugin>[1]>;
+type PluginItem = NonNullable<NonNullable<Parameters<typeof transform>[1]["plugins"]>[number]>;
 type File = Parameters<NonNullable<Plugin["pre"]>>[0];
 
 // Standalone is used only as a compiler; never execute host-page script tags.
 if (typeof window !== "undefined") disableScriptTags();
+
+// Passed through standalone's untyped registry: the plugin types its `this` as TypeGPU's own plugin state, which no
+// Babel plugin type describes.
+availablePlugins.typegpu = typegpu;
 
 export function compileScript(source: string, url: string): string {
   try {
@@ -27,21 +33,27 @@ export function compileHelper(source: string, url: string, chain: readonly strin
 }
 
 /**
- * Strips types, as TypeScript does including imports used only as types; a script's isolation, which runs in the
- * preset's pass, sees the code without types.
+ * Strips types, as TypeScript does including imports used only as types; a script's isolation and the TypeGPU
+ * transform, which run in the preset's pass, see the code without types. The TypeGPU transform, which apps run
+ * through unplugin-typegpu, gives `'use gpu'` functions the metadata TypeGPU reads through a global, so it serves
+ * whichever typegpu instance the code imports.
  */
 function compile(source: string, url: string, isolate?: Plugin): string {
+  const passes: PluginItem[] = isolate ? [() => isolate, typegpuPass] : [typegpuPass];
   const result = transform(source, {
     sourceType: "module",
     filename: url,
     retainLines: true,
     passPerPreset: true,
     plugins: [dropInterpreter, rejectImportAssignments, "transform-typescript"],
-    presets: [() => ({ plugins: isolate ? [() => isolate] : [] })],
+    presets: [() => ({ plugins: passes })],
   });
   if (typeof result?.code !== "string") throw new Error("GLTS compiler produced no code");
   return result.code;
 }
+
+/** The TypeGPU transform of every file, which by default would skip names other than `.js` and `.ts`. */
+const typegpuPass: PluginItem = [availablePlugins.typegpu, { include: /(?:)/ }];
 
 /** A hashbang means nothing in a loaded module, and dropping it lets a prefix such as the precompiled marker come first. */
 function dropInterpreter(): Plugin {
