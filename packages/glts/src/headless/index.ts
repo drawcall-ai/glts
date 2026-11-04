@@ -56,6 +56,7 @@ async function run<T>(options: HeadlessOptions, use: (loader: GLTSLoader, canvas
       },
       OffscreenCanvas: Canvas,
     }));
+    const { env } = options.loader;
     const hooks = registerHooks({
       resolve(specifier, context, nextResolve) {
         if (specifier === "three" || specifier.startsWith("three/")) {
@@ -66,6 +67,15 @@ async function run<T>(options: HeadlessOptions, use: (loader: GLTSLoader, canvas
           return nextResolve(specifier, { ...context, parentURL: options.projectURL.href });
         }
         return nextResolve(specifier, context);
+      },
+      // Packages imported natively see the env scripts see, as Vite defines it for the app's packages in the browser.
+      load(url, context, nextLoad) {
+        const loaded = nextLoad(url, context);
+        if (!env || (loaded.format !== "module" && loaded.format !== "module-typescript") || loaded.source == null) return loaded;
+        const source = typeof loaded.source === "string" ? loaded.source : new TextDecoder().decode(loaded.source);
+        if (!source.includes("import.meta.env")) return loaded;
+        const prologue = `import.meta.env = ${JSON.stringify(env)};`;
+        return { ...loaded, source: source.replace(/^(#!.*\n)?/, (hashbang) => hashbang + prologue) };
       },
     });
     cleanups.push(() => hooks.deregister());
