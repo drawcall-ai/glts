@@ -276,3 +276,14 @@ it("serves as its loading manager's .glts handler, publishing the host's moduleS
     loader.dispose();
   }
 });
+
+it("requires nested scenes beneath scene unless the script disposed them", async () => {
+  const loader = serve({
+    "detached.glts": `import { gltsLoader } from "@drawcall/glts"; await gltsLoader.loadAsync("./child.glts");`,
+    "disposed.glts": `import { gltsLoader } from "@drawcall/glts"; (await gltsLoader.loadAsync("./child.glts")).dispose();`,
+    "child.glts": "",
+  });
+  await expect(loader.loadAsync(`${base}detached.glts`)).rejects.toThrow("Nested GLTS scenes must be added to scene");
+  const parent = await loader.loadAsync(`${base}disposed.glts`);
+  expect(parent.source.dependencyUrls).toContain(`${base}child.glts`);
+});

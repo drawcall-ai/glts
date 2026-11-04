@@ -4,7 +4,7 @@ import type { Dependencies } from "../dependencies.js";
 import { aggregate, GLTSError, runAll, toGLTSError } from "../errors.js";
 import type { ExecutionScope } from "../execution/index.js";
 import type { Script } from "../linker/index.js";
-import { nodeDependencies, type LoadRequest } from "../node.js";
+import { nodeDependencies, onNodeDispose, type LoadRequest } from "../node.js";
 import type { GLTSInstances, GLTSModuleSource, GLTSScene, GLTSURL } from "../types.js";
 import { canonicalize } from "../urls.js";
 import { Resources } from "./resources.js";
@@ -90,14 +90,14 @@ export class LoadScope implements ExecutionScope {
     return this.#resources.manager;
   }
 
-  /** The nodes of the nested loads that succeeded. */
+  /** The nodes of the nested loads that succeeded, until they are disposed. */
   get nodes(): readonly GLTSScene[] {
     return [...this.#nodes];
   }
 
   /**
    * Waits for the nested loads, including ones started meanwhile, and throws their failures, the first with its own
-   * phase, URL, and import chain; then requires their
+   * phase, URL, and import chain; then requires their undisposed
    * nodes below `root`, waits for the resources, and throws theirs.
    */
   async settle(root: THREE.Object3D): Promise<void> {
@@ -152,6 +152,8 @@ export class LoadScope implements ExecutionScope {
     this.#assertOpen("loads");
     const loading = load(resolved).then((node) => {
       this.#nodes.add(node);
+      // A node the script disposes, such as a library's temporary build input, is no longer the scope's to attach.
+      onNodeDispose(node, () => this.#nodes.delete(node));
       this.#dependencies.include(nodeDependencies(node));
       return node;
     });
