@@ -9,8 +9,7 @@ type GLTSErrorCallback = (error: unknown) => void;
 
 /**
  * A script's contextual `gltsLoader`: a Three.js loader of its contextual `loadingManager`, so a library given that
- * manager can load `.glts` files through it as a handler, as through the host's GLTSLoader. Its path prefixes the URLs
- * it is given; requests use the host GLTSLoader's cross-origin, credentials, and header settings, never its own.
+ * manager can load `.glts` files through it as a handler, as through the host's GLTSLoader.
  */
 export class ScriptLoader extends THREE.Loader<GLTSScene, GLTSURL> implements GLTSScriptLoader {
   readonly #load: (url: string) => Promise<GLTSScene>;

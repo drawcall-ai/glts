@@ -36,7 +36,7 @@ Rules:
 - Never import `.glts` files (load them with `gltsLoader.loadAsync()`) or other local files such as `./data.json`, and never use import attributes.
 - Dynamic `import()` follows the same rules and resolves when it runs, so an import on a path that never runs is never fetched. `@drawcall/glts` must be imported statically. The Vite plugin bundles a literal specifier such as `import("pkg")` like a static import, loaded with the app; a computed one such as `import(name)` loads from the CDN.
 - Top-level `await` works.
-- Scripts and helpers may define TypeGPU `'use gpu'` functions; GLTS applies the `unplugin-typegpu` transform (TypeGPU 0.12) wherever it compiles them, so they need no app configuration.
+- Scripts and helpers may define TypeGPU `'use gpu'` functions without a TypeGPU build plugin; GLTS transforms them wherever it compiles them, for the `typegpu` versions its optional peer dependency names.
 
 ## Scene and presentation
 
@@ -91,7 +91,7 @@ When the asset is nested, its background, environment, fog, override material, d
 - Loading closes when evaluation finishes: never start loads from `onFrame`, `onMatrixUpdateAt`, effect factories, timers, or event callbacks.
 - Three.js loaders resolve relative URLs against the page; resolve them against the script instead: `new URL("./bark.png", import.meta.url).href`.
 - Register LoadingManager handlers (`addHandler`) on the contextual `loadingManager`, with handler loaders constructed with it. A handler registered only on the host's manager makes the load fail.
-- For a library that loads `.glts` files through a manager's handler, register the contextual `gltsLoader` itself: `loadingManager.addHandler(/\.glts$/i, gltsLoader)`. Like the host's `GLTSLoader`, it publishes `moduleSources`.
+- For a library that loads `.glts` files through a manager's handler, register the contextual `gltsLoader` itself: `loadingManager.addHandler(/\.glts$/i, gltsLoader)`. Like the host's `GLTSLoader`, it publishes `moduleSources`, so libraries that key caches on it work unchanged.
 - Dispose only what the script created. GLTS does not infer ownership of geometry, materials, or textures.
 
 ## Helpers
@@ -342,7 +342,7 @@ const loader = new AssetLoader(loadingManager)
 for (const request of requests) scene.add(await loader.loadAsync(request))
 ```
 
-Libraries that build their caches lazily can build them whole when `import.meta.env.PROD && import.meta.env.SSR`. During warmup, served paths such as `/models/tree.glb` load the public file, and URLs the scripts see, such as `import.meta.url` and the resources' resolved URLs, are `file:` URLs of public files. The warmup provides WebGPU through [@drawcall/webgpu](https://github.com/drawcall-ai/webgpu/blob/main/skills/webgpu/SKILL.md), 2D canvases including `OffscreenCanvas` that draw decoded `ImageBitmap`s, and module workers of `file:` modules; Node.js cannot `import()` `blob:` URLs.
+Libraries that build their caches lazily can build them whole when `import.meta.env.PROD && import.meta.env.SSR`. During warmup, served paths such as `/models/tree.glb` load the public file, but resolved URLs, including `import.meta.url`, are `file:` URLs, so key precomputed caches on requested paths or content, not on resolved URLs. The warmup provides WebGPU through [@drawcall/webgpu](https://github.com/drawcall-ai/webgpu/blob/main/skills/webgpu/SKILL.md), 2D canvases and `OffscreenCanvas` that draw decoded `ImageBitmap`s, and module workers loaded from files; code that imports or starts workers from `blob:` URLs fails there.
 
 Type checking: the plugin type checks the public `.glts` files and their helpers strictly, independently of the app's `tsconfig.json`, using the app's `typescript` 5 or 6; install it as a dev dependency, or `vite build` fails.
 

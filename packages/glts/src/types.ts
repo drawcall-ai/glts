@@ -157,7 +157,11 @@ export type GLTSMatrixUpdateCallback = (
 export type GLTSFrameCallback = (delta: number) => void;
 export type GLTSDisposeCallback = () => void;
 
-/** A script's contextual loader of nested scripts, which a LoadingManager can use as its handler for `.glts` files. */
+/**
+ * A script's contextual loader of nested scripts, which a LoadingManager can use as its handler for `.glts` files. Its
+ * path prefixes the URLs it is given; requests use the host GLTSLoader's cross-origin, credentials, and header
+ * settings, never its own.
+ */
 export interface GLTSScriptLoader extends THREE.Loader<GLTSScene, GLTSURL> {
   /** The host loader's moduleSources. */
   readonly moduleSources: Readonly<Record<string, GLTSModuleSource>>;
