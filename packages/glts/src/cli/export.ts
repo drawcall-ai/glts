@@ -7,7 +7,7 @@ import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { ImageData } from "@napi-rs/canvas";
 import type { GLTSScene } from "../types.js";
 import { writeHeadless } from "./headless.js";
-import { bitmapPixels, Canvas } from "../headless/canvas.js";
+import { Canvas } from "../headless/canvas.js";
 import { setGlobals } from "../headless/globals.js";
 
 export interface ExportOptions {
@@ -81,7 +81,7 @@ export async function exportScene(scene: GLTSScene): Promise<Uint8Array> {
   }
 
   const originalSources = new Map<Texture, Source<unknown>>();
-  // GLTFExporter uses these browser globals; they are installed only while exporting.
+  // GLTFExporter uses these browser globals; without a document it draws ImageBitmaps on an OffscreenCanvas.
   const restore = setGlobals({ document: undefined, OffscreenCanvas: Canvas, ImageData, FileReader: BlobReader });
   try {
     for (const texture of textures) {
@@ -90,8 +90,7 @@ export async function exportScene(scene: GLTSScene): Promise<Uint8Array> {
       if ("data" in image && (texture.format !== RGBAFormat || texture.type !== UnsignedByteType)) {
         throw new Error(`Cannot export data texture "${texture.name}"; use unsigned-byte RGBA pixels.`);
       }
-      let data: unknown = "data" in image ? image.data : undefined;
-      if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) data = bitmapPixels(image);
+      const data: unknown = "data" in image ? image.data : undefined;
       if (data === undefined) continue;
       if (!(data instanceof Uint8Array || data instanceof Uint8ClampedArray) || !("width" in image) || typeof image.width !== "number" || !("height" in image) || typeof image.height !== "number" || data.length !== image.width * image.height * 4) {
         throw new Error(`Cannot export texture "${texture.name}": invalid bitmap pixels.`);

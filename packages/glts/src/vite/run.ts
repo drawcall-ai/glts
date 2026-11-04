@@ -8,6 +8,12 @@ import { warmup } from "../loader/warmup.js";
 import type { GLTSModuleSource } from "../types.js";
 import type { WarmupBuild } from "./warmup.js";
 
+/** The entries of a plain object field, whose values the caller checks. */
+function fields(value: unknown, name: string): [string, unknown][] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`Invalid GLTS warmup ${name}`);
+  return Object.entries(value);
+}
+
 function options(value: unknown): WarmupBuild {
   if (typeof value !== "object" || value === null) throw new Error("Missing GLTS warmup options");
   const string = (key: string): string => {
@@ -17,30 +23,28 @@ function options(value: unknown): WarmupBuild {
   };
   const strings = (key: string): string[] => {
     const field: unknown = Reflect.get(value, key);
-    if (!Array.isArray(field) || !field.every((item: unknown) => typeof item === "string")) {
+    if (!Array.isArray(field) || !field.every((item: unknown): item is string => typeof item === "string")) {
       throw new Error(`Invalid GLTS warmup ${key}`);
     }
     return field;
   };
-  const environment: unknown = Reflect.get(value, "env");
-  if (typeof environment !== "object" || environment === null || Array.isArray(environment)) {
-    throw new Error("Invalid GLTS warmup env");
-  }
-  const env = Object.fromEntries(Object.entries(environment).map(([key, field]): [string, string | boolean] => {
+  const env = Object.fromEntries(fields(Reflect.get(value, "env"), "env").map(([key, field]): [string, string | boolean] => {
     if (typeof field !== "string" && typeof field !== "boolean") throw new Error(`Invalid GLTS warmup env.${key}`);
     return [key, field];
   }));
-  const sources: unknown = Reflect.get(value, "moduleSources");
-  if (typeof sources !== "object" || sources === null) throw new Error("Invalid GLTS warmup moduleSources");
-  const moduleSources = Object.fromEntries(Object.entries(sources).map(([specifier, source]: [string, unknown]): [string, GLTSModuleSource] => {
-    const packages: unknown = typeof source === "object" && source !== null ? Reflect.get(source, "packages") : undefined;
-    const hashes: unknown = typeof source === "object" && source !== null ? Reflect.get(source, "moduleHashes") : undefined;
-    if (!Array.isArray(packages) || !packages.every((name: unknown) => typeof name === "string") ||
-      typeof hashes !== "object" || hashes === null || !Object.values(hashes).every((hash: unknown) => typeof hash === "string")) {
-      throw new Error(`Invalid GLTS warmup moduleSources.${specifier}`);
-    }
-    return [specifier, { packages, moduleHashes: Object.fromEntries(Object.entries(hashes)) }];
-  }));
+  const moduleSources = Object.fromEntries(fields(Reflect.get(value, "moduleSources"), "moduleSources")
+    .map(([specifier, source]): [string, GLTSModuleSource] => {
+      const name = `moduleSources.${specifier}`;
+      const { packages, moduleHashes } = Object.fromEntries(fields(source, name));
+      if (!Array.isArray(packages) || !packages.every((item: unknown): item is string => typeof item === "string")) {
+        throw new Error(`Invalid GLTS warmup ${name}.packages`);
+      }
+      const hashes = Object.fromEntries(fields(moduleHashes, `${name}.moduleHashes`).map(([url, hash]): [string, string] => {
+        if (typeof hash !== "string") throw new Error(`Invalid GLTS warmup ${name}.moduleHashes`);
+        return [url, hash];
+      }));
+      return [specifier, { packages, moduleHashes: hashes }];
+    }));
   return {
     root: string("root"), publicDir: string("publicDir"), cdnURL: string("cdnURL"), base: string("base"),
     scripts: strings("scripts"), packages: strings("packages"), external: strings("external"), env, moduleSources,
