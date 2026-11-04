@@ -2,10 +2,11 @@ import { requestAdapter } from "@drawcall/webgpu";
 import { Canvas as NativeCanvas, ImageData, type SKRSContext2D } from "@napi-rs/canvas";
 import { readBitmap } from "./bitmap.js";
 
-/** The pixels of the native ImageBitmaps createImageBitmap made, which a 2D canvas cannot read from the bitmap itself. */
-const bitmapPixels = new WeakMap<WeakKey, ImageData>();
-/** Copies of the bitmaps 2D canvases drew, made on their first draw: most bitmaps are only uploaded as textures. */
-const drawable = new WeakMap<ImageData, NativeCanvas>();
+/**
+ * What 2D canvases draw for the native ImageBitmaps createImageBitmap made, which they cannot read themselves: the
+ * pixels, replaced by a canvas of them on the first draw, since most bitmaps are only uploaded as textures.
+ */
+const drawable = new WeakMap<WeakKey, ImageData | NativeCanvas>();
 const adapted = new WeakSet<SKRSContext2D>();
 
 /**
@@ -36,8 +37,7 @@ function adapt(context: SKRSContext2D): void {
   const { drawImage, getImageData } = context;
   Object.defineProperty(context, "drawImage", {
     value: (image: unknown, ...rest: number[]): void => {
-      const pixels = typeof image === "object" && image !== null ? bitmapPixels.get(image) : undefined;
-      Reflect.apply(drawImage, context, [pixels ? canvasOf(pixels) : image, ...rest]);
+      Reflect.apply(drawImage, context, [drawableOf(image), ...rest]);
     },
   });
   Object.defineProperty(context, "getImageData", {
@@ -91,12 +91,14 @@ function writeCanvas(
   queue.writeTexture(destination, pixels, { bytesPerRow: rowBytes, rowsPerImage: height }, [width, height]);
 }
 
-function canvasOf(pixels: ImageData): NativeCanvas {
-  let canvas = drawable.get(pixels);
-  if (canvas) return canvas;
-  canvas = new NativeCanvas(pixels.width, pixels.height);
-  canvas.getContext("2d").putImageData(pixels, 0, 0);
-  drawable.set(pixels, canvas);
+/** What a 2D canvas draws for `image`: a canvas for a headless ImageBitmap, otherwise the image itself. */
+function drawableOf(image: unknown): unknown {
+  if (typeof image !== "object" || image === null) return image;
+  const source = drawable.get(image);
+  if (!(source instanceof ImageData)) return source ?? image;
+  const canvas = new NativeCanvas(source.width, source.height);
+  canvas.getContext("2d").putImageData(source, 0, 0);
+  drawable.set(image, canvas);
   return canvas;
 }
 
@@ -117,7 +119,7 @@ export function readableBitmaps(create: CreateImageBitmap): { createImageBitmap:
   const createReadable = async (source: ImageBitmapSource, options?: ImageBitmapOptions): Promise<ImageBitmap> => {
     const bitmap = await create(source, options);
     const pixels = new Uint8ClampedArray((await readBitmap(await (device ??= startDevice()), bitmap)).buffer);
-    bitmapPixels.set(bitmap, new ImageData(pixels, bitmap.width, bitmap.height));
+    drawable.set(bitmap, new ImageData(pixels, bitmap.width, bitmap.height));
     return bitmap;
   };
   return {

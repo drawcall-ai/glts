@@ -36,7 +36,7 @@ Rules:
 - Never import `.glts` files (load them with `gltsLoader.loadAsync()`) or other local files such as `./data.json`, and never use import attributes.
 - Dynamic `import()` follows the same rules and resolves when it runs, so an import on a path that never runs is never fetched. `@drawcall/glts` must be imported statically. The Vite plugin bundles a literal specifier such as `import("pkg")` like a static import, loaded with the app; a computed one such as `import(name)` loads from the CDN.
 - Top-level `await` works.
-- Scripts and helpers may define TypeGPU `'use gpu'` functions without a TypeGPU build plugin; GLTS transforms them wherever it compiles them, for the `typegpu` versions its optional peer dependency names.
+- Scripts and helpers may define TypeGPU `'use gpu'` functions without a TypeGPU build plugin; GLTS transforms them wherever it compiles them. Use a `typegpu` version within `@drawcall/glts`'s optional peer range.
 
 ## Scene and presentation
 

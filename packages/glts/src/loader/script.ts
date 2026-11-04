@@ -27,7 +27,7 @@ export class ScriptLoader extends THREE.Loader<GLTSScene, GLTSURL> implements GL
   }
 
   override load(url: GLTSURL, onLoad: GLTSLoadCallback, onProgress?: GLTSProgressCallback, onError?: GLTSErrorCallback): void {
-    this.loadAsync(url, onProgress).then(onLoad, onError ?? ((error: unknown) => console.error(error)));
+    void this.loadAsync(url, onProgress).then(onLoad, onError ?? ((error: unknown) => console.error(error)));
   }
 
   override async loadAsync(url: GLTSURL, onProgress?: GLTSProgressCallback): Promise<GLTSScene> {
