@@ -60,7 +60,7 @@ it("rejects overlapping and nested sessions without disturbing the active one", 
   expect(descriptors()).toEqual(before);
 });
 
-it("uploads 2D canvases to textures as Three's CanvasTexture does", async () => {
+it("uploads its 2D canvases to textures through @drawcall/webgpu, as Three's CanvasTexture does", async () => {
   await withHeadless(options, async () => {
     const canvas = new OffscreenCanvas(1, 2);
     const context = canvas.getContext("2d");
@@ -73,7 +73,7 @@ it("uploads 2D canvases to textures as Three's CanvasTexture does", async () => 
     const adapter = await requestAdapter();
     if (!adapter) throw new Error("WebGPU is unavailable");
     const device = await adapter.requestDevice();
-    const texture = device.createTexture({ size: [1, 2], format: "rgba8unorm", usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC });
+    const texture = device.createTexture({ size: [1, 2], format: "rgba8unorm", usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC | GPUTextureUsage.RENDER_ATTACHMENT });
     const buffer = device.createBuffer({ size: 512, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     device.queue.copyExternalImageToTexture({ source: canvas, flipY: true }, { texture }, [1, 2]);
     const encoder = device.createCommandEncoder();
@@ -107,6 +107,8 @@ it("runs browser code that needs canvases, decoded images, and module workers", 
     if (!context) throw new Error("Missing 2D context");
     context.drawImage(bitmap, 0, 0);
     expect([...context.getImageData(0, 0, 2, 1, { colorSpace: "srgb" }).data]).toEqual([255, 0, 0, 255, 0, 0, 255, 128]);
+    bitmap.close();
+    expect(() => context.drawImage(bitmap, 0, 0)).toThrow("closed");
 
     const thread = new Worker(pathToFileURL(worker), { type: "module" });
     const reply = new Promise<unknown>((resolve, reject) => {
