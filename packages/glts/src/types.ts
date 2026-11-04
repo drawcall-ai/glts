@@ -157,7 +157,9 @@ export type GLTSMatrixUpdateCallback = (
 export type GLTSFrameCallback = (delta: number) => void;
 export type GLTSDisposeCallback = () => void;
 
-export interface GLTSScriptLoader {
-  loadAsync(url: GLTSURL): Promise<GLTSScene>;
+/** A script's contextual loader of nested scripts, which a LoadingManager can use as its handler for `.glts` files. */
+export interface GLTSScriptLoader extends THREE.Loader<GLTSScene, GLTSURL> {
+  /** The host loader's moduleSources. */
+  readonly moduleSources: Readonly<Record<string, GLTSModuleSource>>;
   loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances>;
 }
