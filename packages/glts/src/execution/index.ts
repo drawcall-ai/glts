@@ -28,8 +28,8 @@ export interface ExecutionScope {
   readonly manager: THREE.LoadingManager;
   /** The nested nodes the execution owns. */
   readonly nodes: readonly GLTSScene[];
-  /** Waits for what the execution loads, which must end attached to `root`, then closes; throws their failures. */
-  settle(root: THREE.Object3D): Promise<void>;
+  /** Waits for what the execution loads, then stops counting loads as its own; throws their failures. */
+  settle(): Promise<void>;
   /** Closes and stops loading, returning the failures settle() has not thrown. */
   abort(reason: unknown): Promise<readonly unknown[]>;
   /** Disposes what the execution loaded through the scope. */
@@ -126,12 +126,12 @@ export class Execution {
   async run(): Promise<void> {
     try {
       await this.#evaluate();
-      await this.#scope.settle(this.root);
+      await this.#scope.settle();
       if (this.#instanced && this.#onMatrixUpdateAt.length === 0) this.#autoInstance();
     } catch (error) {
       // The script's own failures are GLTSErrors already; anything else failed while building its scene.
       const primary = toGLTSError(error, "GLTS execution failed", { phase: "construct", url: this.url });
-      const failure = aggregate("GLTS execution and nested load both failed", primary, await this.#scope.abort(primary));
+      const failure = aggregate("GLTS execution and its loads both failed", primary, await this.#scope.abort(primary));
       cleanUpAndThrow(failure, this.url, () => this.dispose());
     }
   }

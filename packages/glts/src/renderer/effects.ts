@@ -28,7 +28,8 @@ function disposeGraph(roots: readonly THREE.Node[], pipeline?: THREE.RenderPipel
     () => pipeline?.dispose(),
     // Three's shared quad geometry caches the first compiled graph, including user callbacks.
     // Release that cache; other live pipelines recreate the triangle's GPU buffers on their next render.
-    () => { if (pipeline) new THREE.QuadMesh().geometry.dispose(); },
+    // The material only satisfies QuadMesh's constructor; this quad is never rendered.
+    () => { if (pipeline) new THREE.QuadMesh(new THREE.NodeMaterial()).geometry.dispose(); },
     ...[...nodes].map(node => () => node.dispose())
   ]);
 }

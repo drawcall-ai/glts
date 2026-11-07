@@ -1,8 +1,9 @@
 import * as THREE from "three";
 
 import { Dependencies } from "../dependencies.js";
-import { collectError, GLTSError } from "../errors.js";
+import { collectError, GLTSError, runAll } from "../errors.js";
 import { canonicalize, pageBase } from "../urls.js";
+import type { ScopePhase } from "./scope.js";
 
 export interface ResourcesOptions {
   /** The host's manager, which gets the items and resolves their URLs. */
@@ -11,13 +12,17 @@ export interface ResourcesOptions {
   readonly url: string;
   /** The execution's dependencies, which get its http(s) and file resources. */
   readonly dependencies: Dependencies;
-  /** Throws unless resources may still start. */
-  readonly assertOpen: () => void;
+  /**
+   * The execution's phase: items started and URLs resolved once it settled are not part of its load or dependencies,
+   * and no item may start once it aborted or was disposed.
+   */
+  readonly phase: () => ScopePhase;
 }
 
 /**
  * One execution's contextual loadingManager, which reports its items to the host's manager, observes the files
- * they load, and collects their failures.
+ * they load, and collects their failures. Items started once the execution stopped loading, such as content a
+ * library streams in per view, report to the host's manager only.
  */
 export class Resources {
   readonly manager = new THREE.LoadingManager();
@@ -30,13 +35,20 @@ export class Resources {
   /** Failures of the managers' callbacks. */
   readonly #callbackErrors: unknown[] = [];
   #items = 0;
+  /** Items started once loading settled, which only the host counts; none of loading's is open then. */
+  #late = 0;
   #idle: { readonly resolve: () => void; readonly reject: (reason: unknown) => void } | undefined;
 
   constructor(options: ResourcesOptions) {
     this.#host = options.host;
     this.#url = options.url;
     options.dependencies.include(() => this.#dependencies());
-    this.#scopeManager(options.assertOpen);
+    this.#scopeManager(options.phase);
+  }
+
+  /** Whether resources started during loading have not ended. */
+  get loading(): boolean {
+    return this.#items > 0;
   }
 
   /** Resolves once no resource is loading, or rejects with the reason of abort(). */
@@ -49,14 +61,21 @@ export class Resources {
 
   /** Throws the failures of the resources and the managers' callbacks. */
   assertLoaded(): void {
-    if (this.#failedURLs.length === 0 && this.#callbackErrors.length === 0) return;
+    const failure = this.failure();
+    if (failure) throw failure;
+  }
 
-    const failedURLs = this.#failedURLs.map((url) => `- ${url}`).join("\n");
+  /** The failures of the resources, but those at `excluded` URLs, and of the managers' callbacks so far, as one error. */
+  failure(excluded: ReadonlySet<string> = new Set()): GLTSError | undefined {
+    const failed = this.#failedURLs.filter((url) => !excluded.has(url));
+    if (failed.length === 0 && this.#callbackErrors.length === 0) return undefined;
+
+    const failedURLs = failed.map((url) => `- ${url}`).join("\n");
     const message = failedURLs ? `Resources failed to load:\n${failedURLs}` : "LoadingManager callback failed";
     const cause = this.#callbackErrors.length > 0
       ? new AggregateError(this.#callbackErrors, "LoadingManager callbacks failed")
       : undefined;
-    throw new GLTSError(message, { phase: "resource", url: this.#url }, cause);
+    return new GLTSError(message, { phase: "resource", url: this.#url }, cause);
   }
 
   /** Aborts the loading resources and rejects idle() with `reason`. */
@@ -86,7 +105,7 @@ export class Resources {
   }
 
   /** Makes the manager report to the host, observe its resources, and count its items. */
-  #scopeManager(assertOpen: () => void): void {
+  #scopeManager(phase: () => ScopePhase): void {
     const host = this.#host;
     const manager = this.manager;
     const itemStart = manager.itemStart.bind(manager);
@@ -96,6 +115,7 @@ export class Resources {
 
     manager.resolveURL = (url): string => {
       const resolved = host.resolveURL(url);
+      if (phase() !== "loading") return resolved;
       // FileLoader skips itemStart when joining another manager's in-flight request.
       this.#aliases.add(url);
       const resource = this.#resourceURL(resolved) ?? this.#resourceURL(url);
@@ -116,7 +136,15 @@ export class Resources {
       return null;
     };
     manager.itemStart = (url): void => {
-      assertOpen();
+      const current = phase();
+      if (current === "aborted" || current === "disposed") {
+        throw new GLTSError("The contextual loadingManager is no longer open", { phase: "dispose", url: this.#url });
+      }
+      if (current === "settled") {
+        this.#late += 1;
+        runAll("LoadingManager callbacks failed", [() => itemStart(url), () => host.itemStart(url)]);
+        return;
+      }
       const resource = this.#resourceURL(url);
       if (resource) this.#started.set(url, resource);
       this.#items += 1;
@@ -124,11 +152,22 @@ export class Resources {
       collectError(this.#callbackErrors, () => host.itemStart(url));
     };
     manager.itemError = (url): void => {
+      if (this.#late > 0) {
+        // Disposal aborts late items itself, which their loaders report as errors; the host sees only their ends.
+        if (phase() === "disposed") itemError(url);
+        else runAll("LoadingManager callbacks failed", [() => itemError(url), () => host.itemError(url)]);
+        return;
+      }
       this.#failedURLs.push(url);
       collectError(this.#callbackErrors, () => itemError(url));
       collectError(this.#callbackErrors, () => host.itemError(url));
     };
     manager.itemEnd = (url): void => {
+      if (this.#late > 0) {
+        this.#late -= 1;
+        runAll("LoadingManager callbacks failed", [() => itemEnd(url), () => host.itemEnd(url)]);
+        return;
+      }
       if (this.#items === 0) {
         throw new Error(`LoadingManager item ended without a matching start: ${url}`);
       }

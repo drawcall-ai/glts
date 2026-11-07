@@ -1,8 +1,9 @@
 import type { Canvas } from "@drawcall/webgpu";
-import sharp, { type OverlayOptions } from "sharp";
+import sharp, { type OverlayOptions, type Sharp } from "sharp";
 import * as THREE from "three/webgpu";
+import { ViewCompletion } from "../completion.js";
 import { GLTSRenderer } from "../renderer/index.js";
-import type { GLTSScene } from "../types.js";
+import type { GLTSLoader } from "../loader/index.js";
 import { writeHeadless } from "./headless.js";
 import type { FocusSphere, View, ViewAngle } from "./views.js";
 
@@ -13,13 +14,32 @@ export interface RenderOptions {
   views?: View[][];
 }
 
-function caption(text: string, size: number): Buffer {
-  const escaped = text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-  return Buffer.from(`<svg width="${size}" height="28"><rect width="100%" height="100%" fill="#202733"/><text x="8" y="19" font-family="sans-serif" font-size="13" fill="white">${escaped}</text></svg>`);
+const captionHeight = 28;
+
+/**
+ * A contact sheet of `rows` of views, each `size` pixels square and captioned below when there are several or any has
+ * a title: the height of a row, and the sheet's background with the captions. The image rasterizes while the views
+ * render, since rasterizing captions after them adds about 50 ms to a warm render, measured on an M2 Pro.
+ */
+function contactSheet(rows: View[][], size: number): { readonly height: number; readonly image: Promise<Sharp> } {
+  const labeled = rows.flat().length > 1 || rows.some(row => row.some(view => view.title !== undefined));
+  const height = size + (labeled ? captionHeight : 0);
+  const captions = labeled ? rows.flatMap((row, top) => row.map((view, left) => {
+    const title = view.title ? `${view.title} · ${view.camera}` : view.camera;
+    const escaped = title.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+    // A caption's own viewport clips it to its view's width.
+    return `<svg x="${left * size}" y="${top * height + size}" width="${size}" height="${captionHeight}"><text x="8" y="19">${escaped}</text></svg>`;
+  })) : [];
+  const width = Math.max(...rows.map(row => row.length)) * size;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${rows.length * height}"><rect width="100%" height="100%" fill="#202733"/><g font-family="sans-serif" font-size="13" fill="white">${captions.join("")}</g></svg>`;
+  const image = sharp(Buffer.from(svg)).raw().toBuffer({ resolveWithObject: true }).then(({ data, info }) => sharp(data, { raw: info }));
+  // Awaited once the views rendered; a render failing first is the failure to report.
+  image.catch(() => {});
+  return { height, image };
 }
 
 export async function renderFile(file: string, options: RenderOptions): Promise<void> {
-  await writeHeadless(file, options.output, true, options.size, (scene, canvas) => renderScene(scene, canvas, options));
+  await writeHeadless(file, options.output, true, options.size, (loader, url, canvas) => renderScene(loader, url, canvas, options));
 }
 
 function findUnique(scene: THREE.Object3D, name: string): THREE.Object3D {
@@ -63,6 +83,49 @@ function fitCamera(angle: ViewAngle, sphere: THREE.Sphere): THREE.Camera {
   return camera;
 }
 
+/**
+ * Holds three's node time, which TSL's `time` reads, at `seconds` for every render and compute, with no time passing
+ * between them, so a view's image does not depend on when it was taken. Three offers no other public way to set it, so
+ * this depends on the inspector's internal `nodeFrame`, which the CLI test of three's time at --time pins.
+ */
+class HeldTime extends THREE.InspectorBase {
+  readonly #seconds: number;
+
+  constructor(seconds: number) {
+    super();
+    this.#seconds = seconds;
+  }
+
+  override beginRender(): void { this.#hold(); }
+
+  override beginCompute(): void { this.#hold(); }
+
+  #hold(): void {
+    this.nodeFrame.time = this.#seconds;
+    this.nodeFrame.deltaTime = 0;
+  }
+}
+
+/** Resolves once the GPU ran all work submitted to the device `canvas` was configured with. */
+async function finished(canvas: Canvas): Promise<void> {
+  const device = canvas.getContext("webgpu")?.getConfiguration()?.device;
+  if (!device) throw new Error("The headless canvas is not configured.");
+  await device.queue.onSubmittedWorkDone();
+}
+
+/**
+ * Repeats `pass` as frames would pass in the app until `completion` counts the view complete. While items are open, a
+ * frame's time passes for them to progress; with none open, the next pass follows once pending tasks ran.
+ */
+async function complete(completion: ViewCompletion, pass: () => void | Promise<void>): Promise<void> {
+  completion.restart();
+  for (;;) {
+    await pass();
+    await new Promise((resolve) => completion.open > 0 ? setTimeout(resolve, 16) : setImmediate(resolve));
+    if (completion.frame()) return;
+  }
+}
+
 function isolate(scene: THREE.Object3D, selected: THREE.Object3D): () => void {
   const keep = new Set<THREE.Object3D>();
   selected.traverse(object => keep.add(object));
@@ -76,7 +139,17 @@ function isolate(scene: THREE.Object3D, selected: THREE.Object3D): () => void {
   return () => { for (const [object, mask] of masks) object.layers.mask = mask; };
 }
 
-async function renderScene(scene: GLTSScene, canvas: Canvas, { size, time, views }: RenderOptions): Promise<Uint8Array> {
+async function renderScene(loader: GLTSLoader, url: URL, canvas: Canvas, options: RenderOptions): Promise<Uint8Array> {
+  // Items scripts start once their own load settled, such as those of a nested script's library, are the host's only.
+  const completion = new ViewCompletion(loader.manager);
+  try { return await renderViews(loader, url, canvas, completion, options); }
+  finally { completion.dispose(); }
+}
+
+async function renderViews(loader: GLTSLoader, url: URL, canvas: Canvas, completion: ViewCompletion, { size, time, views }: RenderOptions): Promise<Uint8Array> {
+  const scene = await loader.loadAsync(url);
+  // What the load left streaming in, such as later nested loads, arrives first, so frame callbacks step it too.
+  await complete(completion, () => {});
   scene.update(0);
   for (let elapsed = 0; elapsed < time;) {
     const delta = Math.min(1 / 60, time - elapsed);
@@ -91,35 +164,38 @@ async function renderScene(scene: GLTSScene, canvas: Canvas, { size, time, views
     const camera = defaultCamera ?? fitCamera(view.camera, focusSphere(scene, view.focus, isolated));
     return { view, camera, isolated };
   }));
+  const sheet = contactSheet(rows, size);
   // Three's DOM canvas types exclude native canvases; its constructor checks the actual API.
-  const instance: unknown = Reflect.construct(THREE.WebGPURenderer, [{ canvas, antialias: false }]);
+  // Constructed as the skill recommends hosts construct theirs, so views draw as they would in the app.
+  const instance: unknown = Reflect.construct(THREE.WebGPURenderer, [{ canvas, antialias: true, reversedDepthBuffer: true }]);
   if (!(instance instanceof THREE.WebGPURenderer)) throw new Error("Unable to construct the headless renderer.");
   const renderer = instance;
   try {
     await renderer.init();
+    renderer.inspector = new HeldTime(time);
     renderer.setPixelRatio(1);
     renderer.setSize(size, size, false);
     const tiles: OverlayOptions[] = [];
-    const labeled = shots.flat().length > 1 || shots.some(row => row.some(shot => shot.view.title !== undefined));
-    const height = size + (labeled ? 28 : 0);
     for (const [row, rowShots] of shots.entries()) for (const [column, shot] of rowShots.entries()) {
       const restore = shot.isolated ? isolate(scene, shot.isolated) : () => {};
       const gltsRenderer = new GLTSRenderer(renderer);
       try {
-        gltsRenderer.render(scene, shot.camera);
-        const input = await sharp(await canvas.readPixels(), { raw: { width: size, height: size, channels: 4 } }).png().toBuffer();
-        tiles.push({ input, left: column * size, top: row * height });
+        // A render requests all a view draws, its shadows included; renders repeat, as frames in the app would, until
+        // they request nothing, and the image is the last. Each waits for the GPU, as a browser paces frames, so slow
+        // GPUs do not queue frames for the readback to wait on.
+        await complete(completion, async () => {
+          gltsRenderer.render(scene, shot.camera);
+          await finished(canvas);
+        });
+        const pixels = await canvas.readPixels();
+        const input = Buffer.from(pixels.buffer, pixels.byteOffset, pixels.byteLength);
+        tiles.push({ input, raw: { width: size, height: size, channels: 4 }, left: column * size, top: row * sheet.height });
       } finally {
         try { gltsRenderer.dispose(); }
         finally { restore(); }
       }
-      if (labeled) {
-        const title = shot.view.title ? `${shot.view.title} · ${shot.view.camera}` : shot.view.camera;
-        tiles.push({ input: caption(title, size), left: column * size, top: row * height + size });
-      }
     }
-    const width = Math.max(...rows.map(row => row.length)) * size;
-    return await sharp({ create: { width, height: rows.length * height, channels: 4, background: "#202733" } }).composite(tiles).png().toBuffer();
+    return await (await sheet.image).composite(tiles).png().toBuffer();
   } finally {
     await renderer.dispose();
   }

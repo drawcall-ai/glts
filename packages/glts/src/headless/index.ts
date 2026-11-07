@@ -1,12 +1,13 @@
 import { registerHooks } from "node:module";
 import { createCanvas, type Canvas as GPUCanvas } from "@drawcall/webgpu";
+import type * as Native from "@napi-rs/canvas";
 import { LoadingManager } from "three";
 import { withFiles } from "../files.js";
 import { gltsSpecifier } from "../imports.js";
 import { isBareSpecifier } from "../linker/resolution.js";
 import { GLTSLoader } from "../loader/index.js";
 import type { GLTSLoaderOptions } from "../types.js";
-import { Canvas } from "./canvas.js";
+import { canvasClass } from "./canvas.js";
 import { setGlobals } from "./globals.js";
 import { moduleWorkers } from "./workers.js";
 
@@ -54,8 +55,7 @@ async function run<T>(options: HeadlessOptions, use: (loader: GLTSLoader, canvas
           return createElement(name);
         },
       },
-      OffscreenCanvas: Canvas,
-    }));
+    }, { OffscreenCanvas: canvasClass }));
     const { env } = options.loader;
     const hooks = registerHooks({
       resolve(specifier, context, nextResolve) {
@@ -63,6 +63,7 @@ async function run<T>(options: HeadlessOptions, use: (loader: GLTSLoader, canvas
           return nextResolve(specifier, { ...context, parentURL: import.meta.url, conditions: ["node", "import"] });
         }
         if (specifier === gltsSpecifier) return nextResolve(new URL("../index.js", import.meta.url).href, context);
+        // Linked modules have `data:` URLs in Node, memory ones included (see linker/memory.ts).
         if (context.parentURL?.startsWith("data:") && isBareSpecifier(specifier)) {
           return nextResolve(specifier, { ...context, parentURL: options.projectURL.href });
         }
@@ -102,7 +103,17 @@ async function run<T>(options: HeadlessOptions, use: (loader: GLTSLoader, canvas
   }
 }
 
-function createElement(name: string): Canvas {
+/** Resolves the app paths a page served under `base` requests, such as `/models/tree.glb`, to the files in `publicURL`. */
+export function servedFiles(publicURL: URL, base: string): (url: string) => string {
+  const prefix = new URL(base, "http://glts.local/").pathname;
+  return (url) => {
+    if (!url.startsWith("/")) return url;
+    const path = prefix !== "/" && url.startsWith(prefix) ? url.slice(prefix.length) : url;
+    return new URL(path.replace(/^\/+/, ""), publicURL).href;
+  };
+}
+
+function createElement(name: string): Native.Canvas {
   if (name !== "canvas") throw new Error(`Headless GLTS does not support document.createElement(${JSON.stringify(name)})`);
-  return new Canvas(1, 1);
+  return new (canvasClass())(1, 1);
 }

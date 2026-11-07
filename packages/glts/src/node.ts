@@ -145,6 +145,8 @@ export class NodeRegistry {
     runAll("GLTS node disposal failed", [
       () => this.#disposeDescendants(record),
       () => record.execution.dispose(),
+      // As Object3D.dispose() does, so renderers release what they hold for the node.
+      () => record.node.dispatchEvent({ type: "dispose" }),
       ...record.disposeListeners
     ]);
   }

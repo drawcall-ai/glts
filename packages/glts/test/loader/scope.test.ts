@@ -1,9 +1,11 @@
-import { FileLoader, Loader, LoadingManager, Object3D } from "three";
+import { FileLoader, Loader, LoadingManager } from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Dependencies } from "../../src/dependencies.js";
 import { GLTSLoader } from "../../src/loader/index.js";
 import { LoadScope } from "../../src/loader/scope.js";
+import { assertUndisposed } from "../../src/node.js";
+import type { GLTSScriptLoader } from "../../src/types.js";
 import { base, deferred, serve } from "./fixture.js";
 
 /** A scope of the script at `url` whose nested loads fail. */
@@ -30,10 +32,10 @@ describe("LoadScope", () => {
     first.manager.itemStart("slow.bin");
 
     let firstSettled = false;
-    const firstCompletion = first.settle(new Object3D()).then(() => {
+    const firstCompletion = first.settle().then(() => {
       firstSettled = true;
     });
-    await expect(second.settle(new Object3D())).resolves.toBeUndefined();
+    await expect(second.settle()).resolves.toBeUndefined();
     expect(firstSettled).toBe(false);
 
     first.manager.itemEnd("slow.bin");
@@ -48,8 +50,8 @@ describe("LoadScope", () => {
     failed.manager.itemError("missing.bin");
     failed.manager.itemEnd("missing.bin");
 
-    await expect(successful.settle(new Object3D())).resolves.toBeUndefined();
-    await expect(failed.settle(new Object3D())).rejects.toMatchObject({
+    await expect(successful.settle()).resolves.toBeUndefined();
+    await expect(failed.settle()).rejects.toMatchObject({
       phase: "resource",
       url: "failed.glts"
     });
@@ -64,21 +66,62 @@ describe("LoadScope", () => {
     scope.manager.itemStart("leaf.png");
     scope.manager.itemEnd("leaf.png");
 
-    await expect(scope.settle(new Object3D())).rejects.toMatchObject({
+    await expect(scope.settle()).rejects.toMatchObject({
       phase: "resource",
       url: "tree.glts"
     });
     expect(onProgress).toHaveBeenCalledOnce();
   });
 
+  it("settles only once a resource started as another ends has ended, failing with it", async () => {
+    const scope = createScope("tree.glts", new LoadingManager());
+    scope.manager.itemStart("first.bin");
+    const settling = scope.settle();
+    scope.manager.itemEnd("first.bin");
+    // As a loader's onLoad chaining another load would.
+    await Promise.resolve();
+    scope.manager.itemStart("second.bin");
+    setTimeout(() => {
+      scope.manager.itemError("second.bin");
+      scope.manager.itemEnd("second.bin");
+    });
+    await expect(settling).rejects.toThrow("- second.bin");
+  });
+
+  it("aborts the resources still loading once disposed", async () => {
+    const scope = createScope("tree.glts", new LoadingManager());
+    await scope.settle();
+    const { signal } = scope.manager.abortController;
+    scope.dispose();
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("ends a late item it aborts on disposal for the host, without failing it", async () => {
+    const host = new LoadingManager();
+    const itemError = vi.spyOn(host, "itemError");
+    const itemEnd = vi.spyOn(host, "itemEnd");
+    const scope = createScope("tree.glts", host);
+    await scope.settle();
+    scope.manager.itemStart("streamed.bin");
+    // As three's loaders answer an aborted request.
+    scope.manager.abortController.signal.addEventListener("abort", () => {
+      scope.manager.itemError("streamed.bin");
+      scope.manager.itemEnd("streamed.bin");
+    });
+    scope.dispose();
+    expect(itemEnd).toHaveBeenCalledExactlyOnceWith("streamed.bin");
+    expect(itemError).not.toHaveBeenCalled();
+  });
+
   it("rejects pending settlement when aborted", async () => {
     const scope = createScope("tree.glts", new LoadingManager());
     scope.manager.itemStart("slow.bin");
-    const completion = scope.settle(new Object3D());
+    const completion = scope.settle();
     await Promise.resolve();
     void scope.abort(new Error("aborted"));
 
     await expect(completion).rejects.toThrow("aborted");
+    expect(() => scope.manager.itemStart("late.bin")).toThrow("no longer open");
   });
 
   it("rejects with the abort reason when aborted while waiting for nested loads, leaving their failures to abort()", async () => {
@@ -96,7 +139,7 @@ describe("LoadScope", () => {
       signal: controller.signal,
     });
     const loading = scope.gltsLoader.loadAsync("child.glts");
-    const settling = scope.settle(new Object3D());
+    const settling = scope.settle();
     const reason = new Error("aborted");
     controller.abort(reason);
     fail(nestedFailure);
@@ -125,7 +168,7 @@ describe("LoadScope", () => {
     const scope = createScope("https://assets.test/scene.glts", new LoadingManager(), dependencies);
     scope.manager.itemStart("bark.png");
     scope.manager.itemEnd("bark.png");
-    await scope.settle(new Object3D());
+    await scope.settle();
     expect(dependencies.urls()).toEqual(["https://app.test/workers/bark.png"]);
   });
 
@@ -136,7 +179,7 @@ describe("LoadScope", () => {
       scope.manager.itemStart(label);
       scope.manager.itemEnd(label);
     }
-    await scope.settle(new Object3D());
+    await scope.settle();
     expect(dependencies.urls()).toEqual([]);
   });
 });
@@ -184,7 +227,11 @@ it.each(["loadAsync('./child.glts')", "loadInstancesAsync('./child.glts', 2)"])(
     expect(hostStarts.mock.calls.flat()).toEqual([`${base}parent.glts`, `${base}child.glts`, `${base}texture.png`]);
     expect(hostEnds.mock.calls.flat()).toEqual([`${base}texture.png`, `${base}child.glts`, `${base}parent.glts`]);
     expect(hostErrors).not.toHaveBeenCalled();
-    expect(() => parentManager?.itemStart(`${base}late.png`)).toThrow("The contextual loadingManager is no longer open");
+    // Streamed after loading: the host's only.
+    parentManager?.itemStart(`${base}late.png`);
+    parentManager?.itemEnd(`${base}late.png`);
+    expect(hostStarts.mock.calls.flat().at(-1)).toBe(`${base}late.png`);
+    expect(hostEnds.mock.calls.flat().at(-1)).toBe(`${base}late.png`);
   },
 );
 
@@ -209,6 +256,23 @@ it("balances failed nested loads once through the parent scope and host manager"
   expect(hostStarts.mock.calls.flat()).toEqual([`${base}parent.glts`, `${base}missing.glts`]);
   expect(hostEnds.mock.calls.flat()).toEqual([`${base}missing.glts`, `${base}parent.glts`]);
   expect(hostErrors.mock.calls.flat()).toEqual([`${base}missing.glts`, `${base}parent.glts`]);
+});
+
+it("names a resource whose failure the script's own failure carried out", async () => {
+  // A missing image's empty body fails to decode, which names no URL.
+  vi.stubGlobal("createImageBitmap", async () => { throw new Error("Input Buffer is empty"); });
+  const loader = serve({
+    "parent.glts": `import { ImageBitmapLoader } from "three";
+      import { loadingManager } from "@drawcall/glts";
+      await new ImageBitmapLoader(loadingManager).loadAsync("${base}missing.png");`,
+  });
+  await expect(loader.loadAsync(base + "parent.glts")).rejects.toMatchObject({
+    message: expect.stringContaining("GLTS execution and its loads both failed"),
+    cause: { errors: [
+      { cause: { message: "Input Buffer is empty" } },
+      { phase: "resource", message: expect.stringContaining(`- ${base}missing.png`) },
+    ] },
+  });
 });
 
 it("fails with the phase and URL of a nested load the script catches", async () => {
@@ -277,13 +341,59 @@ it("serves as its loading manager's .glts handler, publishing the host's moduleS
   }
 });
 
-it("requires nested scenes beneath scene unless the script disposed them", async () => {
+it("owns nested scenes, attached or not, and loads more after settling, for the host only, until disposed with them", async () => {
+  let contextual: GLTSScriptLoader | undefined;
   const loader = serve({
-    "detached.glts": `import { gltsLoader } from "@drawcall/glts"; await gltsLoader.loadAsync("./child.glts");`,
-    "disposed.glts": `import { gltsLoader } from "@drawcall/glts"; (await gltsLoader.loadAsync("./child.glts")).dispose();`,
+    "parent.glts": `import { gltsLoader } from "@drawcall/glts"; import { keep } from "library";
+      keep(gltsLoader, await gltsLoader.loadAsync("./child.glts"));`,
     "child.glts": "",
+    "other.glts": "",
+  }, { keep: (scriptLoader: GLTSScriptLoader) => { contextual = scriptLoader; } });
+  const parent = await loader.loadAsync(`${base}parent.glts`);
+  const { dependencyUrls } = parent.source;
+  expect(dependencyUrls).toContain(`${base}child.glts`);
+  if (!contextual) throw new Error("The script did not run");
+  const hostStarts = vi.spyOn(loader.manager, "itemStart");
+  const late = await contextual.loadAsync("./other.glts");
+  expect(hostStarts.mock.calls.flat()).toEqual([`${base}other.glts`]);
+  await expect(contextual.loadAsync("./missing.glts")).rejects.toMatchObject({ phase: "fetch" });
+  // Loads after settling are not the script's dependencies.
+  expect(parent.source.dependencyUrls).toEqual(dependencyUrls);
+  const disposed = vi.fn();
+  late.addEventListener("dispose", disposed);
+  parent.dispose();
+  expect(() => assertUndisposed(late)).toThrow();
+  expect(disposed).toHaveBeenCalledOnce();
+  await expect(contextual.loadAsync("./child.glts")).rejects.toThrow("no longer open");
+});
+
+it("disposes a nested scene whose load settling after the script ended resolves once the script was disposed", async () => {
+  const released = deferred();
+  const entered = deferred();
+  let contextual: GLTSScriptLoader | undefined;
+  const loader = serve({
+    "parent.glts": `import { gltsLoader } from "@drawcall/glts"; import { keep } from "library"; keep(gltsLoader);`,
+    "child.glts": `import { pause } from "library"; await pause();`,
+  }, {
+    keep: (scriptLoader: GLTSScriptLoader) => { contextual = scriptLoader; },
+    pause: () => { entered.resolve(); return released.promise; },
   });
-  await expect(loader.loadAsync(`${base}detached.glts`)).rejects.toThrow("Nested GLTS scenes must be added to scene");
-  const parent = await loader.loadAsync(`${base}disposed.glts`);
-  expect(parent.source.dependencyUrls).toContain(`${base}child.glts`);
+  const parent = await loader.loadAsync(`${base}parent.glts`);
+  if (!contextual) throw new Error("The script did not run");
+  const late = contextual.loadAsync("./child.glts");
+  await entered.promise;
+  parent.dispose();
+  released.resolve();
+  await expect(late).rejects.toThrow("was disposed");
+});
+
+it("waits for nested loads started while waiting for resources, failing once with them", async () => {
+  const loader = serve({
+    "parent.glts": `import { gltsLoader, loadingManager } from "@drawcall/glts";
+      loadingManager.itemStart("work");
+      setTimeout(() => { gltsLoader.loadAsync("./missing.glts").catch(() => undefined); loadingManager.itemEnd("work"); });`,
+  });
+  const hostErrors = vi.spyOn(loader.manager, "itemError");
+  await expect(loader.loadAsync(`${base}parent.glts`)).rejects.toMatchObject({ phase: "fetch", url: `${base}missing.glts` });
+  expect(hostErrors.mock.calls.flat()).toEqual([`${base}missing.glts`, `${base}parent.glts`]);
 });

@@ -1,6 +1,7 @@
 import { toGLTSError } from "../errors.js";
 import type { GLTSModules } from "../types.js";
-import { importsBlobs, moduleURL, realmUnique } from "../urls.js";
+import { isNode, realmUnique } from "../urls.js";
+import { memoryModuleURL, revokeMemoryModuleURL } from "./memory.js";
 
 /** Links a dynamic import of one linked module, recording it where that module's own imports are recorded. */
 type LinkDynamic = (specifier: string) => Promise<string>;
@@ -67,11 +68,13 @@ export class Bridge {
     return this.#hostModuleURLs.get(specifier);
   }
 
-  /** Short browser URLs avoid embedding imported source graphs again in every parent module. */
+  /**
+   * Short URLs avoid embedding imported source graphs again in every parent module. Node.js imports no `blob:` URLs;
+   * every other runtime must.
+   */
   module(source: string): string {
     if (this.#disposed) throw new Error(disposedMessage);
-    if (!importsBlobs()) return moduleURL(source);
-    const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+    const url = isNode() ? memoryModuleURL(source) : URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
     this.#moduleURLs.add(url);
     return url;
   }
@@ -80,7 +83,11 @@ export class Bridge {
     this.#disposed = true;
     Reflect.deleteProperty(globalThis, this.#key);
     // Retain old graphs until disposal: a failed reload can leave their scenes alive.
-    for (const url of this.#moduleURLs) URL.revokeObjectURL(url);
+    // Each revoker ignores the URLs the other made.
+    for (const url of this.#moduleURLs) {
+      URL.revokeObjectURL(url);
+      revokeMemoryModuleURL(url);
+    }
     this.#moduleURLs.clear();
     this.#importers.length = 0;
   }

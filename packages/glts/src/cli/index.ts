@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { enableCompileCache } from "node:module";
 import { Command, InvalidArgumentError } from "commander";
 import type { ExportOptions } from "./export.js";
 import type { RenderOptions } from "./render.js";
@@ -21,6 +22,9 @@ function views(value: string): View[][] {
   catch (error) { throw new InvalidArgumentError(error instanceof Error ? error.message : String(error)); }
 }
 
+// Each command is a fresh process; V8 reuses its compilation of the modules commands import, such as Three and Babel.
+enableCompileCache();
+
 const program = new Command().name(process.env.DRAWCALL_INVOCATION || "npx @drawcall/glts").description("Render GLTS assets to PNG or export them to GLB.");
 
 program.command("render")
@@ -28,7 +32,7 @@ program.command("render")
   .argument("<file.glts>", "GLTS script")
   .requiredOption("-o, --output <file.png>", "output PNG path")
   .option("--size <pixels>", "pixels per square view", size, 768)
-  .option("--time <seconds>", "simulate from zero in 1/60-second steps", time, 0)
+  .option("--time <seconds>", "simulate from zero in 1/60-second steps, and render at that time", time, 0)
   .option("--views <json>", 'rows of view objects, e.g. [[{"camera":"+x"},{"camera":"persp"}]]', views)
   .action(async (file: string, options: RenderOptions) => {
     const { renderFile } = await import("./render.js");
@@ -48,4 +52,11 @@ try { await program.parseAsync(); }
 catch (error) {
   console.error(error);
   process.exitCode = 1;
+}
+// A failed command ends once its output is flushed: a script that threw midway can leave timers it started running,
+// such as a setInterval whose onDispose it never reached, and they would keep Node.js alive.
+if (process.exitCode) {
+  const flushed = (stream: NodeJS.WriteStream) => new Promise<void>((resolve) => stream.write("", () => resolve()));
+  await Promise.all([flushed(process.stdout), flushed(process.stderr)]);
+  process.exit();
 }

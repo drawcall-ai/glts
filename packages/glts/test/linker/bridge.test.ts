@@ -4,7 +4,7 @@ import { Linker } from "../../src/linker/index.js";
 import { precompiledPrefix } from "../../src/linker/precompiled.js";
 
 // Node.js cannot import blob: URLs, so these tests run the linker as a browser would.
-vi.mock(import("../../src/urls.js"), async (importOriginal) => ({ ...await importOriginal(), importsBlobs: () => true }));
+vi.mock(import("../../src/urls.js"), async (importOriginal) => ({ ...await importOriginal(), isNode: () => false }));
 
 const url = "https://assets.test/scene.glts";
 const source = `${precompiledPrefix}export default () => {};`;

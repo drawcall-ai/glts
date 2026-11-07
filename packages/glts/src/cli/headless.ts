@@ -1,28 +1,54 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseEnv } from "node:util";
 import type { Canvas } from "@drawcall/webgpu";
-import { withHeadless } from "../headless/index.js";
-import type { GLTSScene } from "../types.js";
+import { servedFiles, withHeadless } from "../headless/index.js";
+import type { GLTSLoader } from "../loader/index.js";
 
 /**
- * Loads the script at `file` headlessly, encodes its scene with `encode`, and writes the bytes to `output`
- * atomically, printing its path.
+ * Runs `encode` with a headless loader of the script at `file` and its URL, as the Vite dev server serves it to a page
+ * of the app in the working directory, and writes the bytes it returns to `output` atomically, printing its path. The page's
+ * root is the app's `public` directory, or the working directory without one, and scripts see the `import.meta.env`
+ * Vite's development server gives the modules it runs in Node, so that caches they fill match the app's.
  */
 export async function writeHeadless(
   file: string,
   output: string,
   isPreview: boolean,
   size: number,
-  encode: (scene: GLTSScene, canvas: Canvas) => Promise<Uint8Array>
+  encode: (loader: GLTSLoader, url: URL, canvas: Canvas) => Promise<Uint8Array>
 ): Promise<void> {
   const url = pathToFileURL(resolve(file));
+  const root = process.cwd();
+  const publicDir = resolve(root, "public");
+  const pageURL = pathToFileURL(`${existsSync(publicDir) ? publicDir : root}/`);
   const bytes = await withHeadless({
-    projectURL: url, baseURL: new URL(".", url), size,
-    loader: { isPreview, resolve: (specifier) => specifier },
-  }, async (loader, canvas) => encode(await loader.loadAsync(url), canvas));
+    projectURL: url, baseURL: pageURL, size,
+    resolveURL: servedFiles(pageURL, "/"),
+    loader: { isPreview, env: await developmentEnv(root), resolve: (specifier) => specifier },
+  }, (loader, canvas) => encode(loader, url, canvas));
   await write(output, bytes);
+}
+
+/**
+ * The `import.meta.env` Vite gives the development server's modules for an app at `root` served at `/`, as when it
+ * renders them in Node rather than a page: its `VITE_` variables from `.env` files, overridden by the process
+ * environment. Unlike Vite, values do not expand other variables, and `vite.config` is not read. Vite's own `loadEnv`
+ * is not used, since Vite is an optional peer the CLI must run without.
+ */
+async function developmentEnv(root: string): Promise<Record<string, string | boolean>> {
+  const variables: Record<string, string | undefined> = {};
+  // The `.env` files Vite reads in development, each overriding those before it.
+  for (const file of [".env", ".env.local", ".env.development", ".env.development.local"]) {
+    const path = resolve(root, file);
+    if (existsSync(path)) Object.assign(variables, parseEnv(await readFile(path, "utf8")));
+  }
+  Object.assign(variables, process.env);
+  const vite = Object.entries(variables).flatMap(([key, value]) => key.startsWith("VITE_") && value !== undefined ? [[key, value]] : []);
+  return { ...Object.fromEntries(vite), BASE_URL: "/", MODE: "development", DEV: true, PROD: false, SSR: true };
 }
 
 /** Writes `bytes` to `path` through a temporary file, so a failed write leaves no partial output, and prints the path. */

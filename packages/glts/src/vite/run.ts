@@ -2,7 +2,7 @@ import { once } from "node:events";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { inspect } from "node:util";
-import { withHeadless } from "../headless/index.js";
+import { servedFiles, withHeadless } from "../headless/index.js";
 import { packageName } from "../linker/resolution.js";
 import { warmup } from "../loader/warmup.js";
 import type { GLTSModuleSource } from "../types.js";
@@ -54,15 +54,8 @@ function options(value: unknown): WarmupBuild {
 async function run(config: WarmupBuild): Promise<void> {
   const publicURL = pathToFileURL(`${config.publicDir}/`);
   const appURL = pathToFileURL(`${config.root}/`);
-  const base = new URL(config.base, "http://glts.local/").pathname;
-  const servedFile = (input: string): string => {
-    let path = input;
-    if (!path.startsWith("/")) return input;
-    if (base !== "/" && path.startsWith(base)) path = path.slice(base.length);
-    return new URL(path.replace(/^\/+/, ""), publicURL).href;
-  };
   await withHeadless({
-    projectURL: appURL, baseURL: publicURL, size: 1, resolveURL: servedFile,
+    projectURL: appURL, baseURL: publicURL, size: 1, resolveURL: servedFiles(publicURL, config.base),
     loader: {
       cdnURL: config.cdnURL, external: config.external, env: config.env, moduleSources: config.moduleSources,
       resolve: (specifier) => config.packages.includes(packageName(specifier)) ? specifier : undefined,

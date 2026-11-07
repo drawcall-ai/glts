@@ -4,6 +4,7 @@ declare module "@drawcall/webgpu" {
   export interface Canvas {
     width: number;
     height: number;
+    getContext(type: "webgpu"): GPUCanvasContext | null;
     readPixels(): Promise<Uint8Array>;
     dispose(): Promise<void>;
   }

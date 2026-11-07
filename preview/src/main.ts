@@ -19,7 +19,7 @@ addEventListener("error", (event) =>
 );
 addEventListener("unhandledrejection", (event) => fail(event.reason));
 
-const renderer = new THREE.WebGPURenderer({ antialias: true });
+const renderer = new THREE.WebGPURenderer({ antialias: true, reversedDepthBuffer: true });
 renderer.onDeviceLost = (info) => fail(new Error(info.message));
 await renderer.init();
 renderer.setPixelRatio(devicePixelRatio);

@@ -49,16 +49,3 @@ declare const process: { versions?: { node?: string } } | undefined;
 export function isNode(): boolean {
   return typeof process !== "undefined" && process.versions?.node !== undefined;
 }
-
-/** Whether this runtime imports `blob:` URLs: pages and Web Workers do; Node.js creates them but cannot import them. */
-export function importsBlobs(): boolean {
-  return typeof URL.createObjectURL === "function" && !isNode();
-}
-
-/**
- * A `data:` URL that evaluates `source` as a module, for runtimes that cannot import `blob:` URLs, such as Node.js.
- * The fragment keeps every URL distinct, as engines evaluate one module per URL, and leaves the source untouched.
- */
-export function moduleURL(source: string): string {
-  return realmUnique(`data:text/javascript,${encodeURIComponent(source)}#`);
-}

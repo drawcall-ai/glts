@@ -119,6 +119,11 @@ it("runs browser code that needs canvases, decoded images, and module workers", 
     thread.postMessage(data, [data]);
     expect(await reply).toEqual({ scope: true, sum: 6 });
     thread.terminate();
+
+    // Browser globals are writable, as scripts polyfilling them expect.
+    const Replacement = class {};
+    expect(Reflect.set(globalThis, "OffscreenCanvas", Replacement)).toBe(true);
+    expect(OffscreenCanvas).toBe(Replacement);
   });
   expect(descriptors()).toEqual(before);
 });

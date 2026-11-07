@@ -10,6 +10,12 @@ import { canonicalize } from "../urls.js";
 import { Resources } from "./resources.js";
 import { ScriptLoader } from "./script.js";
 
+/**
+ * Where an execution's loading window is: loading while the script builds, settled once its loads ended, when further
+ * loads are the host's only, and aborted or disposed once it refuses loads.
+ */
+export type ScopePhase = "loading" | "settled" | "aborted" | "disposed";
+
 /** Loads the script at a resolved URL for `scope`, as one item of its manager. */
 export interface NestedLoader {
   loadAsync(url: string, scope: LoadScope): Promise<GLTSScene>;
@@ -33,9 +39,10 @@ export interface LoadScopeOptions {
 }
 
 /**
- * One execution's loading window: its contextual `gltsLoader` and `loadingManager`, open while the script
+ * One execution's loading window: its contextual `gltsLoader` and `loadingManager`, loading while the script
  * builds, which settles once its nested loads and then its resources end, or aborts. It owns the nodes of its
- * nested loads.
+ * nested loads, attached or not. Once settled, both still load until disposed, outside the execution's load, for
+ * content a library loads on demand: their items report to the host's manager only.
  */
 export class LoadScope implements ExecutionScope {
   readonly gltsLoader: ScriptLoader;
@@ -58,9 +65,11 @@ export class LoadScope implements ExecutionScope {
    * unless the scope aborted meanwhile; abort() returns the rest.
    */
   readonly #nestedFailures: unknown[] = [];
-  /** What may still start: everything until the nested loads settle, then resources until the scope ends. */
-  #open: "all" | "resources" | "none" = "all";
-  #abort: { readonly reason: unknown } | undefined;
+  /** The URLs of the nested loads started before the scope settled, which fail as items of its manager too. */
+  readonly #nestedURLs = new Set<string>();
+  #phase: ScopePhase = "loading";
+  /** The reason the scope aborted with, once aborted. */
+  #abortReason: unknown;
 
   constructor(options: LoadScopeOptions) {
     this.#host = options.host;
@@ -74,7 +83,7 @@ export class LoadScope implements ExecutionScope {
       host: options.host,
       url: script.executionURL,
       dependencies: options.dependencies,
-      assertOpen: () => this.#assertOpen("resources"),
+      phase: () => this.#phase,
     });
     const { loader } = options;
     this.gltsLoader = new ScriptLoader(
@@ -96,68 +105,86 @@ export class LoadScope implements ExecutionScope {
   }
 
   /**
-   * Waits for the nested loads, including ones started meanwhile, and throws their failures, the first with its own
-   * phase, URL, and import chain; then requires their undisposed
-   * nodes below `root`, waits for the resources, and throws theirs.
+   * Waits for the nested loads and the resources, including ones started meanwhile, and throws the nested loads'
+   * failures, the first with its own phase, URL, and import chain, then the resources'.
    */
-  async settle(root: THREE.Object3D): Promise<void> {
-    await this.#waitForLoads();
-    if (this.#abort) throw this.#abort.reason;
-    const failures = this.#nestedFailures.splice(0);
-    if (failures.length > 0) {
-      const primary = toGLTSError(failures[0], "Nested GLTS load failed", { phase: "evaluate", url: this.#url });
-      throw aggregate("Nested GLTS load failed", primary, failures.slice(1));
+  async settle(): Promise<void> {
+    for (;;) {
+      await this.#waitForLoads();
+      if (this.#phase === "aborted") throw this.#abortReason;
+      const failures = this.#nestedFailures.splice(0);
+      if (failures.length > 0) {
+        const primary = toGLTSError(failures[0], "Nested GLTS load failed", { phase: "evaluate", url: this.#url });
+        throw aggregate("Nested GLTS load failed", primary, failures.slice(1));
+      }
+      const loads = this.#loads.length;
+      await this.#resources.idle();
+      if (this.#loads.length === loads && !this.#resources.loading) break;
     }
-    this.#assertAttached(root);
-    await this.#resources.idle();
-    this.#end();
+    this.#phase = "settled";
+    this.#signal.removeEventListener("abort", this.#onAbort);
     this.#resources.assertLoaded();
   }
 
   /**
    * Closes both loaders, aborts the resources, and rejects settle(); then waits for the nested loads in flight,
-   * which cannot be stopped, returning the failures settle() has not thrown.
+   * which cannot be stopped, returning the failures settle() has not thrown: the nested loads', then the resources'.
    */
   async abort(reason: unknown): Promise<readonly unknown[]> {
+    // Taken before stopping, so the resources the stop aborts are not listed; once settled, settle() threw them.
+    // Failed nested loads are listed as the nested failures they also are.
+    const resources = this.#phase === "loading" ? this.#resources.failure(this.#nestedURLs) : undefined;
     this.#stop(reason);
     await this.#waitForLoads();
-    return this.#nestedFailures.splice(0);
+    return [...this.#nestedFailures.splice(0), ...(resources ? [resources] : [])];
   }
 
-  /** Disposes the nodes of the nested loads, the last loaded first. */
+  /**
+   * Aborts the resources still loading, disposes the nodes of the nested loads, the last loaded first, and refuses
+   * further loads.
+   */
   dispose(): void {
+    this.#phase = "disposed";
+    this.#resources.abort(new GLTSError("The script was disposed", { phase: "dispose", url: this.#url }));
     runAll("Nested GLTS node disposal failed", [...this.#nodes].reverse().map((node) => () => node.dispose()));
   }
 
   #stop(reason: unknown): void {
-    if (this.#open === "none") return;
-    this.#end();
-    this.#abort = { reason };
-    this.#resources.abort(reason);
-  }
-
-  #end(): void {
-    this.#open = "none";
+    if (this.#phase !== "loading") return;
+    this.#phase = "aborted";
+    this.#abortReason = reason;
     this.#signal.removeEventListener("abort", this.#onAbort);
+    this.#resources.abort(reason);
   }
 
   async #waitForLoads(): Promise<void> {
     for (const load of this.#loads) await load;
-    if (this.#open === "all") this.#open = "resources";
   }
 
-  /** Starts the nested load of `url` with `load`, tracking it and owning its node. */
+  /**
+   * Starts the nested load of `url` with `load`, owning its node; a load started before the scope settled is part of
+   * the execution's load and dependencies.
+   */
   #load<T extends GLTSScene>(url: GLTSURL, load: (url: string) => Promise<T>): Promise<T> {
     const resolved = this.#resolve(url);
-    this.#assertOpen("loads");
+    const phase = this.#phase;
+    if (phase === "aborted" || phase === "disposed") {
+      throw new GLTSError("The contextual gltsLoader is no longer open", { phase: "dispose", url: this.#url });
+    }
+    const late = phase === "settled";
+    if (!late) this.#nestedURLs.add(resolved);
     const loading = load(resolved).then((node) => {
+      if (this.#phase === "disposed") {
+        node.dispose();
+        throw new GLTSError("The script that loaded this scene was disposed", { phase: "dispose", url: resolved });
+      }
       this.#nodes.add(node);
-      // A node the script disposes, such as a library's temporary build input, is no longer the scope's to attach.
+      // A node the script disposes, such as a library's temporary build input, is no longer the scope's to dispose.
       onNodeDispose(node, () => this.#nodes.delete(node));
-      this.#dependencies.include(nodeDependencies(node));
+      if (!late) this.#dependencies.include(nodeDependencies(node));
       return node;
     });
-    this.#loads.push(loading.then(() => undefined, (error: unknown) => { this.#nestedFailures.push(error); }));
+    if (!late) this.#loads.push(loading.then(() => undefined, (error: unknown) => { this.#nestedFailures.push(error); }));
     return loading;
   }
 
@@ -172,21 +199,5 @@ export class LoadScope implements ExecutionScope {
       });
     }
     return resolved;
-  }
-
-  #assertAttached(root: THREE.Object3D): void {
-    const attached = new Set<THREE.Object3D>();
-    root.traverse((object) => attached.add(object));
-    const orphan = [...this.#nodes].find((node) => !attached.has(node));
-    if (orphan) {
-      throw new GLTSError("Nested GLTS scenes must be added to scene", { phase: "construct", url: orphan.url });
-    }
-  }
-
-  /** Throws unless nested `loads` may still start, or `resources` may. */
-  #assertOpen(kind: "loads" | "resources"): void {
-    if (this.#open === "all" || (kind === "resources" && this.#open === "resources")) return;
-    const name = kind === "loads" ? "gltsLoader" : "loadingManager";
-    throw new GLTSError(`The contextual ${name} is no longer open`, { phase: "dispose", url: this.#url });
   }
 }

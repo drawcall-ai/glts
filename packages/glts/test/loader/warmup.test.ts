@@ -4,25 +4,20 @@ import { warmup } from "../../src/loader/warmup.js";
 import type { GLTSScene } from "../../src/types.js";
 import { base, deferred, serve } from "./fixture.js";
 
-it("starts every initial script together and gives shared consumers independent, serialized scenes", async () => {
-  const started = new Set<string>();
-  const allStarted = deferred();
+it("runs initial scripts one after another and gives shared consumers independent, serialized scenes", async () => {
   const scenes: GLTSScene[] = [];
   const disposed: string[] = [];
   let sharedRuns = 0;
-  let sharedActive = 0;
-  let mostSharedActive = 0;
+  let active = 0;
+  let mostActive = 0;
   const library = {
     async start(name: string): Promise<number> {
-      started.add(name);
-      if (started.size === 4) allStarted.resolve();
-      const id = name === "shared" ? ++sharedRuns : 1;
-      if (name === "shared") mostSharedActive = Math.max(mostSharedActive, ++sharedActive);
-      await allStarted.promise;
-      return id;
+      if (name !== "shared") mostActive = Math.max(mostActive, ++active);
+      await Promise.resolve();
+      return name === "shared" ? ++sharedRuns : 1;
     },
     finish(name: string, scene: GLTSScene): void {
-      if (name === "shared") sharedActive--;
+      if (name !== "shared") active--;
       scenes.push(scene);
     },
     dispose(name: string): void { disposed.push(name); },
@@ -46,7 +41,7 @@ it("starts every initial script together and gives shared consumers independent,
   await warmup(loader, ["a.glts", "b.glts", "shared.glts", "unused.glts"].map((file) => base + file));
 
   expect(sharedRuns).toBe(2);
-  expect(mostSharedActive).toBe(1);
+  expect(mostActive).toBe(1);
   const parents = scenes.filter((scene) => scene.name === "a1" || scene.name === "b1");
   expect(parents).toHaveLength(2);
   expect(new Set(parents.flatMap((scene) => scene.children))).toHaveLength(2);
@@ -99,7 +94,7 @@ it("runs undiscovered nested scripts and waits for unawaited loads before finish
   expect(finished).toBe(true);
 });
 
-it("rejects a cycle between concurrently started initial scripts", async () => {
+it("rejects a cycle between initial scripts", async () => {
   const loader = serve({
     "a.glts": `import { gltsLoader, scene } from "@drawcall/glts"; scene.add(await gltsLoader.loadAsync("./b.glts"));`,
     "b.glts": `import { gltsLoader, scene } from "@drawcall/glts"; scene.add(await gltsLoader.loadAsync("./a.glts"));`,
@@ -108,47 +103,53 @@ it("rejects a cycle between concurrently started initial scripts", async () => {
     .rejects.toThrow("Cyclic GLTS warmup dependency");
 }, 2_000);
 
-it.each(["before", "after"])("rejects cycles added %s a rerun is queued", async (order) => {
-  const firstClaimed = deferred();
-  const dependencyAdded = deferred();
+it("rejects a cycle closed by queueing a rerun behind a claimed initial scene", async () => {
   let bRuns = 0;
   const loader = serve({
+    "claim.glts": `import { gltsLoader, scene } from "@drawcall/glts"; scene.add(await gltsLoader.loadAsync("./b.glts"));`,
+    "a.glts": `import { gltsLoader, scene } from "@drawcall/glts"; scene.add(await gltsLoader.loadAsync("./b.glts"));`,
+    "b.glts": `
+      import { gltsLoader, scene } from "@drawcall/glts";
+      import { started } from "library";
+      started();
+      scene.add(await gltsLoader.loadAsync("./a.glts"));
+    `,
+  }, { started: () => { bRuns++; } });
+  await expect(warmup(loader, [base + "claim.glts", base + "a.glts", base + "b.glts"]))
+    .rejects.toMatchObject({ phase: "resolve", message: expect.stringContaining("Cyclic") });
+  expect(bRuns).toBe(1);
+}, 2_000);
+
+it("rejects a cycle closed after a rerun was queued behind a claimed initial scene", async () => {
+  const queued = deferred();
+  let bRuns = 0;
+  const loader = serve({
+    // Loading both starts both initial scenes before their turns, so a queues its rerun of b before b loads a.
+    "claim.glts": `
+      import { gltsLoader, scene } from "@drawcall/glts";
+      const [b, a] = await Promise.all([gltsLoader.loadAsync("./b.glts"), gltsLoader.loadAsync("./a.glts")]);
+      scene.add(b, a);
+    `,
     "a.glts": `
       import { gltsLoader, scene } from "@drawcall/glts";
-      import { claimed, added, add } from "library";
-      await claimed;
-      ${order === "before" ? "await added;" : ""}
+      import { queue } from "library";
       const child = gltsLoader.loadAsync("./b.glts");
-      ${order === "after" ? "add();" : ""}
+      queue();
       scene.add(await child);
     `,
     "b.glts": `
       import { gltsLoader, scene } from "@drawcall/glts";
-      import { started, claimed, added, add } from "library";
+      import { started, queued } from "library";
       started();
-      await claimed;
-      ${order === "after" ? "await added;" : ""}
-      const child = gltsLoader.loadAsync("./a.glts");
-      ${order === "before" ? "add();" : ""}
-      scene.add(await child);
+      await queued;
+      scene.add(await gltsLoader.loadAsync("./a.glts"));
     `,
-    "claim.glts": `
-      import { gltsLoader, scene } from "@drawcall/glts";
-      import { claim } from "library";
-      const child = gltsLoader.loadAsync("./b.glts");
-      claim();
-      scene.add(await child);
-    `,
-  }, {
-    claim: firstClaimed.resolve, claimed: firstClaimed.promise,
-    add: dependencyAdded.resolve, added: dependencyAdded.promise,
-    started: () => { bRuns++; },
-  });
-  // Rejected when queued, the rerun never runs; queued first, it runs after the failed run and loads its ancestor.
-  const cycle = expect.objectContaining({ phase: "resolve", message: expect.stringContaining("Cyclic") });
-  await expect(warmup(loader, [base + "a.glts", base + "b.glts", base + "claim.glts"]))
-    .rejects.toEqual(order === "before" ? cycle : expect.objectContaining({ errors: [cycle, cycle] }));
-  expect(bRuns).toBe(order === "before" ? 1 : 2);
+  }, { queue: queued.resolve, queued: queued.promise, started: () => { bRuns++; } });
+  // The rerun, queued first, runs after the failed initial scene and loads its ancestor again, which fails too.
+  const cycle = { phase: "resolve", message: expect.stringContaining("Cyclic") };
+  await expect(warmup(loader, [base + "claim.glts", base + "a.glts", base + "b.glts"]))
+    .rejects.toMatchObject({ errors: [{ phase: "resolve" }, cycle, cycle] });
+  expect(bRuns).toBe(2);
 }, 2_000);
 
 it("reports execution failures after the other initial scripts finish", async () => {

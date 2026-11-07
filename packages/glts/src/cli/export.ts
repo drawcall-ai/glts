@@ -1,13 +1,13 @@
 import {
   DirectionalLight, InterpolateSmooth, Light, Material, MeshBasicMaterial, MeshStandardMaterial,
-  PointLight, PropertyBinding, RGBAFormat, SkinnedMesh, Source, SpotLight, Sprite, Texture, UnsignedByteType,
+  PointLight, PropertyBinding, RGBAFormat, SkinnedMesh, SpotLight, Sprite, Texture, TextureSource, UnsignedByteType,
   Object3D,
 } from "three/webgpu";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
-import { ImageData } from "@napi-rs/canvas";
 import type { GLTSScene } from "../types.js";
 import { writeHeadless } from "./headless.js";
-import { Canvas } from "../headless/canvas.js";
+import { canvasClass, nativeCanvas } from "../headless/canvas.js";
+import { ViewCompletion } from "../completion.js";
 import { setGlobals } from "../headless/globals.js";
 
 export interface ExportOptions {
@@ -15,7 +15,18 @@ export interface ExportOptions {
 }
 
 export async function exportFile(file: string, { output }: ExportOptions): Promise<void> {
-  await writeHeadless(file, output, false, 1, exportScene);
+  await writeHeadless(file, output, false, 1, async (loader, url) => {
+    const completion = new ViewCompletion(loader.manager);
+    try {
+      const scene = await loader.loadAsync(url);
+      // Items started after the script's load settled, such as from a timer, would be missing from the GLB.
+      completion.throwFailures();
+      if (completion.open > 0) throw new Error(`${completion.open} item(s) started after the script's load settled were still loading; the GLB would miss them.`);
+      return await exportScene(scene);
+    } finally {
+      completion.dispose();
+    }
+  });
 }
 
 class BlobReader {
@@ -80,8 +91,10 @@ export async function exportScene(scene: GLTSScene): Promise<Uint8Array> {
     }
   }
 
-  const originalSources = new Map<Texture, Source<unknown>>();
+  const originalSources = new Map<Texture, TextureSource<unknown>>();
   // GLTFExporter uses these browser globals; without a document it draws ImageBitmaps on an OffscreenCanvas.
+  const Canvas = canvasClass();
+  const { ImageData } = nativeCanvas();
   const restore = setGlobals({ document: undefined, OffscreenCanvas: Canvas, ImageData, FileReader: BlobReader });
   try {
     for (const texture of textures) {
@@ -99,7 +112,7 @@ export async function exportScene(scene: GLTSScene): Promise<Uint8Array> {
       const canvas = new Canvas(image.width, image.height);
       canvas.getContext("2d").putImageData(new ImageData(Uint8ClampedArray.from(data), image.width, image.height), 0, 0);
       originalSources.set(texture, texture.source);
-      texture.source = new Source(canvas);
+      texture.source = new TextureSource(canvas);
     }
     const result = await new GLTFExporter().parseAsync(scene, { binary: true, animations: scene.animations });
     if (!(result instanceof ArrayBuffer)) throw new Error("GLTFExporter did not produce a binary GLB.");

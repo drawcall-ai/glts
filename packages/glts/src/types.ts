@@ -118,8 +118,8 @@ interface GLTSSceneMethods {
   clone(recursive?: boolean): THREE.Scene;
   copy(source: THREE.Scene, recursive?: boolean): this;
   /**
-   * Disposes this execution, nested scenes, and GLTSRenderer effect graphs. Throws an `AggregateError` when disposal
-   * callbacks throw; the node is disposed anyway.
+   * Disposes this execution, nested scenes, and GLTSRenderer effect graphs, and fires the `dispose` event of
+   * `Object3D.dispose()`. Throws an `AggregateError` when disposal callbacks throw; the node is disposed anyway.
    */
   dispose(): void;
   remove(...objects: THREE.Object3D[]): this;

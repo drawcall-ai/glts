@@ -12,10 +12,10 @@
   "dependencies": {
     "@drawcall/glts": "workspace:*",
     "@fontsource-variable/newsreader": "^5.3.0",
-    "three": "^0.185.1"
+    "three": "^0.186.1"
   },
   "devDependencies": {
-    "@types/three": "^0.185.0",
+    "@types/three": "^0.186.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.4"
   }

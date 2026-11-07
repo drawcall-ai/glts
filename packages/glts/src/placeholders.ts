@@ -29,8 +29,9 @@ export const loadingManager: LoadingManager = new Proxy(new LoadingManager(), {
 });
 
 /**
- * Loads nested assets relative to this script. Attach each result beneath scene, or dispose it. A failed nested load fails this
- * script too, even when the script catches it.
+ * Loads nested assets relative to this script, which owns each result, attached beneath scene or not, until it disposes
+ * it. A failed nested load fails this script too, even when the script catches it. Loads after the script finished,
+ * such as a library's on demand, are not part of its load and fail only themselves.
  */
 export const gltsLoader: GLTSScriptLoader = new Proxy(
   new ScriptLoader(new LoadingManager(), {}, () => unavailable("gltsLoader"), () => unavailable("gltsLoader")),

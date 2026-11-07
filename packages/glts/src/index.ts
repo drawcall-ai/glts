@@ -8,6 +8,7 @@ export {
   isPreview,
   scene
 } from "./placeholders.js";
+export { ViewCompletion } from "./completion.js";
 export { GLTSError, type GLTSPhase } from "./errors.js";
 export { GLTSLoader } from "./loader/index.js";
 export { GLTSRenderer } from "./renderer/index.js";
