@@ -4,7 +4,7 @@ import type * as Native from "@napi-rs/canvas";
 import { LoadingManager } from "three";
 import { withFiles } from "../files.js";
 import { gltsSpecifier } from "../imports.js";
-import { isBareSpecifier } from "../linker/resolution.js";
+import { isBareSpecifier, packageName } from "../linker/resolution.js";
 import { GLTSLoader } from "../loader/index.js";
 import type { GLTSLoaderOptions } from "../types.js";
 import { canvasClass } from "./canvas.js";
@@ -18,6 +18,8 @@ interface HeadlessOptions {
   readonly baseURL: URL;
   readonly size: number;
   readonly loader: GLTSLoaderOptions;
+  /** Packages Vite resolves from the app root, including imports made by native dependencies. */
+  readonly dedupe?: readonly string[];
   readonly resolveURL?: (url: string) => string;
 }
 
@@ -64,7 +66,8 @@ async function run<T>(options: HeadlessOptions, use: (loader: GLTSLoader, canvas
         }
         if (specifier === gltsSpecifier) return nextResolve(new URL("../index.js", import.meta.url).href, context);
         // Linked modules have `data:` URLs in Node, memory ones included (see linker/memory.ts).
-        if (context.parentURL?.startsWith("data:") && isBareSpecifier(specifier)) {
+        // Dedupe also roots imports from physical packages, matching Vite's package identity.
+        if (isBareSpecifier(specifier) && (context.parentURL?.startsWith("data:") || options.dedupe?.includes(packageName(specifier)))) {
           return nextResolve(specifier, { ...context, parentURL: options.projectURL.href });
         }
         return nextResolve(specifier, context);

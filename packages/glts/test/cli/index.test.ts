@@ -103,6 +103,40 @@ async function render(name: string, files: Record<string, string | Buffer>, { sc
   return { centre, png };
 }
 
+it("captures alpha-to-coverage over the scene background without compositing the sheet through it", async () => {
+  const { centre } = await render("coverage", { "coverage.glts": `
+    import * as THREE from 'three/webgpu';
+    import { vec4 } from 'three/tsl';
+    import { scene } from '@drawcall/glts';
+    const material = new THREE.MeshBasicNodeMaterial({ alphaToCoverage: true });
+    material.colorNode = vec4(1, 1, 1, 0.5);
+    scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
+    scene.background = new THREE.Color('black');
+    ${front}
+  ` });
+  expect(centre[0]).toBeGreaterThan(80);
+  expect(centre[0]).toBeLessThan(240);
+  expect(centre).toEqual([centre[0], centre[0], centre[0], 255]);
+}, 30_000);
+
+it("composes ordinary transparency over the sheet background through effects", async () => {
+  const { centre, png } = await render("transparent", { "transparent.glts": `
+    import * as THREE from 'three/webgpu';
+    import { scene } from '@drawcall/glts';
+    const material = new THREE.MeshBasicMaterial({ color: 'red', opacity: 0.5, transparent: true });
+    scene.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material));
+    scene.rendering.effects.push(({ input }) => input);
+    ${front}
+  ` });
+  const corner = Array.from(await sharp(png).extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer());
+  expect(corner).toEqual([32, 39, 51, 255]);
+  // The effect receives linear scene colour: half red plus half the opaque backdrop.
+  const linear = (byte: number) => { const value = byte / 255; return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4; };
+  const expected = [0.5 + linear(32) * 0.5, linear(39) * 0.5, linear(51) * 0.5];
+  expected.forEach((value, channel) => expect(linear(centre[channel] ?? 0)).toBeCloseTo(value, 2));
+  expect(centre[3]).toBe(255);
+}, 30_000);
+
 it("runs scripts as the Vite dev server serves the app's public directory, rendering each view once what it streams in, and what that streams in, arrived", async () => {
   const color = await sharp({ create: { width: 1, height: 1, channels: 4, background: "#00ff20" } }).png().toBuffer();
   const { centre } = await render("app", { "public/streamed.glts": `

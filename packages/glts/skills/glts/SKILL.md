@@ -271,7 +271,7 @@ gltsRenderer.dispose()
 - Create one `GLTSRenderer` per renderer. The app owns the canvas, controls, viewport, and frame loop.
 - Effects need the default framebuffer, a full viewport, and scissor testing off.
 - Pass an explicit camera to override the asset's `defaultCamera`.
-- Content that streams in per view, such as a library's, starts items on your manager after the load resolved. To know when a view shows it complete, keep rendering frames and count each with a `ViewCompletion` constructed on the manager before loading; `restart()` it whenever the view changes, such as after moving the camera.
+- Content that streams in per view, such as a library's, starts items on your manager after the load resolved. To know when a view shows it complete, keep rendering frames and count each with a `ViewCompletion` constructed on the manager before loading, and `await completion.settled()`; ask again whenever the view changes, such as after moving the camera. `frame()` also answers per frame, with `restart()` when the view changes.
 - The CLI renders with `antialias` and `reversedDepthBuffer` on, as above; a host constructed differently draws far surfaces, and thin or alpha-tested content, differently from the CLI's images.
 - Direct Three.js rendering and custom pipelines also work because the asset is a native scene; they ignore its rendering profile.
 

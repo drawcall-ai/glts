@@ -5,6 +5,7 @@ export interface WarmupBuild {
   readonly root: string;
   readonly publicDir: string;
   readonly packages: readonly string[];
+  readonly dedupe: readonly string[];
   readonly external: readonly string[];
   readonly scripts: readonly string[];
   readonly cdnURL: string;

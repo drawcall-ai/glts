@@ -46,6 +46,40 @@ it("fails an item that ends without starting after construction, which still rea
   expect(completion.frame()).toBe(false);
 });
 
+it("settles once counted frames find the view complete, restarting the count", async () => {
+  const manager = new LoadingManager();
+  const completion = new ViewCompletion(manager);
+  let settled = false;
+  manager.itemStart("a");
+  const first = completion.settled().then(() => { settled = true; });
+  expect(completion.waiting).toBe(true);
+  manager.itemEnd("a");
+  completion.frame();
+  completion.frame();
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  expect(completion.frame()).toBe(true);
+  await first;
+  expect(completion.waiting).toBe(false);
+});
+
+it("rejects the settled that wait with the failures, and throws those found with none waiting", async () => {
+  const manager = new LoadingManager();
+  const completion = new ViewCompletion(manager);
+  manager.itemError("missing.bin");
+  const waits = [completion.settled(), completion.settled()];
+  expect(completion.frame()).toBe(false);
+  await expect(waits[0]).rejects.toThrow("- missing.bin");
+  await expect(waits[1]).rejects.toThrow("- missing.bin");
+  manager.itemError("late.bin");
+  expect(() => completion.frame()).toThrow("- late.bin");
+  // A failure found by none waits for the next that asks.
+  manager.itemError("later.bin");
+  const next = completion.settled();
+  completion.frame();
+  await expect(next).rejects.toThrow("- later.bin");
+});
+
 it("gives the manager its own item methods back once disposed", () => {
   const manager = new LoadingManager();
   const { itemStart, itemEnd, itemError } = manager;

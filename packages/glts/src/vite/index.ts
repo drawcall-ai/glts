@@ -150,6 +150,7 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
         const sources = await moduleSources(specifiers);
         await warmupBuild({
           root, publicDir, packages, external, scripts, env, moduleSources: sources, cdnURL: cdnURL.href, base: this.environment.config.base,
+          dedupe: this.environment.config.resolve.dedupe,
         });
       }
     },

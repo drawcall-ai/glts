@@ -106,6 +106,29 @@ it.each([
   await expect(compile(root)).rejects.toThrow(`warmup ${kind} failed`);
 });
 
+it("honors Vite's dedupe for native packages and their subpaths during warmup", async () => {
+  const root = await app("dedupe", {
+    "public/identity.glts": `
+      import { token } from "@fixture/identity/subpath";
+      import { nested } from "probe";
+      if (token !== nested) throw new Error("Duplicate package identity");
+    `,
+  });
+  const identity = {
+    "package.json": JSON.stringify({ name: "@fixture/identity", type: "module", exports: { "./subpath": "./subpath.js" } }),
+    "subpath.js": "export const token = {};",
+  };
+  await writeFiles(root, {
+    "package.json": JSON.stringify({ type: "module", dependencies: { probe: "1.0.0", "@fixture/identity": "1.0.0" } }),
+    "node_modules/probe/index.js": `export { token as nested } from "@fixture/identity/subpath";`,
+    ...Object.fromEntries(Object.entries(identity).flatMap(([file, source]) => [
+      [`node_modules/@fixture/identity/${file}`, source],
+      [`node_modules/probe/node_modules/@fixture/identity/${file}`, source],
+    ])),
+  });
+  await build({ configFile: false, logLevel: "silent", root, resolve: { dedupe: ["@fixture/identity"] }, plugins: [glts()] });
+});
+
 it.each([
   ["production", "production", true],
   ["staging", "production", true],

@@ -15,6 +15,7 @@ export interface RenderOptions {
 }
 
 const captionHeight = 28;
+const sheetColor = "#202733";
 
 /**
  * A contact sheet of `rows` of views, each `size` pixels square and captioned below when there are several or any has
@@ -31,7 +32,7 @@ function contactSheet(rows: View[][], size: number): { readonly height: number; 
     return `<svg x="${left * size}" y="${top * height + size}" width="${size}" height="${captionHeight}"><text x="8" y="19">${escaped}</text></svg>`;
   })) : [];
   const width = Math.max(...rows.map(row => row.length)) * size;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${rows.length * height}"><rect width="100%" height="100%" fill="#202733"/><g font-family="sans-serif" font-size="13" fill="white">${captions.join("")}</g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${rows.length * height}"><rect width="100%" height="100%" fill="${sheetColor}"/><g font-family="sans-serif" font-size="13" fill="white">${captions.join("")}</g></svg>`;
   const image = sharp(Buffer.from(svg)).raw().toBuffer({ resolveWithObject: true }).then(({ data, info }) => sharp(data, { raw: info }));
   // Awaited once the views rendered; a render failing first is the failure to report.
   image.catch(() => {});
@@ -167,7 +168,7 @@ async function renderViews(loader: GLTSLoader, url: URL, canvas: Canvas, complet
   const sheet = contactSheet(rows, size);
   // Three's DOM canvas types exclude native canvases; its constructor checks the actual API.
   // Constructed as the skill recommends hosts construct theirs, so views draw as they would in the app.
-  const instance: unknown = Reflect.construct(THREE.WebGPURenderer, [{ canvas, antialias: true, reversedDepthBuffer: true }]);
+  const instance: unknown = Reflect.construct(THREE.WebGPURenderer, [{ canvas, alpha: false, antialias: true, reversedDepthBuffer: true }]);
   if (!(instance instanceof THREE.WebGPURenderer)) throw new Error("Unable to construct the headless renderer.");
   const renderer = instance;
   try {
@@ -175,6 +176,8 @@ async function renderViews(loader: GLTSLoader, url: URL, canvas: Canvas, complet
     renderer.inspector = new HeldTime(time);
     renderer.setPixelRatio(1);
     renderer.setSize(size, size, false);
+    // The contact sheet is opaque; compose transparency on the GPU against its backdrop.
+    renderer.setClearColor(sheetColor, 1);
     const tiles: OverlayOptions[] = [];
     for (const [row, rowShots] of shots.entries()) for (const [column, shot] of rowShots.entries()) {
       const restore = shot.isolated ? isolate(scene, shot.isolated) : () => {};
@@ -188,6 +191,8 @@ async function renderViews(loader: GLTSLoader, url: URL, canvas: Canvas, complet
           await finished(canvas);
         });
         const pixels = await canvas.readPixels();
+        // Native readback keeps attachment alpha; opaque canvas presentation ignores it.
+        for (let offset = 3; offset < pixels.length; offset += 4) pixels[offset] = 255;
         const input = Buffer.from(pixels.buffer, pixels.byteOffset, pixels.byteLength);
         tiles.push({ input, raw: { width: size, height: size, channels: 4 }, left: column * size, top: row * sheet.height });
       } finally {

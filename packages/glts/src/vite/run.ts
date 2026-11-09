@@ -47,7 +47,7 @@ function options(value: unknown): WarmupBuild {
     }));
   return {
     root: string("root"), publicDir: string("publicDir"), cdnURL: string("cdnURL"), base: string("base"),
-    scripts: strings("scripts"), packages: strings("packages"), external: strings("external"), env, moduleSources,
+    scripts: strings("scripts"), packages: strings("packages"), external: strings("external"), dedupe: strings("dedupe"), env, moduleSources,
   };
 }
 
@@ -56,6 +56,7 @@ async function run(config: WarmupBuild): Promise<void> {
   const appURL = pathToFileURL(`${config.root}/`);
   await withHeadless({
     projectURL: appURL, baseURL: publicURL, size: 1, resolveURL: servedFiles(publicURL, config.base),
+    dedupe: config.dedupe,
     loader: {
       cdnURL: config.cdnURL, external: config.external, env: config.env, moduleSources: config.moduleSources,
       resolve: (specifier) => config.packages.includes(packageName(specifier)) ? specifier : undefined,
