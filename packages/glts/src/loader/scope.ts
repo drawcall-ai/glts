@@ -7,14 +7,8 @@ import type { Script } from "../linker/index.js";
 import { nodeDependencies, onNodeDispose, type LoadRequest } from "../node.js";
 import type { GLTSInstances, GLTSModuleSource, GLTSScene, GLTSURL } from "../types.js";
 import { canonicalize } from "../urls.js";
-import { Resources } from "./resources.js";
+import { Resources, type ScopePhase } from "./resources.js";
 import { ScriptLoader } from "./script.js";
-
-/**
- * Where an execution's loading window is: loading while the script builds, settled once its loads ended, when further
- * loads are the host's only, and aborted or disposed once it refuses loads.
- */
-export type ScopePhase = "loading" | "settled" | "aborted" | "disposed";
 
 /** Loads the script at a resolved URL for `scope`, as one item of its manager. */
 export interface NestedLoader {

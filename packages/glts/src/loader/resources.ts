@@ -3,7 +3,12 @@ import * as THREE from "three";
 import { Dependencies } from "../dependencies.js";
 import { collectError, GLTSError, runAll } from "../errors.js";
 import { canonicalize, pageBase } from "../urls.js";
-import type { ScopePhase } from "./scope.js";
+
+/**
+ * Where an execution's loading window is: loading while the script builds, settled once its loads ended, when further
+ * loads are the host's only, and aborted or disposed once it refuses loads.
+ */
+export type ScopePhase = "loading" | "settled" | "aborted" | "disposed";
 
 export interface ResourcesOptions {
   /** The host's manager, which gets the items and resolves their URLs. */

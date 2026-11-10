@@ -1,7 +1,7 @@
 import type { Canvas } from "@drawcall/webgpu";
 import sharp, { type OverlayOptions, type Sharp } from "sharp";
 import * as THREE from "three/webgpu";
-import { ViewCompletion } from "../completion.js";
+import { ItemCount } from "./count.js";
 import { GLTSRenderer } from "../renderer/index.js";
 import type { GLTSLoader } from "../loader/index.js";
 import { writeHeadless } from "./headless.js";
@@ -114,16 +114,29 @@ async function finished(canvas: Canvas): Promise<void> {
   await device.queue.onSubmittedWorkDone();
 }
 
+/** How long a view stays incomplete before stderr says what it waits for, and again each time that passes. */
+const waitNoteInterval = 10_000;
+
 /**
- * Repeats `pass` as frames would pass in the app until `completion` counts the view complete. While items are open, a
- * frame's time passes for them to progress; with none open, the next pass follows once pending tasks ran.
+ * Repeats `pass` as frames would pass in the app until the view it draws is complete: two passes in a row start or
+ * end no item while none is open. Two, since changes made during a render, after the affected object was drawn, reach
+ * the GPU only at the next render. While items are open, a frame's time passes for them to progress; with none open,
+ * the next pass follows once pending tasks ran. How long content may take is the caller's to limit, so a view that
+ * stays incomplete is noted on stderr rather than failed.
  */
-async function complete(completion: ViewCompletion, pass: () => void | Promise<void>): Promise<void> {
-  completion.restart();
-  for (;;) {
+async function complete(items: ItemCount, pass: () => void | Promise<void>): Promise<void> {
+  let noted = performance.now();
+  for (let quiet = 0; quiet < 2;) {
+    const { changes } = items;
     await pass();
-    await new Promise((resolve) => completion.open > 0 ? setTimeout(resolve, 16) : setImmediate(resolve));
-    if (completion.frame()) return;
+    await new Promise((resolve) => items.open > 0 ? setTimeout(resolve, 16) : setImmediate(resolve));
+    items.throwFailures();
+    quiet = items.changes === changes && items.open === 0 ? quiet + 1 : 0;
+    if (performance.now() - noted < waitNoteInterval) continue;
+    noted = performance.now();
+    console.error(items.open > 0
+      ? `Still waiting for ${items.open} item(s) to finish loading.`
+      : "Still waiting for a render that starts no item.");
   }
 }
 
@@ -140,17 +153,12 @@ function isolate(scene: THREE.Object3D, selected: THREE.Object3D): () => void {
   return () => { for (const [object, mask] of masks) object.layers.mask = mask; };
 }
 
-async function renderScene(loader: GLTSLoader, url: URL, canvas: Canvas, options: RenderOptions): Promise<Uint8Array> {
-  // Items scripts start once their own load settled, such as those of a nested script's library, are the host's only.
-  const completion = new ViewCompletion(loader.manager);
-  try { return await renderViews(loader, url, canvas, completion, options); }
-  finally { completion.dispose(); }
-}
-
-async function renderViews(loader: GLTSLoader, url: URL, canvas: Canvas, completion: ViewCompletion, { size, time, views }: RenderOptions): Promise<Uint8Array> {
+async function renderScene(loader: GLTSLoader, url: URL, canvas: Canvas, { size, time, views }: RenderOptions): Promise<Uint8Array> {
+  // Counted from before the load: a nested script's late items reach the host's manager while its parent still loads.
+  const items = new ItemCount(loader.manager);
   const scene = await loader.loadAsync(url);
   // What the load left streaming in, such as later nested loads, arrives first, so frame callbacks step it too.
-  await complete(completion, () => {});
+  await complete(items, () => {});
   scene.update(0);
   for (let elapsed = 0; elapsed < time;) {
     const delta = Math.min(1 / 60, time - elapsed);
@@ -186,7 +194,7 @@ async function renderViews(loader: GLTSLoader, url: URL, canvas: Canvas, complet
         // A render requests all a view draws, its shadows included; renders repeat, as frames in the app would, until
         // they request nothing, and the image is the last. Each waits for the GPU, as a browser paces frames, so slow
         // GPUs do not queue frames for the readback to wait on.
-        await complete(completion, async () => {
+        await complete(items, async () => {
           gltsRenderer.render(scene, shot.camera);
           await finished(canvas);
         });

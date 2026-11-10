@@ -7,7 +7,7 @@ import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import type { GLTSScene } from "../types.js";
 import { writeHeadless } from "./headless.js";
 import { canvasClass, nativeCanvas } from "../headless/canvas.js";
-import { ViewCompletion } from "../completion.js";
+import { ItemCount } from "./count.js";
 import { setGlobals } from "../headless/globals.js";
 
 export interface ExportOptions {
@@ -16,16 +16,12 @@ export interface ExportOptions {
 
 export async function exportFile(file: string, { output }: ExportOptions): Promise<void> {
   await writeHeadless(file, output, false, 1, async (loader, url) => {
-    const completion = new ViewCompletion(loader.manager);
-    try {
-      const scene = await loader.loadAsync(url);
-      // Items started after the script's load settled, such as from a timer, would be missing from the GLB.
-      completion.throwFailures();
-      if (completion.open > 0) throw new Error(`${completion.open} item(s) started after the script's load settled were still loading; the GLB would miss them.`);
-      return await exportScene(scene);
-    } finally {
-      completion.dispose();
-    }
+    const items = new ItemCount(loader.manager);
+    const scene = await loader.loadAsync(url);
+    // Items started after the script's load settled, such as from a timer, would be missing from the GLB.
+    items.throwFailures();
+    if (items.open > 0) throw new Error(`${items.open} item(s) started after the script's load resolved were still loading; the GLB would miss them.`);
+    return await exportScene(scene);
   });
 }
 

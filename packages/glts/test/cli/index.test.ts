@@ -198,7 +198,7 @@ it("renders and fails with what a nested script streams in once its own load set
   await expect(render("nested", files, { script: "failing.glts" }))
     .rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("Items failed to load:\n- part") });
   await expect(exec(process.execPath, [cli, "export", "streamed.glts", "-o", "streamed.glb"], { cwd: join(project, "nested") }))
-    .rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("1 item(s) started after the script's load settled were still loading") });
+    .rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("1 item(s) started after the script's load resolved were still loading") });
   // Failed and ended before the load resolved, so none is open.
   await expect(exec(process.execPath, [cli, "export", "failed.glts", "-o", "failed.glb"], { cwd: join(project, "nested") }))
     .rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("Items failed to load:\n- part") });

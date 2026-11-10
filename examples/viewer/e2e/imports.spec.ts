@@ -292,6 +292,9 @@ test("releases nested scenes, instances, and helper imports across load and disp
       instances.setMatrixAt(1, new window.Matrix4().makeTranslation(1, 0, 0));
       instances.dispose();
     }
+    // Three keeps a rendered scene's render list until a render finds it unused for ten animation frames.
+    for (let frame = 0; frame < 11; frame += 1) await new Promise(requestAnimationFrame);
+    renderer.render(new window.Scene(), camera);
   });
 
   const session = await page.context().newCDPSession(page);
