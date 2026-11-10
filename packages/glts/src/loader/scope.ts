@@ -4,7 +4,7 @@ import type { Dependencies } from "../dependencies.js";
 import { aggregate, GLTSError, runAll, toGLTSError } from "../errors.js";
 import type { ExecutionScope } from "../execution/index.js";
 import type { Script } from "../linker/index.js";
-import { nodeDependencies, onNodeDispose, type LoadRequest } from "../node.js";
+import { nodeDependencies, onNodeDispose, type LoadRequest } from "../nodes.js";
 import type { GLTSInstances, GLTSModuleSource, GLTSScene, GLTSURL } from "../types.js";
 import { canonicalize } from "../urls.js";
 import { Resources, type ScopePhase } from "./resources.js";

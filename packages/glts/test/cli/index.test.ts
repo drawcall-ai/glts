@@ -444,6 +444,12 @@ it("exports canvas textures created by the script", async () => {
   expect(Array.from(pixels.subarray(0, 4))).toEqual([0, 255, 32, 255]);
 }, 30_000);
 
+it("renders programmatically to PNG bytes from the app root it is given", async () => {
+  const { render } = await import(join(directory, "dist/node.js"));
+  const bytes: Uint8Array = await render(join(project, "asset.glts"), { root: project, size: 48 });
+  expect(await sharp(bytes).metadata()).toMatchObject({ width: 48, height: 48, format: "png" });
+}, 30_000);
+
 it("reports invalid views and load failures without replacing an existing output", async () => {
   const output = join(project, "existing.png");
   await writeFile(output, "original");

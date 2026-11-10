@@ -362,6 +362,8 @@ npx drawcall glts render dragon.glts -o inspection.png --size 512 --time 0.5 \
 npx drawcall glts export dragon.glts -o dragon.glb
 ```
 
+Tools that render assets in Node.js, such as a publishing step that makes preview images, call `render(file, options)` from `@drawcall/glts/node` instead: it renders as `drawcall glts render` does and returns the PNG bytes, with the app root as an option rather than the working directory.
+
 Run it from the app's root, on the script's file, such as `public/houses/house.glts`. App paths such as `/models/tree.glb` load from `public/` (or the working directory without one), served at base `/`. Scripts run in Node.js, not on a page, with Vite's development `import.meta.env`, `SSR` true and the app's `VITE_` variables; `vite.config` is not read.
 
 Each view's image shows its content complete. This matters only when writing content that streams in per view, as some libraries do: report its work as items on the contextual `loadingManager` (see Resources and cleanup), starting an item synchronously when the content is requested, before awaiting anything. Drive per-view streaming from rendering hooks, such as an object's `onBeforeRender` or a node's update, which run whenever a view draws, shadows included; not from frame callbacks such as `onFrame`, which run before any view.

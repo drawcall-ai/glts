@@ -69,7 +69,7 @@ npx drawcall glts render asset.glts -o views.png --views '[[{"camera":"+x"},{"ca
 npx drawcall glts export asset.glts -o asset.glb
 ```
 
-Rendering uses [@drawcall/webgpu](https://github.com/drawcall-ai/webgpu) and includes preview staging. Export excludes it and writes supported geometry, materials, textures, skins, and explicit animation clips; procedural frame callbacks remain in the `.glts` file.
+Rendering uses [@drawcall/webgpu](https://github.com/drawcall-ai/webgpu), with or without a GPU, and includes preview staging; in Node.js, `render(file, options)` from `@drawcall/glts/node` returns the same PNG as bytes. Export excludes it and writes supported geometry, materials, textures, skins, and explicit animation clips; procedural frame callbacks remain in the `.glts` file.
 
 ## Agent skill
 

@@ -8,29 +8,33 @@ import type { Canvas } from "@drawcall/webgpu";
 import { servedFiles, withHeadless } from "../headless/index.js";
 import type { GLTSLoader } from "../loader/index.js";
 
+export interface HeadlessScript {
+  /** The script's path, relative to the working directory. */
+  readonly file: string;
+  /** The app's root directory. */
+  readonly root: string;
+  readonly isPreview: boolean;
+  readonly size: number;
+}
+
 /**
- * Runs `encode` with a headless loader of the script at `file` and its URL, as the Vite dev server serves it to a page
- * of the app in the working directory, and writes the bytes it returns to `output` atomically, printing its path. The page's
- * root is the app's `public` directory, or the working directory without one, and scripts see the `import.meta.env`
- * Vite's development server gives the modules it runs in Node, so that caches they fill match the app's.
+ * Runs `encode` with a headless loader of the script and its URL, as the Vite dev server serves it to a page of the app
+ * at `root`, and returns the bytes it encodes. The page's root is the app's `public` directory, or `root` without one,
+ * and scripts see the `import.meta.env` Vite's development server gives the modules it runs in Node, so that caches
+ * they fill match the app's.
  */
-export async function writeHeadless(
-  file: string,
-  output: string,
-  isPreview: boolean,
-  size: number,
+export async function runHeadless(
+  { file, root, isPreview, size }: HeadlessScript,
   encode: (loader: GLTSLoader, url: URL, canvas: Canvas) => Promise<Uint8Array>
-): Promise<void> {
+): Promise<Uint8Array> {
   const url = pathToFileURL(resolve(file));
-  const root = process.cwd();
   const publicDir = resolve(root, "public");
-  const pageURL = pathToFileURL(`${existsSync(publicDir) ? publicDir : root}/`);
-  const bytes = await withHeadless({
+  const pageURL = pathToFileURL(`${existsSync(publicDir) ? publicDir : resolve(root)}/`);
+  return await withHeadless({
     projectURL: url, baseURL: pageURL, size,
     resolveURL: servedFiles(pageURL, "/"),
     loader: { isPreview, env: await developmentEnv(root), resolve: (specifier) => specifier },
   }, (loader, canvas) => encode(loader, url, canvas));
-  await write(output, bytes);
 }
 
 /**
@@ -52,7 +56,7 @@ async function developmentEnv(root: string): Promise<Record<string, string | boo
 }
 
 /** Writes `bytes` to `path` through a temporary file, so a failed write leaves no partial output, and prints the path. */
-async function write(path: string, bytes: Uint8Array): Promise<void> {
+export async function write(path: string, bytes: Uint8Array): Promise<void> {
   const output = resolve(path);
   await mkdir(dirname(output), { recursive: true });
   const temporary = `${output}.${randomUUID()}.tmp`;

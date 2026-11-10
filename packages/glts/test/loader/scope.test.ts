@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Dependencies } from "../../src/dependencies.js";
 import { GLTSLoader } from "../../src/loader/index.js";
 import { LoadScope } from "../../src/loader/scope.js";
-import { assertUndisposed } from "../../src/node.js";
+import { assertUndisposed } from "../../src/nodes.js";
 import type { GLTSScriptLoader } from "../../src/types.js";
 import { base, deferred, serve } from "./fixture.js";
 

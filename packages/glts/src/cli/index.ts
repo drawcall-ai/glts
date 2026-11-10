@@ -34,9 +34,9 @@ program.command("render")
   .option("--size <pixels>", "pixels per square view", size, 768)
   .option("--time <seconds>", "simulate from zero in 1/60-second steps, and render at that time", time, 0)
   .option("--views <json>", 'rows of view objects, e.g. [[{"camera":"+x"},{"camera":"persp"}]]', views)
-  .action(async (file: string, options: RenderOptions) => {
-    const { renderFile } = await import("./render.js");
-    await renderFile(file, options);
+  .action(async (file: string, { output, ...options }: RenderOptions & { output: string }) => {
+    const [{ render }, { write }] = await Promise.all([import("./render.js"), import("./headless.js")]);
+    await write(output, await render(file, options));
   });
 
 program.command("export")

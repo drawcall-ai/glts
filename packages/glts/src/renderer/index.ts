@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 
-import { assertUndisposed } from "../node.js";
+import { assertUndisposed } from "../nodes.js";
 import type { GLTSScene } from "../types.js";
 import { Effects } from "./effects.js";
 

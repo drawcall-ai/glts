@@ -2,7 +2,7 @@ import * as THREE from "three/webgpu";
 import { pass } from "three/tsl";
 
 import { cleanUpAndThrow, runAll } from "../errors.js";
-import { onNodeDispose } from "../node.js";
+import { onNodeDispose } from "../nodes.js";
 import type { GLTSEffect, GLTSScene } from "../types.js";
 
 interface EffectSet {

@@ -4,13 +4,17 @@ import * as THREE from "three/webgpu";
 import { ItemCount } from "./count.js";
 import { GLTSRenderer } from "../renderer/index.js";
 import type { GLTSLoader } from "../loader/index.js";
-import { writeHeadless } from "./headless.js";
+import { runHeadless } from "./headless.js";
 import type { FocusSphere, View, ViewAngle } from "./views.js";
 
 export interface RenderOptions {
-  output: string;
-  size: number;
-  time: number;
+  /** The app's root directory, whose `public` directory serves app paths such as `/models/tree.glb`; default: the working directory. */
+  root?: string;
+  /** Pixels per square view; default: 768. */
+  size?: number;
+  /** Seconds simulated from zero in 1/60-second steps before rendering; default: 0. */
+  time?: number;
+  /** Rows of views of the contact sheet; default: one view from `scene.defaultCamera`, or a fitted perspective view. */
   views?: View[][];
 }
 
@@ -39,8 +43,12 @@ function contactSheet(rows: View[][], size: number): { readonly height: number; 
   return { height, image };
 }
 
-export async function renderFile(file: string, options: RenderOptions): Promise<void> {
-  await writeHeadless(file, options.output, true, options.size, (loader, url, canvas) => renderScene(loader, url, canvas, options));
+/**
+ * Renders the GLTS script at `file` with its preview staging, as the CLI's `render` command does, and returns the PNG.
+ * Without a GPU, @drawcall/webgpu falls back to its bundled CPU renderer. One process runs one render at a time.
+ */
+export async function render(file: string, { root = process.cwd(), size = 768, time = 0, views }: RenderOptions = {}): Promise<Uint8Array> {
+  return await runHeadless({ file, root, isPreview: true, size }, (loader, url, canvas) => renderScene(loader, url, canvas, { size, time, views }));
 }
 
 function findUnique(scene: THREE.Object3D, name: string): THREE.Object3D {
@@ -153,7 +161,7 @@ function isolate(scene: THREE.Object3D, selected: THREE.Object3D): () => void {
   return () => { for (const [object, mask] of masks) object.layers.mask = mask; };
 }
 
-async function renderScene(loader: GLTSLoader, url: URL, canvas: Canvas, { size, time, views }: RenderOptions): Promise<Uint8Array> {
+async function renderScene(loader: GLTSLoader, url: URL, canvas: Canvas, { size, time, views }: { size: number; time: number; views: View[][] | undefined }): Promise<Uint8Array> {
   // Counted from before the load: a nested script's late items reach the host's manager while its parent still loads.
   const items = new ItemCount(loader.manager);
   const scene = await loader.loadAsync(url);

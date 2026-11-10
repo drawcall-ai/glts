@@ -10,7 +10,7 @@ import * as GLTS from "../index.js";
 import { gltsSpecifier, type ProvidedSpecifier } from "../imports.js";
 import { Linker, type Script } from "../linker/index.js";
 import { defaultCDNURL } from "../linker/resolution.js";
-import { NodeRegistry, type LoadRequest } from "../node.js";
+import { NodeRegistry, type LoadRequest } from "../nodes.js";
 import type { GLTSInstances, GLTSLoaderOptions, GLTSModules, GLTSModuleSource, GLTSScene, GLTSURL } from "../types.js";
 import { canonicalize, pageURL } from "../urls.js";
 import { trackItem, type ItemFailure } from "./items.js";

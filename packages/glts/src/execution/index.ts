@@ -4,7 +4,7 @@ import type { Dependencies } from "../dependencies.js";
 import { aggregate, cleanUpAndThrow, GLTSError, runAll, toGLTSError } from "../errors.js";
 import { importNamespace, type Bindings } from "../imports.js";
 import type { Script } from "../linker/index.js";
-import type { LoadRequest } from "../node.js";
+import type { LoadRequest } from "../nodes.js";
 import type {
   GLTSSource,
   GLTSScriptLoader,
