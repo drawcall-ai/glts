@@ -85,7 +85,7 @@ When the asset is nested, its background, environment, fog, override material, d
 
 - Use top-level `await` for asynchronous work the asset depends on, including resource loads and async helpers, so the script finishes with the asset ready. Prefer Three.js `loadAsync()`; use `await Promise.all(...)` for independent loads.
 - Pass the contextual `loadingManager` to every Three.js loader during evaluation. It tracks resources but does not replace awaiting their completion; unawaited callbacks or background tasks can leave the asset unfinished when the script returns.
-- The asset's load waits only for items started before it resolves. Items started later on the contextual `loadingManager`, such as content a library streams in per view while it renders, are the host's: the asset neither waits for them nor fails with them. Do not start loads the asset needs from `onFrame`, `onMatrixUpdateAt`, effect factories, timers, or event callbacks.
+- The asset's load waits only for items started before it resolves. Items started later on the contextual `loadingManager`, such as content a library streams in per view while it renders, are the host's: the asset neither waits for them nor fails with them. Do not start loads the asset needs from `onFrame`, effect factories, timers, or event callbacks.
 - Three.js loaders resolve relative URLs against the page; resolve them against the script instead: `new URL("./bark.png", import.meta.url).href`.
 - Register LoadingManager handlers (`addHandler`) on the contextual `loadingManager`, with handler loaders constructed with it. A handler registered only on the host's manager makes the load fail.
 - For a library that loads `.glts` files through a manager's handler, register the contextual `gltsLoader` itself: `loadingManager.addHandler(/\.glts$/i, gltsLoader)`. Like the host's `GLTSLoader`, it publishes `moduleSources`, so libraries that key caches on it work unchanged.
@@ -160,26 +160,11 @@ scene.add(wheel)
 
 ## Instancing
 
-Use automatic instancing for static mesh hierarchies and let the parent pose the instances. Choose native instancing for assets with their own per-instance behavior or nested GLTS scenes.
+A host can draw any asset as instances, so an asset needs no instancing code of its own:
 
-When the asset needs its own per-instance behavior, implement native instancing:
-
-```ts
-import * as THREE from "three/webgpu"
-import { disposeRecursive, instanceCount, onDispose, onMatrixUpdateAt, scene } from "@drawcall/glts"
-
-const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), instanceCount)
-scene.add(mesh)
-
-onMatrixUpdateAt((index, matrix) => {
-  mesh.setMatrixAt(index, matrix)
-  mesh.instanceMatrix.needsUpdate = true
-})
-
-onDispose(() => disposeRecursive(scene))
-```
-
-Registering `onMatrixUpdateAt` selects native instancing. It immediately replays the current matrices and then receives every later host `setMatrixAt()`. The script still runs once. Because `instanceCount` is `1` for `loadAsync()`, the script also works as a single scene.
+- Plain meshes are instanced automatically, each at every instance with its transform in the asset kept. Automatic instancing fails the load for what it cannot repeat per instance, such as lights, skinned meshes, `onFrame()`, and nested scenes loaded with `loadAsync()`.
+- An instanced object, one with an `instanceMatrix` such as an `InstancedMesh`, a library's instanced crowd, or a nested asset loaded with `gltsLoader.loadInstancesAsync()`, draws the host's instances in place of its own. Build it at the asset's origin: one placed elsewhere fails the load, so move the offset into the child asset.
+- Under `loadAsync()`, an instanced object draws one instance at the origin, so the same asset also works as a single scene. Do not scatter copies with an `InstancedMesh` inside an asset, since the host's instances replace them; load each copy as its own scene, or let the host instance the asset.
 
 ## Reload safety
 
@@ -214,20 +199,29 @@ For package resolution and shared namespaces, see Packages below. Use the loader
 
 ## Instances
 
+`loadInstancesAsync()` returns a scene driven like a Three.js `InstancedMesh`:
+
 ```ts
 const rocks = await loader.loadInstancesAsync("/assets/rock.glts", 1000)
 const matrix = new THREE.Matrix4()
 for (let index = 0; index < rocks.count; index += 1) {
   rocks.setMatrixAt(index, matrix.makeTranslation(index * 2, 0, 0))
 }
+rocks.instanceMatrix.needsUpdate = true
+rocks.computeBoundingBox()
 scene.add(rocks)
 ```
+
+- Edits upload as an `InstancedMesh`'s do, once `needsUpdate` is set, when the scene's world matrices update. With `matrixWorldAutoUpdate` off along its path, call `rocks.updateMatrixWorld()` after editing.
+- To grow, assign a larger `instanceMatrix` or `instanceColor`. A `StorageInstancedBufferAttribute` that a compute shader writes works too.
+- Set `boundingBox`, or call `computeBoundingBox()` for matrices on the CPU, so the instances are frustum culled. Matrices only the GPU writes are never culled without one.
+- Set `clusters` to disjoint ranges of instances, each with a `boundingBox`, in the order to draw them, such as front to back, for instanced objects in the asset that cull per cluster, such as level-of-detail crowds. The array is passed on itself, so edits in place take effect.
 
 ## Reload and errors
 
 - `loader.reload(url)` invalidates the cached source and reloads every undisposed node loaded from that file, including query variants; with none, it fetches nothing and the next load gets fresh source. Pending loads of that file finish first. For a helper's URL, it also re-reads the helpers importing it and does the same for every script that imports the helper, directly or through other helpers.
 - A reload builds the replacement before touching the live node. Inspect the scene after a cleanup error, since the replacement may already be committed.
-- A reload keeps the node's identity, host transform, and instance matrices, and refreshes its root properties, `defaultCamera`, and `rendering`.
+- A reload keeps the node's identity, host transform, and instancing data, and refreshes its root properties, `defaultCamera`, and `rendering`.
 - A reload replaces the asset's children; look them up again instead of keeping references.
 - Source requests use HTTP `no-cache`. Loads of the same script file reuse its linked graph until it is invalidated, including across query variants such as `tree.glts?seed=1` and `tree.glts?seed=2`. Each load executes separately with its own query parameters in `import.meta.url`. The server sees only the first query's request for a script file until invalidation, so use parameters inside the script; a server that generates different source per query does not work with this sharing.
 - Use the source location and import chain on `GLTSError` to find the failing asset or helper.
