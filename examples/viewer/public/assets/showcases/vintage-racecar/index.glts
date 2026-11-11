@@ -125,30 +125,26 @@ const car = new THREE.Group()
 car.name = "vintage racecar"
 scene.add(car)
 
-const [body, chassis, cockpit, wheels] = await Promise.all([
+const axisX = new THREE.Vector3(1, 0, 0)
+const axisY = new THREE.Vector3(0, 1, 0)
+async function loadWheel(wheel: (typeof wheelPlacements)[number]) {
+  const rotation = new THREE.Quaternion().setFromAxisAngle(axisY, wheel.steer + (wheel.mirror ? Math.PI : 0))
+  rotation.multiply(new THREE.Quaternion().setFromAxisAngle(axisX, wheel.phase))
+  const scale = wheel.radius / REAR_RADIUS
+  const node = await gltsLoader.loadAsync("./wheel.glts")
+  node.position.set(wheel.x, wheel.radius, wheel.z)
+  node.quaternion.copy(rotation)
+  node.scale.set(wheel.width, scale, scale)
+  return node
+}
+
+const [body, chassis, cockpit, ...wheels] = await Promise.all([
   gltsLoader.loadAsync("./body.glts"),
   gltsLoader.loadAsync("./chassis.glts"),
   gltsLoader.loadAsync("./cockpit.glts"),
-  gltsLoader.loadInstancesAsync("./wheel.glts", wheelPlacements.length)
+  ...wheelPlacements.map(loadWheel)
 ])
-car.add(body, chassis, cockpit, wheels)
-
-const placement = new THREE.Matrix4()
-const spin = new THREE.Quaternion()
-const rotation = new THREE.Quaternion()
-const axisX = new THREE.Vector3(1, 0, 0)
-const axisY = new THREE.Vector3(0, 1, 0)
-for (const [index, wheel] of wheelPlacements.entries()) {
-  rotation.setFromAxisAngle(axisY, wheel.steer + (wheel.mirror ? Math.PI : 0))
-  spin.setFromAxisAngle(axisX, wheel.phase)
-  rotation.multiply(spin)
-  const scale = wheel.radius / REAR_RADIUS
-  wheels.setMatrixAt(index, placement.compose(
-    new THREE.Vector3(wheel.x, wheel.radius, wheel.z),
-    rotation,
-    new THREE.Vector3(wheel.width, scale, scale)
-  ))
-}
+car.add(body, chassis, cockpit, ...wheels)
 
 // A hand-formed body was never perfectly still: the engine idle keeps a slight
 // tremble in the chassis, which is intrinsic to the asset rather than staging.

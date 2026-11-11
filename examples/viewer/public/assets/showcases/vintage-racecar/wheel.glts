@@ -6,10 +6,8 @@ import { merge } from "./geometry.ts"
 // spokes, brake drum and an eared knock-off spinner.
 //
 // The wheel is authored at the rear-axle size with its rotation axis along X and
-// its outboard face toward +X. index.glts loads four instances and writes the
-// track, steering, spin and front/rear size into each instance matrix, so this
-// file stays free of lights, cameras and frame callbacks that would make the
-// hierarchy ineligible for automatic instancing.
+// its outboard face toward +X. index.glts loads four wheels and places each at
+// its track, steering, spin and front/rear size.
 
 const TYRE_RADIUS = 0.39
 const BEAD_RADIUS = 0.198
