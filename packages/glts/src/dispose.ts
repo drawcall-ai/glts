@@ -5,7 +5,7 @@ import { BatchedMesh, InstancedMesh, Light, Line, Mesh, Points, Sprite, Texture,
  * `root`'s subtree, the instanced and batched meshes' own buffers, and the lights' shadow maps. Textures reached only
  * through node graphs or uniforms are not freed.
  */
-export function disposeTree(root: Object3D): void {
+export function disposeRecursive(root: Object3D): void {
   const resources = new Set<{ dispose(): void }>();
   root.traverse((node) => {
     if (node instanceof InstancedMesh || node instanceof BatchedMesh || node instanceof Light) resources.add(node);

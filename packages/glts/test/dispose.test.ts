@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import * as THREE from "three/webgpu";
 
-import { disposeTree } from "../src/index.js";
+import { disposeRecursive } from "../src/index.js";
 
 it("disposes resources shared across a subtree's meshes once, including their materials' textures", () => {
   const geometry = new THREE.BoxGeometry();
@@ -12,7 +12,7 @@ it("disposes resources shared across a subtree's meshes once, including their ma
   root.add(new THREE.Group().add(new THREE.Mesh(geometry, [material, material])));
   const disposals = [geometry, material, map].map((resource) => vi.spyOn(resource, "dispose"));
 
-  disposeTree(root);
+  disposeRecursive(root);
 
   for (const disposal of disposals) expect(disposal).toHaveBeenCalledTimes(1);
 });
@@ -28,7 +28,7 @@ it("disposes batched meshes and lights themselves and keeps the geometry sprites
   const spriteMaterialDisposal = vi.spyOn(sprite.material, "dispose");
   const spriteGeometryDisposal = vi.spyOn(sprite.geometry, "dispose");
 
-  disposeTree(root);
+  disposeRecursive(root);
 
   expect(batchedDisposal).toHaveBeenCalledTimes(1);
   expect(lightDisposal).toHaveBeenCalledTimes(1);

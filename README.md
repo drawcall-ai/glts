@@ -19,7 +19,7 @@ A script builds its asset in the `scene` it imports:
 ```ts
 // public/crystal.glts
 import * as THREE from "three/webgpu"
-import { disposeTree, onDispose, onFrame, scene } from "@drawcall/glts"
+import { disposeRecursive, onDispose, onFrame, scene } from "@drawcall/glts"
 
 const crystal = new THREE.Mesh(new THREE.IcosahedronGeometry(), new THREE.MeshNormalMaterial())
 scene.add(crystal)
@@ -28,7 +28,7 @@ onFrame((delta) => {
   crystal.rotation.y += delta
 })
 
-onDispose(() => disposeTree(scene))
+onDispose(() => disposeRecursive(scene))
 ```
 
 The app loads it like any other Three.js asset and renders with WebGPU:

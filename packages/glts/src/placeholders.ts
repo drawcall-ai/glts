@@ -11,7 +11,7 @@ import { ScriptLoader } from "./loader/script.js";
 import { createRoot } from "./root.js";
 
 // Context-free, so scripts and hosts share one implementation.
-export { disposeTree } from "./dispose.js";
+export { disposeRecursive } from "./dispose.js";
 
 function unavailable(name: string): never {
   throw new Error(

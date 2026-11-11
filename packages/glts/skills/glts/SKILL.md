@@ -15,20 +15,20 @@ Build the asset in the imported `scene`, a `THREE.Scene`. The file is a plain sc
 
 ```ts
 import * as THREE from "three/webgpu"
-import { disposeTree, onDispose, scene } from "@drawcall/glts"
+import { disposeRecursive, onDispose, scene } from "@drawcall/glts"
 
 scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()))
 
-onDispose(() => disposeTree(scene))
+onDispose(() => disposeRecursive(scene))
 ```
 
 Import contextual bindings, the per-execution values and hooks such as `scene` and `onDispose`, by name from `@drawcall/glts`. Each script execution gets its own context.
 
-`disposeTree(scene)` frees the geometries, materials, material textures, and light shadows the scene holds, each once. When the scene holds resources shared with other assets, dispose only the subtrees the script owns. Dispose textures used only in node graphs, `scene.background`, and `scene.environment` yourself.
+`disposeRecursive(scene)` frees the geometries, materials, material textures, and light shadows the scene holds, each once. When the scene holds resources shared with other assets, dispose only the subtrees the script owns. Dispose textures used only in node graphs, `scene.background`, and `scene.environment` yourself.
 
 Rules:
 
-- Export no values. From `@drawcall/glts`, import only contextual bindings, `disposeTree`, or types.
+- Export no values. From `@drawcall/glts`, import only contextual bindings, `disposeRecursive`, or types.
 - Import `three/webgpu`, `three/tsl`, `three/addons/*`, browser-compatible npm packages, full `https://` module URLs, or helpers (see Helpers).
 - Never import `.glts` files (load them with `gltsLoader.loadAsync()`) or other local files such as `./data.json`, and never use import attributes.
 - Dynamic `import()` follows the same rules and resolves when it runs, so an import on a path that never runs is never fetched. `@drawcall/glts` must be imported statically. The Vite plugin bundles a literal specifier such as `import("pkg")` like a static import, loaded with the app; a computed one such as `import(name)` loads from the CDN.
@@ -49,7 +49,7 @@ Gate staging that exists only for standalone inspection (floor, light rig, backg
 
 ```ts
 import * as THREE from "three/webgpu"
-import { disposeTree, isPreview, onDispose, scene } from "@drawcall/glts"
+import { disposeRecursive, isPreview, onDispose, scene } from "@drawcall/glts"
 import { bloom } from "three/addons/tsl/display/BloomNode.js"
 
 scene.defaultCamera = new THREE.PerspectiveCamera(35, 1, 0.1, 100)
@@ -70,7 +70,7 @@ if (isPreview) {
   )
 }
 
-onDispose(() => disposeTree(scene))
+onDispose(() => disposeRecursive(scene))
 ```
 
 ### Rendering profile
@@ -107,12 +107,12 @@ export function tube(radius: number, length: number): THREE.BufferGeometry {
 ```ts
 // parts/axle.glts
 import * as THREE from "three/webgpu"
-import { disposeTree, onDispose, scene } from "@drawcall/glts"
+import { disposeRecursive, onDispose, scene } from "@drawcall/glts"
 import { tube } from "./geometry.ts"
 
 scene.add(new THREE.Mesh(tube(0.03, 1.4), new THREE.MeshStandardMaterial()))
 
-onDispose(() => disposeTree(scene))
+onDispose(() => disposeRecursive(scene))
 ```
 
 - A helper may export anything and import what a script can, including other helpers, except that it imports only types from `@drawcall/glts`.
@@ -166,7 +166,7 @@ When the asset needs its own per-instance behavior, implement native instancing:
 
 ```ts
 import * as THREE from "three/webgpu"
-import { disposeTree, instanceCount, onDispose, onMatrixUpdateAt, scene } from "@drawcall/glts"
+import { disposeRecursive, instanceCount, onDispose, onMatrixUpdateAt, scene } from "@drawcall/glts"
 
 const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), instanceCount)
 scene.add(mesh)
@@ -176,7 +176,7 @@ onMatrixUpdateAt((index, matrix) => {
   mesh.instanceMatrix.needsUpdate = true
 })
 
-onDispose(() => disposeTree(scene))
+onDispose(() => disposeRecursive(scene))
 ```
 
 Registering `onMatrixUpdateAt` selects native instancing. It immediately replays the current matrices and then receives every later host `setMatrixAt()`. The script still runs once. Because `instanceCount` is `1` for `loadAsync()`, the script also works as a single scene.

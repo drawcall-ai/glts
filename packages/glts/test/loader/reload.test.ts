@@ -152,7 +152,7 @@ it("keeps the replacement execution's scene bound to the existing node on reload
     });
     if (Object.getPrototypeOf(glts) !== null || !Object.isFrozen(glts)) throw new Error("Invalid namespace");
     const names = Object.keys(glts).sort().join();
-    if (names !== "disposeTree,gltsLoader,instanceCount,isPreview,loadingManager,onDispose,onFrame,onMatrixUpdateAt,scene") {
+    if (names !== "disposeRecursive,gltsLoader,instanceCount,isPreview,loadingManager,onDispose,onFrame,onMatrixUpdateAt,scene") {
       throw new Error("Unexpected script exports: " + names);
     }`;
   const loader = serve({ "scene.glts": source }, { capture: (source: unknown) => { sources.push(source); } });
