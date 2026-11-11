@@ -213,9 +213,9 @@ scene.add(rocks)
 ```
 
 - Edits upload as an `InstancedMesh`'s do, once `needsUpdate` is set, when the scene's world matrices update. With `matrixWorldAutoUpdate` off along its path, call `rocks.updateMatrixWorld()` after editing.
-- To grow, assign a larger `instanceMatrix` or `instanceColor`. A `StorageInstancedBufferAttribute` that a compute shader writes works too.
+- To grow, assign a larger `instanceMatrix` or `instanceColor`. A `StorageInstancedBufferAttribute` that a compute shader writes works too; a GPU `instanceColor` holds 4 floats per instance.
 - Set `boundingBox`, or call `computeBoundingBox()` for matrices on the CPU, so the instances are frustum culled. Matrices only the GPU writes are never culled without one.
-- Set `clusters` to disjoint ranges of instances, each with a `boundingBox`, in the order to draw them, such as front to back, for instanced objects in the asset that cull per cluster, such as level-of-detail crowds. The array is passed on itself, so edits in place take effect.
+- Set `clusters` to disjoint ranges of instances, each with a `boundingBox`, in the order to draw them, such as front to back, for instanced objects in the asset that cull per cluster, such as level-of-detail crowds. The array is passed on by reference, so edits in place take effect.
 
 ## Reload and errors
 

@@ -149,6 +149,7 @@ for (const [index, wheel] of wheelPlacements.entries()) {
     new THREE.Vector3(wheel.width, scale, scale)
   ))
 }
+wheels.instanceMatrix.needsUpdate = true
 
 // A hand-formed body was never perfectly still: the engine idle keeps a slight
 // tremble in the chassis, which is intrinsic to the asset rather than staging.
