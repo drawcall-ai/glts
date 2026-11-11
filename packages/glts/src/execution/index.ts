@@ -1,6 +1,7 @@
 import type * as THREE from "three";
 
 import type { Dependencies } from "../dependencies.js";
+import { disposeRecursive } from "../dispose.js";
 import { aggregate, cleanUpAndThrow, GLTSError, runAll, toGLTSError } from "../errors.js";
 import { importNamespace, type Bindings } from "../imports.js";
 import type { Script } from "../linker/index.js";
@@ -93,6 +94,7 @@ export class Execution {
     this.root = createRoot(this.source);
     const execution = this;
     this.bindings = Object.freeze({
+      disposeRecursive,
       gltsLoader: options.scope.gltsLoader,
       instanceCount: this.#matrices.length,
       loadingManager: options.scope.manager,

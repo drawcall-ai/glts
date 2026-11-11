@@ -1,4 +1,5 @@
 export {
+  disposeRecursive,
   gltsLoader,
   instanceCount,
   loadingManager,
