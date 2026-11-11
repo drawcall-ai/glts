@@ -1,18 +1,18 @@
-import * as THREE from "three";
+import type * as THREE from "three";
 
 import type { Dependencies } from "./dependencies.js";
 import { cleanUpAndThrow, GLTSError, runAll } from "./errors.js";
 import type { Execution } from "./execution/index.js";
-import type { Instances } from "./instances.js";
+import { addInstancing } from "./instances.js";
 import type { ScriptRoot } from "./root.js";
-import type { GLTSCluster, GLTSInstances, GLTSScene } from "./types.js";
+import type { GLTSScene } from "./types.js";
 
 /** What a load asks for; a reload repeats it. */
 export interface LoadRequest {
   /** The URL the script was requested by, which its node keeps. */
   readonly requestedURL: string;
-  /** The instancing data of a node loaded as instances. */
-  readonly instances: Instances | undefined;
+  /** The instance count of a load as instances. */
+  readonly count: number | undefined;
   readonly isPreview: boolean;
   /** The URLs of the scripts that loaded this one, outermost first; empty for the host's loads. */
   readonly ancestors: readonly string[];
@@ -76,7 +76,7 @@ export class NodeRegistry {
 
   /**
    * Makes the root of `execution` a managed node of this loader; for instances, one with InstancedMesh's instancing API
-   * that forwards its data to the execution's targets. A root the script made non-extensible fails its load.
+   * that forwards its data to the targets of its latest execution. A root the script made non-extensible fails its load.
    */
   add(execution: Execution, request: LoadRequest): Managed {
     const scene: Managed = Object.assign(execution.root, {
@@ -85,8 +85,7 @@ export class NodeRegistry {
       dispose: (): void => this.#dispose(record),
       update: (delta: number): void => this.#update(recordOf(scene), delta)
     });
-    const node = request.instances ? addInstanceMethods(scene, request.instances) : scene;
-    request.instances?.attach(execution.targets);
+    const node = request.count === undefined ? scene : addInstancing(scene, request.count, () => record.execution.targets);
     const record: NodeRecord = { ...request, execution, node, disposeListeners: new Set() };
     // Object.assign gives the node its type; the getter follows replacement executions.
     Object.defineProperty(node, "source", { get: () => record.execution.source });
@@ -147,7 +146,6 @@ export class NodeRegistry {
     runAll("GLTS node disposal failed", [
       () => this.#disposeDescendants(record),
       () => record.execution.dispose(),
-      () => record.instances?.dispose(),
       // As Object3D.dispose() does, so renderers release what they hold for the node.
       () => record.node.dispatchEvent({ type: "dispose" }),
       ...record.disposeListeners
@@ -171,7 +169,6 @@ export class NodeRegistry {
         }
         record.execution = replacement;
         replacement.adopt(record.node);
-        record.instances?.attach(replacement.targets);
       }
     ]);
   }
@@ -198,43 +195,4 @@ export class NodeRegistry {
     });
     return found;
   }
-}
-
-/** Gives `node` InstancedMesh's instancing API over `instances`, whose edits it takes in as its world matrix updates. */
-function addInstanceMethods(node: Managed, instances: Instances): ScriptRoot & GLTSInstances {
-  const properties = {
-    get instanceMatrix(): THREE.InstancedBufferAttribute { return instances.instanceMatrix; },
-    set instanceMatrix(value: THREE.InstancedBufferAttribute) { instances.instanceMatrix = value; },
-    get instanceColor(): THREE.InstancedBufferAttribute | null { return instances.instanceColor; },
-    set instanceColor(value: THREE.InstancedBufferAttribute | null) { instances.instanceColor = value; },
-    get count(): number { return instances.count; },
-    set count(value: number) { instances.count = value; },
-    get boundingBox(): THREE.Box3 | null { return instances.boundingBox; },
-    set boundingBox(value: THREE.Box3 | null) { instances.boundingBox = value; },
-    get boundingSphere(): THREE.Sphere | null { return instances.boundingSphere; },
-    set boundingSphere(value: THREE.Sphere | null) { instances.boundingSphere = value; },
-    get clusters(): GLTSCluster[] | undefined { return instances.clusters; },
-    set clusters(value: GLTSCluster[] | undefined) { instances.clusters = value; },
-  };
-  // Object.assign types the node but copies the properties' current values, which their accessors then replace.
-  const instanced: ScriptRoot & GLTSInstances = Object.assign(node, properties, {
-    computeBoundingBox: (): void => instances.computeBoundingBox(),
-    computeBoundingSphere: (): void => instances.computeBoundingSphere(),
-    getColorAt: (index: number, color: THREE.Color): THREE.Color => instances.getColorAt(index, color),
-    getMatrixAt: (index: number, matrix: THREE.Matrix4): THREE.Matrix4 => instances.getMatrixAt(index, matrix),
-    setColorAt: (index: number, color: THREE.Color): ScriptRoot & GLTSInstances => {
-      instances.setColorAt(index, color);
-      return instanced;
-    },
-    setMatrixAt: (index: number, matrix: THREE.Matrix4): ScriptRoot & GLTSInstances => {
-      instances.setMatrixAt(index, matrix);
-      return instanced;
-    },
-    updateMatrixWorld: (force?: boolean): void => {
-      instances.sync();
-      THREE.Object3D.prototype.updateMatrixWorld.call(instanced, force);
-    },
-  });
-  Object.defineProperties(instanced, Object.getOwnPropertyDescriptors(properties));
-  return instanced;
 }

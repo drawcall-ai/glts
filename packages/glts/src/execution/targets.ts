@@ -5,14 +5,9 @@ import type { InstancedObject } from "../types.js";
 
 const identity = new THREE.Matrix4();
 
-function hasInstanceMatrix(object: THREE.Object3D): boolean {
-  return "instanceMatrix" in object && object.instanceMatrix instanceof THREE.InstancedBufferAttribute;
-}
-
-/** Whether `object` has three's InstancedMesh shape, which a node forwards its instancing data to. */
+/** Whether a node forwards its instancing data to `object`, an object with three's InstancedMesh shape. */
 function isInstanced(object: THREE.Object3D): object is InstancedObject {
-  return hasInstanceMatrix(object) && typeof object.count === "number"
-    && "computeBoundingBox" in object && typeof object.computeBoundingBox === "function";
+  return "instanceMatrix" in object && object.instanceMatrix instanceof THREE.InstancedBufferAttribute;
 }
 
 function isUnsupportedForInstancing(object: THREE.Object3D): boolean {
@@ -28,30 +23,9 @@ function isUnsupportedForInstancing(object: THREE.Object3D): boolean {
   );
 }
 
-function copyRenderState(mesh: THREE.Mesh, target: THREE.InstancedMesh): void {
-  target.castShadow = mesh.castShadow;
-  target.customDepthMaterial = mesh.customDepthMaterial;
-  target.customDistanceMaterial = mesh.customDistanceMaterial;
-  target.frustumCulled = mesh.frustumCulled;
-  target.layers.mask = mesh.layers.mask;
-  target.name = mesh.name;
-  target.onAfterRender = mesh.onAfterRender;
-  target.onAfterShadow = mesh.onAfterShadow;
-  target.onBeforeRender = mesh.onBeforeRender;
-  target.onBeforeShadow = mesh.onBeforeShadow;
-  target.receiveShadow = mesh.receiveShadow;
-  target.renderOrder = mesh.renderOrder;
-  target.userData = mesh.userData;
-  target.visible = mesh.visible;
-}
-
 function visibleBelowRoot(object: THREE.Object3D, root: THREE.Object3D): boolean {
-  let current: THREE.Object3D | null = object;
-  while (current && current !== root) {
-    if (!current.visible) {
-      return false;
-    }
-    current = current.parent;
+  for (let current: THREE.Object3D | null = object; current && current !== root; current = current.parent) {
+    if (!current.visible) return false;
   }
   return true;
 }
@@ -82,18 +56,23 @@ function bake(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4): THREE.Buff
 function instanceMesh(mesh: THREE.Mesh, root: THREE.Object3D): THREE.InstancedMesh {
   const relative = relativeMatrix(mesh, root);
   const geometry = relative.equals(identity) ? mesh.geometry : bake(mesh.geometry, relative);
-  const instanced = new THREE.InstancedMesh(geometry, mesh.material, 0);
-  copyRenderState(mesh, instanced);
-  instanced.visible = visibleBelowRoot(mesh, root);
+  const instanced = Object.assign(new THREE.InstancedMesh(geometry, mesh.material, 0), {
+    castShadow: mesh.castShadow,
+    customDepthMaterial: mesh.customDepthMaterial,
+    customDistanceMaterial: mesh.customDistanceMaterial,
+    frustumCulled: mesh.frustumCulled,
+    name: mesh.name,
+    onAfterRender: mesh.onAfterRender,
+    onAfterShadow: mesh.onAfterShadow,
+    onBeforeRender: mesh.onBeforeRender,
+    onBeforeShadow: mesh.onBeforeShadow,
+    receiveShadow: mesh.receiveShadow,
+    renderOrder: mesh.renderOrder,
+    userData: mesh.userData,
+    visible: visibleBelowRoot(mesh, root),
+  });
+  instanced.layers.mask = mesh.layers.mask;
   return instanced;
-}
-
-export interface TargetOptions {
-  /** The asset's nested nodes. */
-  readonly nodes: ReadonlySet<THREE.Object3D>;
-  /** Whether the script registered onFrame callbacks. */
-  readonly frames: boolean;
-  readonly url: string;
 }
 
 /** An execution's targets: the instanced objects its node forwards its instancing data to. */
@@ -101,17 +80,6 @@ export interface Targets {
   readonly targets: readonly InstancedObject[];
   /** Disposes what automatic instancing created. */
   dispose(): void;
-}
-
-/** A mesh below `object`, plain or instanced, outside nested nodes, which draw themselves. */
-function findMesh(object: THREE.Object3D, nodes: ReadonlySet<THREE.Object3D>): THREE.Mesh | undefined {
-  for (const child of object.children) {
-    if (nodes.has(child)) continue;
-    if (child instanceof THREE.Mesh) return child;
-    const mesh = findMesh(child, nodes);
-    if (mesh) return mesh;
-  }
-  return undefined;
 }
 
 /** Whether `object` holds instances of its own, which the host's would replace: more than one, or one moved. */
@@ -123,18 +91,15 @@ function hasCopies(object: InstancedObject): boolean {
 /**
  * Takes over the targets of an asset loaded as instances: the topmost objects with an `instanceMatrix`, which must sit
  * at its origin, since the host's matrices place the asset, and hold no copies of their own. Every plain mesh becomes an
- * InstancedMesh target at the root, and the rest of the scene goes.
+ * InstancedMesh target at the root, and the rest of the scene goes. `nodes` are the asset's nested nodes, and `frames`
+ * whether the script registered onFrame callbacks.
  */
-export function takeTargets(root: THREE.Scene, options: TargetOptions): Targets {
-  const { nodes, frames, url } = options;
+export function takeTargets(root: THREE.Scene, nodes: readonly THREE.Object3D[], frames: boolean, url: string): Targets {
   root.updateMatrixWorld(true);
   const targets: InstancedObject[] = [];
   const meshes: THREE.Mesh[] = [];
   const visit = (object: THREE.Object3D): void => {
     const name = object.name || `a THREE.${object.type}`;
-    if (hasInstanceMatrix(object) && !isInstanced(object)) {
-      throw new GLTSError(`${name} has an instanceMatrix but not InstancedMesh's count and computeBoundingBox()`, { phase: "construct", url });
-    }
     if (isInstanced(object)) {
       if (hasCopies(object)) {
         throw new GLTSError(
@@ -142,12 +107,8 @@ export function takeTargets(root: THREE.Scene, options: TargetOptions): Targets 
           { phase: "construct", url }
         );
       }
-      const mesh = object instanceof THREE.InstancedMesh && findMesh(object, nodes);
-      if (mesh) {
-        throw new GLTSError(
-          `${name} has a mesh below it, ${mesh.name || `a THREE.${mesh.type}`}, which would draw once; add it beside instead`,
-          { phase: "construct", url }
-        );
+      if (object instanceof THREE.InstancedMesh && object.children.length > 0) {
+        throw new GLTSError(`${name} has children, which would draw once; add them beside it instead`, { phase: "construct", url });
       }
       if (!relativeMatrix(object, root).equals(identity)) {
         throw new GLTSError(
@@ -158,7 +119,7 @@ export function takeTargets(root: THREE.Scene, options: TargetOptions): Targets 
       targets.push(object);
       return;
     }
-    if (nodes.has(object)) {
+    if (nodes.includes(object)) {
       throw new GLTSError("Instanced assets cannot contain nested scenes; load them with loadInstancesAsync(url, 1)", { phase: "construct", url });
     }
     if (isUnsupportedForInstancing(object) || (object instanceof THREE.Mesh && object.morphTargetInfluences)) {

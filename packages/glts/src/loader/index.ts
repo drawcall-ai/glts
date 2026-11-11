@@ -6,7 +6,6 @@ import { aggregate, cleanUpAndThrow, GLTSError, runAll, toGLTSError } from "../e
 import { Dependencies } from "../dependencies.js";
 import { Execution } from "../execution/index.js";
 import { withFiles } from "../files.js";
-import { Instances } from "../instances.js";
 import * as GLTS from "../index.js";
 import { gltsSpecifier, type ProvidedSpecifier } from "../imports.js";
 import { Linker, type Script } from "../linker/index.js";
@@ -103,10 +102,8 @@ export class GLTSLoader extends THREE.Loader {
   }
 
   /**
-   * Runs one scene as a positive integer count of instances, driven as an InstancedMesh, and forwards their instancing
-   * data to its instanced objects, which must not hold copies of their own. Its plain meshes become InstancedMesh
-   * objects; it rejects cameras, lights, lines, points, sprites, LODs, skins, batches, morph targets, nested scenes not
-   * loaded as instances, and onFrame callbacks beside plain meshes.
+   * Runs one scene as a positive integer count of instances, driven as an InstancedMesh, which forwards their
+   * instancing data to its instanced objects and makes its plain meshes InstancedMesh objects.
    */
   async loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances> {
     return this.#load(this.#resolveURL(url), count);
@@ -156,7 +153,7 @@ export class GLTSLoader extends THREE.Loader {
     }
     const request: LoadRequest = {
       requestedURL,
-      instances: count === undefined ? undefined : new Instances(count, requestedURL),
+      count,
       // Only the host's scene is the standalone script a preview shows.
       isPreview: this.#isPreview && count === undefined && !scope,
       ancestors: scope?.chain ?? []
@@ -173,7 +170,7 @@ export class GLTSLoader extends THREE.Loader {
         return this.#nodes.add(execution, request);
       } catch (error) {
         cleanUpAndThrow(
-          toGLTSError(error, `Unable to construct GLTS ${request.instances ? "instances" : "scene"}`, {
+          toGLTSError(error, `Unable to construct GLTS ${request.count === undefined ? "scene" : "instances"}`, {
             phase: "construct", url: requestedURL
           }),
           requestedURL,

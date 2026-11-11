@@ -129,18 +129,23 @@ it("runs browser code that needs canvases, decoded images, and module workers", 
   expect(descriptors()).toEqual(before);
 });
 
+/** A WebGPU renderer on `canvas` and an orthographic camera viewing the unit square at the origin. */
+async function view(canvas: unknown): Promise<{ renderer: THREE.WebGPURenderer; camera: THREE.OrthographicCamera }> {
+  // Three's DOM canvas types exclude native canvases; its constructor checks the actual API.
+  const renderer: unknown = Reflect.construct(THREE.WebGPURenderer, [{ canvas, alpha: false }]);
+  if (!(renderer instanceof THREE.WebGPURenderer)) throw new Error("Unable to construct the renderer");
+  await renderer.init();
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+  camera.position.z = 2;
+  return { renderer, camera };
+}
+
 it("draws instances from the host's attributes, through edits and replacements", async () => {
   const file = join(directory, "plane.glts");
   await writeFile(file, `import * as THREE from "three/webgpu"; import { scene } from "@drawcall/glts";
     scene.add(new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial()));`);
   await withHeadless(options, async (loader, canvas) => {
-    // Three's DOM canvas types exclude native canvases; its constructor checks the actual API.
-    const instance: unknown = Reflect.construct(THREE.WebGPURenderer, [{ canvas, alpha: false }]);
-    if (!(instance instanceof THREE.WebGPURenderer)) throw new Error("Unable to construct the renderer");
-    const renderer = instance;
-    await renderer.init();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-    camera.position.z = 2;
+    const { renderer, camera } = await view(canvas);
     const scene = new THREE.Scene();
     const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
     const instances = await loader.loadInstancesAsync(pathToFileURL(file), 2);
@@ -173,12 +178,7 @@ it("draws instances its meshes share from one large CPU instanceMatrix, through 
   await writeFile(file, `import * as THREE from "three/webgpu"; import { scene } from "@drawcall/glts";
     scene.add(${half(-0.5)}, ${half(0.5)});`);
   await withHeadless({ ...options, size: 2 }, async (loader, canvas) => {
-    const instance: unknown = Reflect.construct(THREE.WebGPURenderer, [{ canvas, alpha: false }]);
-    if (!(instance instanceof THREE.WebGPURenderer)) throw new Error("Unable to construct the renderer");
-    const renderer = instance;
-    await renderer.init();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-    camera.position.z = 2;
+    const { renderer, camera } = await view(canvas);
     const scene = new THREE.Scene();
     // Beyond the uniform buffer limit, so three uploads the matrices as an instanced vertex buffer, once per frame.
     const count = 20000;

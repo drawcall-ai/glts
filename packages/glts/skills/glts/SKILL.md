@@ -163,7 +163,7 @@ scene.add(wheel)
 A host can draw any asset as instances with `loadInstancesAsync()`, so an asset needs no instancing code of its own:
 
 - Plain meshes are instanced automatically, each at every instance with its transform in the asset kept. Automatic instancing fails the load for what it cannot repeat per instance, such as lights, skinned meshes, `onFrame()`, and nested scenes loaded with `loadAsync()`.
-- An instanced object, one with an `instanceMatrix` such as an `InstancedMesh`, a library's instanced crowd, or a nested asset loaded with `gltsLoader.loadInstancesAsync()`, draws the host's instances in place of its own. Build it at the asset's origin with a single instance there; one placed elsewhere fails the load, so move the offset into the child asset. When the host replaces an attribute, an `InstancedMesh` receives a `dispose` event so Three.js rebuilds it, so free shared resources in `onDispose()`, not in a `dispose` listener.
+- An instanced object, one with an `instanceMatrix` such as an `InstancedMesh`, a library's instanced crowd, or a nested asset loaded with `gltsLoader.loadInstancesAsync()`, draws the host's instances in place of its own. Build it at the asset's origin with a single instance there and, for an `InstancedMesh`, no children; one placed elsewhere fails the load, so move the offset into the child asset. When the host replaces an attribute, an `InstancedMesh` receives a `dispose` event so Three.js rebuilds it, so free shared resources in `onDispose()`, not in a `dispose` listener.
 - An asset that scatters its own copies, with an `InstancedMesh` or nested instances, can be loaded only with `loadAsync()`, which leaves every instanced object as the script built it.
 
 ## Reload safety
@@ -212,7 +212,7 @@ rocks.computeBoundingBox()
 scene.add(rocks)
 ```
 
-- Edits upload as an `InstancedMesh`'s do, once `needsUpdate` is set. Culling follows, and `count` is checked, when the scene's world matrices update; if the rendered scene's `matrixWorldAutoUpdate` is off, call `rocks.updateMatrixWorld()` after editing.
+- Edits reach the asset when the scene's world matrices update, and upload as an `InstancedMesh`'s do once `needsUpdate` is set. If the rendered scene's `matrixWorldAutoUpdate` is off, call `rocks.updateMatrixWorld()` after editing.
 - To grow, assign a larger `instanceMatrix` or `instanceColor`. Growing throws when the renderer keeps previous-frame matrices for velocity, as TRAA and motion blur do, so allocate the largest count up front there. A `StorageInstancedBufferAttribute` that a compute shader writes works too; as an `instanceColor` it holds 4 floats per instance.
 - Set `boundingBox`, or call `computeBoundingBox()` for matrices on the CPU, so the instances are frustum culled. Matrices only the GPU writes are never culled without one.
 - Set `clusters` to disjoint ranges of instances, each with a `boundingBox`, in the order to draw them, such as front to back, for instanced objects in the asset that cull per cluster, such as level-of-detail crowds. The array is passed on by reference, so edits in place take effect.

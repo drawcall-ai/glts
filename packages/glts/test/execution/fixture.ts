@@ -15,7 +15,7 @@ export function createExecution(options: {
   const unexpected = async (): Promise<never> => { throw new Error("Unexpected nested load"); };
   return new Execution({
     script: { requestedURL: url, executionURL: url, module },
-    request: { isPreview: false, instances: undefined },
+    request: { isPreview: false, count: undefined },
     scope: {
       gltsLoader: new ScriptLoader(manager, {}, unexpected, unexpected),
       manager,

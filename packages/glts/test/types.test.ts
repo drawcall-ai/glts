@@ -1,14 +1,12 @@
-import { expect, expectTypeOf, it } from "vitest";
+import { expectTypeOf, it } from "vitest";
 import * as THREE from "three/webgpu";
 
 import {
   GLTSLoader,
   GLTSRenderer,
   loadingManager,
-  onFrame,
   isPreview,
   scene,
-  type GLTSCluster,
   type GLTSEffect,
   type GLTSEffectContext,
   type GLTSInstances,
@@ -38,8 +36,6 @@ it("exports the host and contextual script APIs", () => {
     .toEqualTypeOf<THREE.Matrix4>();
   expectTypeOf<ReturnType<GLTSInstances["setMatrixAt"]>>()
     .toEqualTypeOf<GLTSInstances>();
-  expectTypeOf<GLTSInstances["instanceMatrix"]>().toEqualTypeOf<THREE.InstancedBufferAttribute>();
-  expectTypeOf<GLTSInstances["clusters"]>().toEqualTypeOf<GLTSCluster[] | undefined>();
   expectTypeOf<ConstructorParameters<typeof GLTSLoader>[0]>()
     .toEqualTypeOf<THREE.LoadingManager>();
   expectTypeOf<ConstructorParameters<typeof GLTSRenderer>[0]>()
@@ -56,16 +52,4 @@ it("exports the host and contextual script APIs", () => {
   expectTypeOf(loadingManager).toEqualTypeOf<THREE.LoadingManager>();
   expectTypeOf(scene).toExtend<THREE.Scene>();
   expectTypeOf(isPreview).toEqualTypeOf<boolean>();
-});
-
-it("fails contextual object and function use outside a GLTS script", () => {
-  expect(() => loadingManager.itemStart("test://resource")).toThrow(
-    "only available inside a .glts script"
-  );
-  expect(() => scene.add(new THREE.Group())).toThrow(
-    "only available inside a .glts script"
-  );
-  expect(() => onFrame(() => undefined)).toThrow(
-    "only available inside a .glts script"
-  );
 });

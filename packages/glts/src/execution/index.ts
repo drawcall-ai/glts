@@ -39,7 +39,7 @@ export interface ExecutionScope {
 
 export interface ExecutionOptions {
   readonly script: Pick<Script, "requestedURL" | "executionURL" | "module" | "env">;
-  readonly request: Pick<LoadRequest, "isPreview" | "instances">;
+  readonly request: Pick<LoadRequest, "isPreview" | "count">;
   /** Disposed with the execution, first. */
   readonly scope: ExecutionScope;
   /** The files the execution uses, the script's included. */
@@ -69,7 +69,7 @@ export class Execution {
     this.url = script.executionURL;
     this.module = script.module;
     this.#env = script.env;
-    this.#instanced = request.instances !== undefined;
+    this.#instanced = request.count !== undefined;
     this.#scope = options.scope;
     this.dependencies = dependencies;
     this.source = Object.freeze({
@@ -118,11 +118,7 @@ export class Execution {
       await this.#evaluate();
       await this.#scope.settle();
       if (this.#instanced) {
-        this.#targets = takeTargets(this.root, {
-          nodes: new Set(this.#scope.nodes),
-          frames: this.#onFrame.length > 0,
-          url: this.url,
-        });
+        this.#targets = takeTargets(this.root, this.#scope.nodes, this.#onFrame.length > 0, this.url);
       }
     } catch (error) {
       // The script's own failures are GLTSErrors already; anything else failed while building its scene.
