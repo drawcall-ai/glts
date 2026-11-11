@@ -17,10 +17,12 @@ it("disposes resources shared across a subtree's meshes once, including their ma
   for (const disposal of disposals) expect(disposal).toHaveBeenCalledTimes(1);
 });
 
-it("lets batched meshes dispose their own geometry and keeps the geometry sprites share", () => {
+it("disposes batched meshes and lights themselves and keeps the geometry sprites share", () => {
   const batched = new THREE.BatchedMesh(1, 3, 3, new THREE.MeshBasicMaterial());
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial());
-  const root = new THREE.Group().add(batched, sprite);
+  const light = new THREE.DirectionalLight();
+  const root = new THREE.Group().add(batched, sprite, light);
+  const lightDisposal = vi.spyOn(light, "dispose");
   const batchedDisposal = vi.spyOn(batched, "dispose");
   const batchedGeometryDisposal = vi.spyOn(batched.geometry, "dispose");
   const spriteMaterialDisposal = vi.spyOn(sprite.material, "dispose");
@@ -29,6 +31,7 @@ it("lets batched meshes dispose their own geometry and keeps the geometry sprite
   disposeTree(root);
 
   expect(batchedDisposal).toHaveBeenCalledTimes(1);
+  expect(lightDisposal).toHaveBeenCalledTimes(1);
   expect(batchedGeometryDisposal).toHaveBeenCalledTimes(1);
   expect(spriteMaterialDisposal).toHaveBeenCalledTimes(1);
   expect(spriteGeometryDisposal).not.toHaveBeenCalled();

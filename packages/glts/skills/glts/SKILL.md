@@ -24,7 +24,7 @@ onDispose(() => disposeTree(scene))
 
 Import contextual bindings, the per-execution values and hooks such as `scene` and `onDispose`, by name from `@drawcall/glts`. Each script execution gets its own context.
 
-`disposeTree(scene)` frees the geometries, materials, and material textures the scene holds, each once. When the scene holds resources shared with other assets, dispose only the subtrees the script owns. Dispose textures used only in node graphs, `scene.background`, and `scene.environment` yourself.
+`disposeTree(scene)` frees the geometries, materials, material textures, and light shadows the scene holds, each once. When the scene holds resources shared with other assets, dispose only the subtrees the script owns. Dispose textures used only in node graphs, `scene.background`, and `scene.environment` yourself.
 
 Rules:
 
@@ -49,7 +49,7 @@ Gate staging that exists only for standalone inspection (floor, light rig, backg
 
 ```ts
 import * as THREE from "three/webgpu"
-import { isPreview, onDispose, scene } from "@drawcall/glts"
+import { disposeTree, isPreview, onDispose, scene } from "@drawcall/glts"
 import { bloom } from "three/addons/tsl/display/BloomNode.js"
 
 scene.defaultCamera = new THREE.PerspectiveCamera(35, 1, 0.1, 100)
@@ -68,9 +68,9 @@ if (isPreview) {
   scene.rendering.effects.push(({ input }) =>
     input.add(bloom(input, 0.3, 0.4, 0.85)),
   )
-
-  onDispose(() => light.dispose())
 }
+
+onDispose(() => disposeTree(scene))
 ```
 
 ### Rendering profile
