@@ -39,9 +39,8 @@ it("forwards the host's instancing data to the asset's instanced objects", async
   const [target, crowd] = node.children;
   if (!(target instanceof THREE.InstancedMesh) || !(crowd instanceof library.Crowd)) throw new Error("Missing targets");
 
-  expect(target.instanceMatrix).toBeInstanceOf(THREE.StorageInstancedBufferAttribute);
-  expect(target.instanceMatrix.array).toBe(node.instanceMatrix.array);
-  expect(crowd.instanceMatrix).toBe(target.instanceMatrix);
+  expect(target.instanceMatrix).toBe(node.instanceMatrix);
+  expect(crowd.instanceMatrix).toBe(node.instanceMatrix);
   expect([target.count, crowd.count]).toEqual([3, 3]);
 
   const box = new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
@@ -51,55 +50,23 @@ it("forwards the host's instancing data to the asset's instanced objects", async
   node.clusters = clusters;
   expect([target.count, crowd.count]).toEqual([2, 2]);
   expect(crowd.boundingBox).toBe(box);
-  expect(target.clusters).toBe(clusters);
+  expect(Reflect.get(target, "clusters")).toBe(clusters);
   expect(crowd.clusters).toBe(clusters);
   node.updateMatrixWorld();
   expect(target.boundingSphere).toEqual(box.getBoundingSphere(new THREE.Sphere()));
 });
 
-it("hands the host's update ranges to the storage attribute the targets share", async () => {
-  const node = await serve({ "asset.glts": script(instancedMesh) }).loadInstancesAsync(url, 4);
-  const target = only(instancedMeshes(node));
-  const version = target.instanceMatrix.version;
-
-  node.setMatrixAt(2, new THREE.Matrix4().makeTranslation(1, 0, 0));
-  node.instanceMatrix.addUpdateRange(32, 16);
-  node.instanceMatrix.needsUpdate = true;
-  node.updateMatrixWorld();
-  expect(target.instanceMatrix.updateRanges).toEqual([{ start: 32, count: 16 }]);
-  expect(node.instanceMatrix.updateRanges).toEqual([]);
-  expect(target.instanceMatrix.version).toBe(version + 1);
-  node.updateMatrixWorld();
-  expect(target.instanceMatrix.version).toBe(version + 1);
-
-  // A full update stays full through a later partial one.
-  node.instanceMatrix.needsUpdate = true;
-  node.updateMatrixWorld();
-  node.instanceMatrix.addUpdateRange(0, 16);
-  node.instanceMatrix.needsUpdate = true;
-  node.updateMatrixWorld();
-  expect(target.instanceMatrix.updateRanges).toContainEqual({ start: 0, count: 64 });
-});
-
-it("pads the host's colors for storage and copies their edits", async () => {
+it("forwards the host's colors as they are, rebuilding the targets once they appear", async () => {
   const node = await serve({ "asset.glts": script(instancedMesh) }).loadInstancesAsync(url, 2);
+  const target = only(instancedMeshes(node));
   const disposed = vi.fn();
-  only(instancedMeshes(node)).addEventListener("dispose", disposed);
+  target.addEventListener("dispose", disposed);
   node.setColorAt(1, new THREE.Color(0.5, 0.25, 0));
+  expect(target.instanceColor).toBe(node.instanceColor);
   expect(disposed).toHaveBeenCalledOnce();
-  const colors = only(instancedMeshes(node)).instanceColor;
-  node.updateMatrixWorld();
-  expect([...colors?.array ?? []]).toEqual([1, 1, 1, 0, 0.5, 0.25, 0, 0]);
-
+  expect(target.getColorAt(1, new THREE.Color())).toEqual(new THREE.Color(0.5, 0.25, 0));
   node.setColorAt(0, new THREE.Color(0, 0, 1));
-  // As an upload does.
-  colors?.clearUpdateRanges();
-  node.instanceColor?.addUpdateRange(0, 3);
-  if (node.instanceColor) node.instanceColor.needsUpdate = true;
-  node.updateMatrixWorld();
-  expect([...colors?.array ?? []]).toEqual([0, 0, 1, 0, 0.5, 0.25, 0, 0]);
-  expect(colors?.updateRanges).toEqual([{ start: 0, count: 4 }]);
-  expect(node.getColorAt(1, new THREE.Color())).toEqual(new THREE.Color(0.5, 0.25, 0));
+  expect(disposed).toHaveBeenCalledOnce();
 });
 
 it("rebuilds InstancedMesh targets when the host replaces an attribute", async () => {
@@ -115,8 +82,7 @@ it("rebuilds InstancedMesh targets when the host replaces an attribute", async (
 
   const cpu = new THREE.InstancedBufferAttribute(new Float32Array(16 * 8), 16);
   node.instanceMatrix = cpu;
-  expect(target.instanceMatrix.array).toBe(cpu.array);
-  expect(target.instanceMatrix).toBeInstanceOf(THREE.StorageInstancedBufferAttribute);
+  expect(target.instanceMatrix).toBe(cpu);
   expect(disposed).toHaveBeenCalledTimes(2);
 });
 
@@ -187,7 +153,7 @@ it("rejects what automatic instancing cannot draw", async () => {
   });
   await expect(loader.loadInstancesAsync(`${base}light.glts`, 2)).rejects.toThrow("does not support THREE.PointLight");
   await expect(loader.loadInstancesAsync(`${base}frames.glts`, 2)).rejects.toThrow("cannot use onFrame()");
-  await expect(loader.loadInstancesAsync(`${base}nested.glts`, 2)).rejects.toThrow("load them with loadInstancesAsync()");
+  await expect(loader.loadInstancesAsync(`${base}nested.glts`, 2)).rejects.toThrow("load them with loadInstancesAsync(url, 1)");
 });
 
 it("forwards nothing to a scene loaded with loadAsync()", async () => {
@@ -207,7 +173,7 @@ it("forwards a host's data through nested instances to their instanced objects",
   const node = await loader.loadInstancesAsync(url, 3);
   const child = only(node.children);
   const target = only(instancedMeshes(child));
-  expect(target.instanceMatrix.array).toBe(node.instanceMatrix.array);
+  expect(target.instanceMatrix).toBe(node.instanceMatrix);
   expect(target.count).toBe(3);
   // The CPU array holds the instances, so three bounds them from it.
   node.updateMatrixWorld();
@@ -224,7 +190,7 @@ it("keeps the host's data across a reload", async () => {
   sources["asset.glts"] = script(mesh);
   await loader.reload(url);
   const target = only(instancedMeshes(node));
-  expect(target.instanceMatrix.array).toBe(node.instanceMatrix.array);
+  expect(target.instanceMatrix).toBe(node.instanceMatrix);
   expect(target.count).toBe(1);
   expect(target.boundingBox).toBe(box);
 });

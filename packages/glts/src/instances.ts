@@ -7,84 +7,27 @@ import type { GLTSCluster, InstancedObject } from "./types.js";
 const unbounded = new THREE.Sphere(new THREE.Vector3(), Infinity);
 const white = new THREE.Color(1, 1, 1);
 
-/** The storage attributes glts made over CPU arrays, whose arrays hold their data, unlike the GPU's own. */
-const mirrors = new WeakSet<THREE.InstancedBufferAttribute>();
-
 function isStorage(attribute: THREE.InstancedBufferAttribute): boolean {
   return attribute instanceof THREE.StorageInstancedBufferAttribute;
 }
 
 /** Throws unless `attribute` holds one of `itemSizes` floats per instance in a Float32Array. */
-function check(attribute: THREE.InstancedBufferAttribute, name: string, itemSizes: readonly number[]): THREE.InstancedBufferAttribute {
+function assertLayout(attribute: THREE.InstancedBufferAttribute, name: string, itemSizes: readonly number[]): void {
   if (!itemSizes.includes(attribute.itemSize) || !(attribute.array instanceof Float32Array)) {
     throw new TypeError(`GLTS ${name} must hold ${itemSizes.join(" or ")} floats per instance in a Float32Array`);
   }
-  return attribute;
 }
 
 /**
- * How a host attribute reaches the targets. A storage attribute goes as is. A CPU one goes as one storage attribute
- * over the same array, or over a copy for 3 floats per instance, which WGSL storage pads to 4, so every target shares
- * one GPU buffer. sync() is the only consumer of the CPU attribute's update ranges, handing them to that storage
- * attribute.
- */
-class Forwarded {
-  readonly source: THREE.InstancedBufferAttribute;
-  readonly attribute: THREE.InstancedBufferAttribute;
-  /** The source's version the last sync took in; undefined for a copy no sync filled yet. */
-  #version: number | undefined;
-
-  constructor(source: THREE.InstancedBufferAttribute) {
-    this.source = source;
-    if (isStorage(source)) {
-      this.attribute = source;
-    } else if (source.itemSize === 3) {
-      this.attribute = new THREE.StorageInstancedBufferAttribute(new Float32Array(source.count * 4), 4);
-    } else {
-      this.attribute = new THREE.StorageInstancedBufferAttribute(source.array, source.itemSize);
-      this.#version = source.version;
-      mirrors.add(this.attribute);
-    }
-  }
-
-  /** Hands the source's edits since the last sync on; returns whether there were any. */
-  sync(): boolean {
-    const { source, attribute } = this;
-    if (source.version === this.#version) return false;
-    // As a new attribute uploads whole, the first sync copies the whole source.
-    const whole = this.#version === undefined || source.updateRanges.length === 0;
-    this.#version = source.version;
-    if (attribute === source) return true;
-    // A range over the whole array rather than none, so a full update stays pending through later partial ones.
-    const ranges = whole ? [{ start: 0, count: source.array.length }] : source.updateRanges;
-    for (const { start, count } of ranges) this.#take(start, count);
-    source.clearUpdateRanges();
-    attribute.needsUpdate = true;
-    return true;
-  }
-
-  /** Marks the instances the source's elements from `start` on cover for upload, copying them into a padded copy. */
-  #take(start: number, count: number): void {
-    const { source, attribute } = this;
-    const first = Math.floor(start / source.itemSize);
-    const end = Math.ceil((start + count) / source.itemSize);
-    if (attribute.array !== source.array) {
-      for (let index = first; index < end; index += 1) {
-        const item = source.array.subarray(index * source.itemSize, (index + 1) * source.itemSize);
-        attribute.array.set(item, index * attribute.itemSize);
-      }
-    }
-    attribute.addUpdateRange(first * attribute.itemSize, (end - first) * attribute.itemSize);
-  }
-}
-
-/**
- * The instancing data a node holds for its host, as an InstancedMesh holds it, and forwards to its targets: the
- * instanced objects at its asset's origin. A reload attaches the new execution's targets to the same data.
+ * The instancing data a node holds for its host, as an InstancedMesh holds it, and forwards unchanged to its targets:
+ * the instanced objects at its asset's origin. Three shares a CPU attribute's upload across the InstancedMesh objects
+ * drawing it. A reload attaches the new execution's targets to the same data.
  */
 export class Instances {
-  #matrix: Forwarded;
-  #color: Forwarded | null = null;
+  #matrix: THREE.InstancedBufferAttribute;
+  #color: THREE.InstancedBufferAttribute | null = null;
+  /** The `instanceMatrix` version the culling spheres were last set for. */
+  #version = -1;
   #count: number;
   #box: THREE.Box3 | null = null;
   #clusters: GLTSCluster[] | undefined;
@@ -104,28 +47,30 @@ export class Instances {
     const matrix = new THREE.InstancedBufferAttribute(new Float32Array(count * 16), 16);
     const identity = new THREE.Matrix4();
     for (let index = 0; index < count; index += 1) identity.toArray(matrix.array, index * 16);
-    this.#matrix = new Forwarded(matrix);
+    this.#matrix = matrix;
     this.#count = count;
   }
 
   get instanceMatrix(): THREE.InstancedBufferAttribute {
-    return this.#matrix.source;
+    return this.#matrix;
   }
 
   set instanceMatrix(value: THREE.InstancedBufferAttribute) {
     this.#assertUndisposed();
-    this.#matrix = new Forwarded(check(value, "instanceMatrix", [16]));
+    assertLayout(value, "instanceMatrix", [16]);
+    this.#matrix = value;
     this.#replace();
   }
 
   get instanceColor(): THREE.InstancedBufferAttribute | null {
-    return this.#color?.source ?? null;
+    return this.#color;
   }
 
   set instanceColor(value: THREE.InstancedBufferAttribute | null) {
     this.#assertUndisposed();
-    // WGSL lays a storage color out in 4 floats; three would swap a storage array of 3 for a padded copy.
-    this.#color = value && new Forwarded(check(value, "instanceColor", isStorage(value) ? [4] : [3, 4]));
+    // InstancedMesh holds 3 floats per color; WGSL storage pads a color to 4, as three would by swapping the array.
+    if (value) assertLayout(value, "instanceColor", isStorage(value) ? [4] : [3]);
+    this.#color = value;
     this.#replace();
   }
 
@@ -178,8 +123,8 @@ export class Instances {
   attach(targets: readonly InstancedObject[]): void {
     this.#targets = targets;
     for (const target of targets) {
-      target.instanceMatrix = this.#matrix.attribute;
-      target.instanceColor = this.#color?.attribute ?? null;
+      target.instanceMatrix = this.#matrix;
+      target.instanceColor = this.#color;
       target.count = this.#count;
       target.boundingBox = this.#box;
       target.clusters = this.#clusters;
@@ -188,18 +133,18 @@ export class Instances {
   }
 
   /**
-   * Takes in the host's edits, before the renderer projects the targets; throws for a `count` out of range. A disposed
-   * node still in a scene takes in nothing.
+   * Bounds the targets for culling by the host's edits, before the renderer projects them; throws for a `count` out of
+   * range. A disposed node still in a scene does nothing.
    */
   sync(): void {
     if (this.#disposed) return;
     const count = this.#count;
-    const max = this.#matrix.source.count;
+    const max = this.#matrix.count;
     if (!Number.isSafeInteger(count) || count < 0 || count > max) {
       throw new RangeError(`GLTS instance count must be an integer from 0 to instanceMatrix.count, ${max}, not ${count}`);
     }
-    const moved = this.#matrix.sync();
-    this.#color?.sync();
+    const moved = this.#matrix.version !== this.#version;
+    this.#version = this.#matrix.version;
     this.#cull(moved || this.#stale);
     this.#stale = false;
   }
@@ -238,14 +183,14 @@ export class Instances {
 
   getColorAt(index: number, color: THREE.Color): THREE.Color {
     const colors = this.instanceColor;
-    return colors ? color.fromArray(colors.array, index * colors.itemSize) : color.copy(white);
+    return colors ? color.fromArray(colors.array, index * 3) : color.copy(white);
   }
 
   setColorAt(index: number, color: THREE.Color): void {
     this.#assertUndisposed();
     const colors = this.instanceColor
       ?? (this.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.instanceMatrix.count * 3).fill(1), 3));
-    color.toArray(colors.array, index * colors.itemSize);
+    color.toArray(colors.array, index * 3);
   }
 
   /** Makes later edits throw, as the node no longer draws them. */
@@ -253,11 +198,10 @@ export class Instances {
     this.#disposed = true;
   }
 
-  /** Forwards replaced attributes. */
   #replace(): void {
     for (const target of this.#targets) {
-      target.instanceMatrix = this.#matrix.attribute;
-      target.instanceColor = this.#color?.attribute ?? null;
+      target.instanceMatrix = this.#matrix;
+      target.instanceColor = this.#color;
       // Three builds an InstancedMesh's attributes into its shaders, which only a release of its render objects
       // rebuilds; replacing the mesh instead would leave the script's references to it stale. Every listener of its
       // `dispose` event receives this one, and three's previous-frame matrices for velocity, kept per mesh at the old
@@ -271,8 +215,7 @@ export class Instances {
   #cull(stale: boolean): void {
     // A set box is read again every frame, as hosts edit it in place.
     if (!stale && !this.#box) return;
-    const { source } = this.#matrix;
-    const sphere = this.boundingSphere ?? (isStorage(source) && !mirrors.has(source) ? unbounded : null);
+    const sphere = this.boundingSphere ?? (isStorage(this.#matrix) ? unbounded : null);
     if (sphere === unbounded && !this.#warned) {
       this.#warned = true;
       console.warn("GLTS instances with a storage instanceMatrix and no boundingBox are never frustum culled; set boundingBox");
