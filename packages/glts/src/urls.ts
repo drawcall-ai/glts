@@ -32,6 +32,18 @@ export function pageURL(url: GLTSURL): URL {
   });
 }
 
+/**
+ * `url` resolved against the script at `script`, as the script's own imports are; a `blob:` or `data:` script has no
+ * place that a relative URL could resolve against.
+ */
+export function scriptURL(url: string, script: string): URL {
+  if (URL.canParse(url, script)) return new URL(url, script);
+  throw new GLTSError(`${JSON.stringify(url)} cannot resolve against the script's URL; pass an absolute URL`, {
+    phase: "resolve",
+    url: script
+  });
+}
+
 /** Tells this copy of GLTS apart from others in the realm, which share one module map and one global object. */
 const copy = Math.random().toString(36).slice(2);
 let sequence = 0;

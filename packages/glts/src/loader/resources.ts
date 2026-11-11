@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 import { Dependencies } from "../dependencies.js";
 import { collectError, GLTSError, runAll } from "../errors.js";
-import { canonicalize } from "../urls.js";
+import { canonicalize, scriptURL } from "../urls.js";
 
 /**
  * Where an execution's loading window is: loading while the script builds, settled once its loads ended, when further
@@ -122,7 +122,7 @@ export class Resources {
     // Relative URLs resolve against the script, as its nested scripts do, so an asset loads its files wherever it is
     // served; the host maps the URL first, so that its URL modifier sees what the script asked for.
     manager.resolveURL = (url): string => {
-      const resolved = new URL(host.resolveURL(url), this.#url).href;
+      const resolved = scriptURL(host.resolveURL(url), this.#url).href;
       if (phase() !== "loading") return resolved;
       // FileLoader skips itemStart when joining another manager's in-flight request.
       this.#aliases.add(url);

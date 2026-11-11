@@ -6,7 +6,7 @@ import type { ExecutionScope } from "../execution/index.js";
 import type { Script } from "../linker/index.js";
 import { nodeDependencies, onNodeDispose, type LoadRequest } from "../nodes.js";
 import type { GLTSInstances, GLTSModuleSource, GLTSScene, GLTSURL } from "../types.js";
-import { canonicalize } from "../urls.js";
+import { canonicalize, scriptURL } from "../urls.js";
 import { Resources, type ScopePhase } from "./resources.js";
 import { ScriptLoader } from "./script.js";
 
@@ -184,7 +184,7 @@ export class LoadScope implements ExecutionScope {
 
   /** Resolves a nested URL against the script, rejecting a script already loading it. */
   #resolve(url: GLTSURL): string {
-    const resolved = canonicalize(new URL(this.#host.resolveURL(String(url)), this.#url));
+    const resolved = canonicalize(scriptURL(this.#host.resolveURL(String(url)), this.#url));
     if (this.chain.includes(resolved)) {
       throw new GLTSError("Cyclic nested GLTS load", {
         importChain: [...this.chain, resolved],

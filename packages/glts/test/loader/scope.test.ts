@@ -175,6 +175,12 @@ describe("LoadScope", () => {
     expect(dependencies.urls()).toEqual(["https://assets.test/shared/logo.png", "https://assets.test/tree/bark.png"]);
   });
 
+  it("names the URL a blob: script cannot resolve", () => {
+    const scope = createScope("blob:https://app.test/0f6c", new LoadingManager());
+    expect(() => scope.manager.resolveURL("./bark.png")).toThrow('"./bark.png" cannot resolve against the script\'s URL');
+    expect(scope.manager.resolveURL("https://assets.test/bark.png")).toBe("https://assets.test/bark.png");
+  });
+
   it("does not record relative item labels as dependencies", async () => {
     vi.stubGlobal("location", { href: "https://app.test/index.html" });
     const dependencies = new Dependencies();
