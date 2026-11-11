@@ -27,7 +27,7 @@ function only<T>(items: readonly T[]): T {
 
 it("forwards the host's instancing data to the asset's instanced objects", async () => {
   const library = { Crowd: class extends THREE.Object3D {
-    instanceMatrix = new THREE.InstancedBufferAttribute(new Float32Array(16), 16);
+    instanceMatrix = new THREE.InstancedBufferAttribute(new Float32Array(new THREE.Matrix4().elements), 16);
     instanceColor: THREE.InstancedBufferAttribute | null = null;
     override count = 1;
     boundingBox: THREE.Box3 | null = null;
@@ -140,7 +140,21 @@ it("throws while updating a count the instanceMatrix does not hold", async () =>
 it("rejects instanced objects away from the asset's origin", async () => {
   const offset = `Object.assign(${instancedMesh}, { name: "crowd" }).translateX(1)`;
   const loader = serve({ "asset.glts": script(offset) });
-  await expect(loader.loadAsync(url)).rejects.toThrow("but crowd does not; move the offset into the child asset");
+  await expect(loader.loadInstancesAsync(url, 2)).rejects.toThrow("but crowd does not; move the offset into the child asset");
+});
+
+it("rejects instanced objects with copies of their own under loadInstancesAsync()", async () => {
+  const many = `Object.assign(new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 2), { name: "forest" })`;
+  const moved = `Object.assign(${instancedMesh}, { name: "tree" }).setMatrixAt(0, new THREE.Matrix4().makeTranslation(1, 0, 0))`;
+  const loader = serve({
+    "many.glts": script(many),
+    "moved.glts": script(moved),
+    "nested.glts": `import { gltsLoader, scene } from "@drawcall/glts"; scene.add(await gltsLoader.loadInstancesAsync("./child.glts", 2));`,
+    "child.glts": script(mesh),
+  });
+  await expect(loader.loadInstancesAsync(`${base}many.glts`, 2)).rejects.toThrow("scatters its own copies with forest; load it with loadAsync()");
+  await expect(loader.loadInstancesAsync(`${base}moved.glts`, 2)).rejects.toThrow("scatters its own copies with tree");
+  await expect(loader.loadInstancesAsync(`${base}nested.glts`, 2)).rejects.toThrow("scatters its own copies");
 });
 
 it("instances plain meshes from the host's instanceMatrix, with their transforms baked in", async () => {
@@ -176,11 +190,12 @@ it("rejects what automatic instancing cannot draw", async () => {
   await expect(loader.loadInstancesAsync(`${base}nested.glts`, 2)).rejects.toThrow("load them with loadInstancesAsync()");
 });
 
-it("draws a scene loaded with loadAsync as one instance at the origin", async () => {
-  const node = await serve({ "asset.glts": script(mesh, instancedMesh) }).loadAsync(url);
+it("forwards nothing to a scene loaded with loadAsync()", async () => {
+  const forest = "new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 5).translateX(1)";
+  const node = await serve({ "asset.glts": script(mesh, forest) }).loadAsync(url);
   const target = only(instancedMeshes(node));
-  expect(target.count).toBe(1);
-  expect([...target.instanceMatrix.array]).toEqual(new THREE.Matrix4().elements);
+  expect(target.count).toBe(5);
+  expect(target.instanceMatrix).not.toBeInstanceOf(THREE.StorageInstancedBufferAttribute);
   expect(node.children.some((child) => child instanceof THREE.Mesh && !(child instanceof THREE.InstancedMesh))).toBe(true);
 });
 

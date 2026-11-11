@@ -11,10 +11,9 @@ import type { GLTSCluster, GLTSInstances, GLTSScene } from "./types.js";
 export interface LoadRequest {
   /** The URL the script was requested by, which its node keeps. */
   readonly requestedURL: string;
-  /** The node's instancing data, one instance at the origin for a scene. */
-  readonly instances: Instances;
+  /** The instancing data of a node loaded as instances. */
+  readonly instances: Instances | undefined;
   readonly isPreview: boolean;
-  readonly instanced: boolean;
   /** The URLs of the scripts that loaded this one, outermost first; empty for the host's loads. */
   readonly ancestors: readonly string[];
 }
@@ -76,9 +75,8 @@ export class NodeRegistry {
   readonly #records = new Set<NodeRecord>();
 
   /**
-   * Makes the root of `execution` a managed node of this loader that forwards its instancing data to the execution's
-   * targets, with InstancedMesh's instancing API when `request` asks for instances; a root the script made
-   * non-extensible fails its load.
+   * Makes the root of `execution` a managed node of this loader; for instances, one with InstancedMesh's instancing API
+   * that forwards its data to the execution's targets. A root the script made non-extensible fails its load.
    */
   add(execution: Execution, request: LoadRequest): Managed {
     const scene: Managed = Object.assign(execution.root, {
@@ -87,8 +85,8 @@ export class NodeRegistry {
       dispose: (): void => this.#dispose(record),
       update: (delta: number): void => this.#update(recordOf(scene), delta)
     });
-    const node = request.instanced ? addInstanceMethods(scene, request.instances) : scene;
-    request.instances.attach(execution.targets);
+    const node = request.instances ? addInstanceMethods(scene, request.instances) : scene;
+    request.instances?.attach(execution.targets);
     const record: NodeRecord = { ...request, execution, node, disposeListeners: new Set() };
     // Object.assign gives the node its type; the getter follows replacement executions.
     Object.defineProperty(node, "source", { get: () => record.execution.source });
@@ -172,7 +170,7 @@ export class NodeRegistry {
         }
         record.execution = replacement;
         replacement.adopt(record.node);
-        record.instances.attach(replacement.targets);
+        record.instances?.attach(replacement.targets);
       }
     ]);
   }

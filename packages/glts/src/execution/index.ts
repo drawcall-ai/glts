@@ -39,7 +39,7 @@ export interface ExecutionScope {
 
 export interface ExecutionOptions {
   readonly script: Pick<Script, "requestedURL" | "executionURL" | "module" | "env">;
-  readonly request: Pick<LoadRequest, "isPreview" | "instanced">;
+  readonly request: Pick<LoadRequest, "isPreview" | "instances">;
   /** Disposed with the execution, first. */
   readonly scope: ExecutionScope;
   /** The files the execution uses, the script's included. */
@@ -69,7 +69,7 @@ export class Execution {
     this.url = script.executionURL;
     this.module = script.module;
     this.#env = script.env;
-    this.#instanced = request.instanced;
+    this.#instanced = request.instances !== undefined;
     this.#scope = options.scope;
     this.dependencies = dependencies;
     this.source = Object.freeze({
@@ -109,17 +109,21 @@ export class Execution {
     });
   }
 
-  /** Runs the script, waits for what it loads, and finds its targets; on failure, aborts its loads and disposes it. */
+  /**
+   * Runs the script, waits for what it loads, and finds its targets when loaded as instances; on failure, aborts its
+   * loads and disposes it.
+   */
   async run(): Promise<void> {
     try {
       await this.#evaluate();
       await this.#scope.settle();
-      this.#targets = findTargets(this.root, {
-        instanced: this.#instanced,
-        nodes: new Set(this.#scope.nodes),
-        frames: this.#onFrame.length > 0,
-        url: this.url,
-      });
+      if (this.#instanced) {
+        this.#targets = findTargets(this.root, {
+          nodes: new Set(this.#scope.nodes),
+          frames: this.#onFrame.length > 0,
+          url: this.url,
+        });
+      }
     } catch (error) {
       // The script's own failures are GLTSErrors already; anything else failed while building its scene.
       const primary = toGLTSError(error, "GLTS execution failed", { phase: "construct", url: this.url });
@@ -152,7 +156,7 @@ export class Execution {
     this.root = node;
   }
 
-  /** The instanced objects its node forwards its instancing data to, once it ran. */
+  /** The instanced objects its node forwards its instancing data to, once it ran as instances. */
   get targets(): readonly InstancedObject[] {
     return this.#targets?.targets ?? [];
   }

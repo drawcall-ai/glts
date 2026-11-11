@@ -69,8 +69,6 @@ function instanceMesh(mesh: THREE.Mesh, root: THREE.Object3D): THREE.InstancedMe
 }
 
 export interface TargetOptions {
-  /** Whether the asset draws the host's instances, which instances its plain meshes automatically. */
-  readonly instanced: boolean;
   /** The asset's nested nodes. */
   readonly nodes: ReadonlySet<THREE.Object3D>;
   /** Whether the script registered onFrame callbacks. */
@@ -85,20 +83,31 @@ export interface Targets {
   dispose(): void;
 }
 
+/** Whether `object` holds instances of its own, which the host's would replace: more than one, or one moved. */
+function hasCopies(object: InstancedObject): boolean {
+  return object.count > 1 || !new THREE.Matrix4().fromArray(object.instanceMatrix.array).equals(identity);
+}
+
 /**
- * Finds the targets of `root`: the topmost objects with an `instanceMatrix`, which must sit at its origin, since the
- * host's matrices place the asset. A nested node forwards to its own targets. For instances, every plain mesh becomes
- * an InstancedMesh target at the root, and the rest of the scene goes.
+ * Finds the targets of an asset loaded as instances: the topmost objects with an `instanceMatrix`, which must sit at
+ * its origin, since the host's matrices place the asset, and hold no copies of their own. Every plain mesh becomes an
+ * InstancedMesh target at the root, and the rest of the scene goes.
  */
 export function findTargets(root: THREE.Scene, options: TargetOptions): Targets {
-  const { instanced, nodes, frames, url } = options;
+  const { nodes, frames, url } = options;
   root.updateMatrixWorld(true);
   const targets: InstancedObject[] = [];
   const meshes: THREE.Mesh[] = [];
   const visit = (object: THREE.Object3D): void => {
     if (isInstanced(object)) {
+      const name = object.name || `a THREE.${object.type}`;
+      if (hasCopies(object)) {
+        throw new GLTSError(
+          `This asset scatters its own copies with ${name}; load it with loadAsync()`,
+          { phase: "construct", url }
+        );
+      }
       if (!relativeMatrix(object, root).equals(identity)) {
-        const name = object.name || `a THREE.${object.type}`;
         throw new GLTSError(
           `Instanced objects must sit at the asset's origin, but ${name} does not; move the offset into the child asset`,
           { phase: "construct", url }
@@ -108,19 +117,18 @@ export function findTargets(root: THREE.Scene, options: TargetOptions): Targets 
       return;
     }
     if (nodes.has(object)) {
-      if (!instanced) return;
       throw new GLTSError("Instanced assets cannot contain nested scenes; load them with loadInstancesAsync()", { phase: "construct", url });
     }
-    if (instanced && (isUnsupportedForInstancing(object) || (object instanceof THREE.Mesh && object.morphTargetInfluences))) {
+    if (isUnsupportedForInstancing(object) || (object instanceof THREE.Mesh && object.morphTargetInfluences)) {
       throw new GLTSError(`Automatic instancing does not support THREE.${object.type}`, { phase: "construct", url });
     }
-    if (instanced && object instanceof THREE.Mesh) meshes.push(object);
+    if (object instanceof THREE.Mesh) meshes.push(object);
     for (const child of object.children) visit(child);
   };
   for (const child of root.children) visit(child);
 
-  if (!instanced || meshes.length === 0) {
-    if (instanced && targets.length === 0) {
+  if (meshes.length === 0) {
+    if (targets.length === 0) {
       throw new GLTSError("Instanced assets require at least one mesh or instanced object", { phase: "construct", url });
     }
     return { targets, dispose: () => undefined };
