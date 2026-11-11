@@ -124,7 +124,8 @@ export class Instances {
 
   set instanceColor(value: THREE.InstancedBufferAttribute | null) {
     this.#assertUndisposed();
-    this.#color = value && new Forwarded(check(value, "instanceColor", [3, 4]));
+    // WGSL lays a storage color out in 4 floats; three would swap a storage array of 3 for a padded copy.
+    this.#color = value && new Forwarded(check(value, "instanceColor", isStorage(value) ? [4] : [3, 4]));
     this.#replace();
   }
 
@@ -156,9 +157,10 @@ export class Instances {
     return this.#box && this.#box.getBoundingSphere(this.#sphere);
   }
 
-  set boundingSphere(value: null) {
+  set boundingSphere(value: THREE.Sphere | null) {
     this.#assertUndisposed();
-    this.#recompute = value === null;
+    if (value) throw new TypeError("GLTS boundingSphere follows boundingBox; set boundingBox, or null to compute it");
+    this.#recompute = true;
     this.#stale = true;
   }
 
@@ -185,9 +187,12 @@ export class Instances {
     this.#stale = true;
   }
 
-  /** Takes in the host's edits, before the renderer projects the targets; throws for a `count` out of range. */
+  /**
+   * Takes in the host's edits, before the renderer projects the targets; throws for a `count` out of range. A disposed
+   * node still in a scene takes in nothing.
+   */
   sync(): void {
-    this.#assertUndisposed();
+    if (this.#disposed) return;
     const count = this.#count;
     const max = this.#matrix.source.count;
     if (!Number.isSafeInteger(count) || count < 0 || count > max) {
@@ -256,7 +261,7 @@ export class Instances {
       // Three builds an InstancedMesh's attributes into its shaders, which only a release of its render objects
       // rebuilds; replacing the mesh instead would leave the script's references to it stale. Every listener of its
       // `dispose` event receives this one, and three's previous-frame matrices for velocity, kept per mesh at the old
-      // attribute's size, do not follow an attribute that grows.
+      // attribute's size, throw a RangeError on every velocity render once the attribute grows.
       if (target instanceof THREE.InstancedMesh) target.dispatchEvent({ type: "dispose" });
     }
     this.#stale = true;

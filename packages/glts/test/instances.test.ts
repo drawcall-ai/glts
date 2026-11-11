@@ -229,18 +229,20 @@ it("keeps the host's data across a reload", async () => {
   expect(target.boundingBox).toBe(box);
 });
 
-it("rejects edits to a disposed node", async () => {
+it("rejects edits to a disposed node but renders it harmlessly", async () => {
   const node = await serve({ "asset.glts": script(instancedMesh) }).loadInstancesAsync(url, 2);
   node.dispose();
   expect(() => node.setMatrixAt(0, new THREE.Matrix4())).toThrow("GLTS node has been disposed");
   expect(() => { node.count = 1; }).toThrow("GLTS node has been disposed");
-  expect(() => node.updateMatrixWorld()).toThrow("GLTS node has been disposed");
+  // A disposed node still in a scene renders harmlessly.
+  expect(() => node.updateMatrixWorld()).not.toThrow();
 });
 
 it("computes the box when the bounding sphere is set to null, as three does", async () => {
   const node = await serve({ "asset.glts": script(instancedMesh) }).loadInstancesAsync(url, 1);
   // Read through a function, as the assignment narrows the property to null.
   const sphere = (): THREE.Sphere | null => node.boundingSphere;
+  expect(() => { node.boundingSphere = new THREE.Sphere(); }).toThrow("boundingSphere follows boundingBox");
   expect(sphere()).toBeNull();
   node.boundingSphere = null;
   expect(sphere()?.radius).toBeCloseTo(Math.sqrt(3) / 2);

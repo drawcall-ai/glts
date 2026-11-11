@@ -212,7 +212,7 @@ function addInstanceMethods(node: Managed, instances: Instances): ScriptRoot & G
     get boundingBox(): THREE.Box3 | null { return instances.boundingBox; },
     set boundingBox(value: THREE.Box3 | null) { instances.boundingBox = value; },
     get boundingSphere(): THREE.Sphere | null { return instances.boundingSphere; },
-    set boundingSphere(value: null) { instances.boundingSphere = value; },
+    set boundingSphere(value: THREE.Sphere | null) { instances.boundingSphere = value; },
     get clusters(): GLTSCluster[] | undefined { return instances.clusters; },
     set clusters(value: GLTSCluster[] | undefined) { instances.clusters = value; },
   };

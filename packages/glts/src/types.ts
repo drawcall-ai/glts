@@ -179,10 +179,9 @@ export interface InstancedObject extends THREE.Object3D {
 interface GLTSInstanceMethods extends Omit<InstancedObject, keyof THREE.Object3D> {
   /**
    * The sphere around `boundingBox`, which InstancedMesh objects in the asset cull by. Set to null, it computes the box on
-   * its next read, as three computes a null sphere.
+   * its next read, as three computes a null sphere; setting a sphere throws.
    */
-  get boundingSphere(): THREE.Sphere | null;
-  set boundingSphere(value: null);
+  boundingSphere: THREE.Sphere | null;
   /** Bounds the instances by the asset's bounds at each of the first `count` matrices in `instanceMatrix.array`. */
   computeBoundingBox(): void;
   /** Computes `boundingBox`, which `boundingSphere` surrounds. */
