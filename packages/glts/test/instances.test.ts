@@ -194,6 +194,9 @@ it("forwards a host's data through nested instances to their instanced objects",
   const target = only(instancedMeshes(child));
   expect(target.instanceMatrix.array).toBe(node.instanceMatrix.array);
   expect(target.count).toBe(3);
+  // The CPU array holds the instances, so three bounds them from it.
+  node.updateMatrixWorld();
+  expect(target.boundingSphere).toBeNull();
 });
 
 it("keeps the host's data across a reload", async () => {

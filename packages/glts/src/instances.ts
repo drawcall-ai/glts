@@ -6,6 +6,9 @@ import type { GLTSCluster, InstancedObject } from "./types.js";
 const unbounded = new THREE.Sphere(new THREE.Vector3(), Infinity);
 const white = new THREE.Color(1, 1, 1);
 
+/** The storage attributes glts made over CPU arrays, whose arrays hold their data, unlike the GPU's own. */
+const mirrors = new WeakSet<THREE.InstancedBufferAttribute>();
+
 function isStorage(attribute: THREE.InstancedBufferAttribute): boolean {
   return attribute instanceof THREE.StorageInstancedBufferAttribute;
 }
@@ -40,6 +43,7 @@ class Forwarded {
     } else {
       this.attribute = new THREE.StorageInstancedBufferAttribute(source.array, source.itemSize);
       this.#version = source.version;
+      mirrors.add(this.attribute);
     }
   }
 
@@ -228,8 +232,8 @@ export class Instances {
 
   /** Sets the spheres InstancedMesh targets cull by; `stale` when they may no longer fit the instances. */
   #cull(stale: boolean): void {
-    const storage = isStorage(this.#matrix.source);
-    const sphere = this.boundingSphere ?? (storage ? unbounded : null);
+    const { source } = this.#matrix;
+    const sphere = this.boundingSphere ?? (isStorage(source) && !mirrors.has(source) ? unbounded : null);
     if (!stale && !this.#box) return;
     if (sphere === unbounded && !this.#warned) {
       this.#warned = true;
