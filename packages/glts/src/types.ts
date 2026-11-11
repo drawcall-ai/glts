@@ -177,10 +177,15 @@ export interface InstancedObject extends THREE.Object3D {
 
 /** InstancedMesh's instancing API, which a node forwards to the instanced objects at its asset's origin. */
 interface GLTSInstanceMethods extends Omit<InstancedObject, keyof THREE.Object3D> {
-  /** The sphere around `boundingBox`, which InstancedMesh objects in the asset cull by. */
-  readonly boundingSphere: THREE.Sphere | null;
+  /**
+   * The sphere around `boundingBox`, which InstancedMesh objects in the asset cull by. Set to null, it computes the box on
+   * its next read, as three computes a null sphere.
+   */
+  get boundingSphere(): THREE.Sphere | null;
+  set boundingSphere(value: null);
   /** Bounds the instances by the asset's bounds at each of the first `count` matrices in `instanceMatrix.array`. */
   computeBoundingBox(): void;
+  /** Computes `boundingBox`, which `boundingSphere` surrounds. */
   computeBoundingSphere(): void;
   getColorAt(index: number, color: THREE.Color): THREE.Color;
   getMatrixAt(index: number, matrix: THREE.Matrix4): THREE.Matrix4;

@@ -1,5 +1,6 @@
 import * as THREE from "three/webgpu";
 
+import { GLTSError } from "./errors.js";
 import type { GLTSCluster, InstancedObject } from "./types.js";
 
 /** What InstancedMesh targets cull by when nothing bounds a storage `instanceMatrix`: never culled. */
@@ -13,11 +14,10 @@ function isStorage(attribute: THREE.InstancedBufferAttribute): boolean {
   return attribute instanceof THREE.StorageInstancedBufferAttribute;
 }
 
-/** Throws unless the CPU `attribute` holds `itemSize` floats per instance, as InstancedMesh's do. */
-function check(attribute: THREE.InstancedBufferAttribute, name: string, itemSize: number): THREE.InstancedBufferAttribute {
-  if (isStorage(attribute)) return attribute;
-  if (attribute.itemSize !== itemSize || !(attribute.array instanceof Float32Array)) {
-    throw new TypeError(`GLTS ${name} must hold ${itemSize} floats per instance in a Float32Array`);
+/** Throws unless `attribute` holds one of `itemSizes` floats per instance in a Float32Array. */
+function check(attribute: THREE.InstancedBufferAttribute, name: string, itemSizes: readonly number[]): THREE.InstancedBufferAttribute {
+  if (!itemSizes.includes(attribute.itemSize) || !(attribute.array instanceof Float32Array)) {
+    throw new TypeError(`GLTS ${name} must hold ${itemSizes.join(" or ")} floats per instance in a Float32Array`);
   }
   return attribute;
 }
@@ -92,10 +92,15 @@ export class Instances {
   #targets: readonly InstancedObject[] = [];
   /** Whether the spheres InstancedMesh targets cull by may no longer fit. */
   #stale = true;
+  /** Whether `boundingSphere` was set to null, so its next read computes the box, as three computes a null sphere. */
+  #recompute = false;
   #warned = false;
+  #disposed = false;
+  readonly #url: string;
 
-  /** `count` instances at the origin. */
-  constructor(count: number) {
+  /** `count` instances at the origin, of the node loaded from `url`. */
+  constructor(count: number, url: string) {
+    this.#url = url;
     const matrix = new THREE.InstancedBufferAttribute(new Float32Array(count * 16), 16);
     const identity = new THREE.Matrix4();
     for (let index = 0; index < count; index += 1) identity.toArray(matrix.array, index * 16);
@@ -108,7 +113,8 @@ export class Instances {
   }
 
   set instanceMatrix(value: THREE.InstancedBufferAttribute) {
-    this.#matrix = new Forwarded(check(value, "instanceMatrix", 16));
+    this.#assertUndisposed();
+    this.#matrix = new Forwarded(check(value, "instanceMatrix", [16]));
     this.#replace();
   }
 
@@ -117,7 +123,8 @@ export class Instances {
   }
 
   set instanceColor(value: THREE.InstancedBufferAttribute | null) {
-    this.#color = value && new Forwarded(check(value, "instanceColor", 3));
+    this.#assertUndisposed();
+    this.#color = value && new Forwarded(check(value, "instanceColor", [3, 4]));
     this.#replace();
   }
 
@@ -126,7 +133,9 @@ export class Instances {
   }
 
   set count(value: number) {
+    this.#assertUndisposed();
     this.#count = value;
+    this.#stale = true;
     for (const target of this.#targets) target.count = value;
   }
 
@@ -135,13 +144,22 @@ export class Instances {
   }
 
   set boundingBox(value: THREE.Box3 | null) {
+    this.#assertUndisposed();
     this.#box = value;
     this.#stale = true;
     for (const target of this.#targets) target.boundingBox = value;
   }
 
+  /** The sphere around `boundingBox`. */
   get boundingSphere(): THREE.Sphere | null {
+    if (this.#recompute) this.computeBoundingBox();
     return this.#box && this.#box.getBoundingSphere(this.#sphere);
+  }
+
+  set boundingSphere(value: null) {
+    this.#assertUndisposed();
+    this.#recompute = value === null;
+    this.#stale = true;
   }
 
   get clusters(): GLTSCluster[] | undefined {
@@ -149,6 +167,7 @@ export class Instances {
   }
 
   set clusters(value: GLTSCluster[] | undefined) {
+    this.#assertUndisposed();
     this.#clusters = value;
     for (const target of this.#targets) target.clusters = value;
   }
@@ -168,6 +187,7 @@ export class Instances {
 
   /** Takes in the host's edits, before the renderer projects the targets; throws for a `count` out of range. */
   sync(): void {
+    this.#assertUndisposed();
     const count = this.#count;
     const max = this.#matrix.source.count;
     if (!Number.isSafeInteger(count) || count < 0 || count > max) {
@@ -184,6 +204,8 @@ export class Instances {
    * CPU array, as InstancedMesh.computeBoundingBox() does.
    */
   computeBoundingBox(): void {
+    this.#assertUndisposed();
+    this.#recompute = false;
     const box = this.#box ?? new THREE.Box3();
     box.makeEmpty();
     this.boundingBox = null;
@@ -195,9 +217,9 @@ export class Instances {
     this.boundingBox = box;
   }
 
-  /** Computes `boundingBox` unless the node has one, which `boundingSphere` surrounds. */
+  /** Computes `boundingBox`, which `boundingSphere` surrounds. */
   computeBoundingSphere(): void {
-    if (!this.#box) this.computeBoundingBox();
+    this.computeBoundingBox();
   }
 
   getMatrixAt(index: number, matrix: THREE.Matrix4): THREE.Matrix4 {
@@ -205,18 +227,25 @@ export class Instances {
   }
 
   setMatrixAt(index: number, matrix: THREE.Matrix4): void {
+    this.#assertUndisposed();
     matrix.toArray(this.instanceMatrix.array, index * 16);
   }
 
   getColorAt(index: number, color: THREE.Color): THREE.Color {
     const colors = this.instanceColor;
-    return colors ? color.fromArray(colors.array, index * 3) : color.copy(white);
+    return colors ? color.fromArray(colors.array, index * colors.itemSize) : color.copy(white);
   }
 
   setColorAt(index: number, color: THREE.Color): void {
+    this.#assertUndisposed();
     const colors = this.instanceColor
       ?? (this.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.instanceMatrix.count * 3).fill(1), 3));
-    color.toArray(colors.array, index * 3);
+    color.toArray(colors.array, index * colors.itemSize);
+  }
+
+  /** Makes later edits throw, as the node no longer draws them. */
+  dispose(): void {
+    this.#disposed = true;
   }
 
   /** Forwards replaced attributes. */
@@ -224,7 +253,10 @@ export class Instances {
     for (const target of this.#targets) {
       target.instanceMatrix = this.#matrix.attribute;
       target.instanceColor = this.#color?.attribute ?? null;
-      // Three builds an InstancedMesh's attributes into its shaders, which only a release of its render objects rebuilds.
+      // Three builds an InstancedMesh's attributes into its shaders, which only a release of its render objects
+      // rebuilds; replacing the mesh instead would leave the script's references to it stale. Every listener of its
+      // `dispose` event receives this one, and three's previous-frame matrices for velocity, kept per mesh at the old
+      // attribute's size, do not follow an attribute that grows.
       if (target instanceof THREE.InstancedMesh) target.dispatchEvent({ type: "dispose" });
     }
     this.#stale = true;
@@ -232,9 +264,10 @@ export class Instances {
 
   /** Sets the spheres InstancedMesh targets cull by; `stale` when they may no longer fit the instances. */
   #cull(stale: boolean): void {
+    // A set box is read again every frame, as hosts edit it in place.
+    if (!stale && !this.#box) return;
     const { source } = this.#matrix;
     const sphere = this.boundingSphere ?? (isStorage(source) && !mirrors.has(source) ? unbounded : null);
-    if (!stale && !this.#box) return;
     if (sphere === unbounded && !this.#warned) {
       this.#warned = true;
       console.warn("GLTS instances with a storage instanceMatrix and no boundingBox are never frustum culled; set boundingBox");
@@ -243,5 +276,9 @@ export class Instances {
       // A null sphere is computed again from the CPU array.
       if (target instanceof THREE.InstancedMesh) target.boundingSphere = sphere;
     }
+  }
+
+  #assertUndisposed(): void {
+    if (this.#disposed) throw new GLTSError("GLTS node has been disposed", { phase: "dispose", url: this.#url });
   }
 }

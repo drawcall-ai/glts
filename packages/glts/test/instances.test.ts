@@ -228,3 +228,29 @@ it("keeps the host's data across a reload", async () => {
   expect(target.count).toBe(1);
   expect(target.boundingBox).toBe(box);
 });
+
+it("rejects edits to a disposed node", async () => {
+  const node = await serve({ "asset.glts": script(instancedMesh) }).loadInstancesAsync(url, 2);
+  node.dispose();
+  expect(() => node.setMatrixAt(0, new THREE.Matrix4())).toThrow("GLTS node has been disposed");
+  expect(() => { node.count = 1; }).toThrow("GLTS node has been disposed");
+  expect(() => node.updateMatrixWorld()).toThrow("GLTS node has been disposed");
+});
+
+it("computes the box when the bounding sphere is set to null, as three does", async () => {
+  const node = await serve({ "asset.glts": script(instancedMesh) }).loadInstancesAsync(url, 1);
+  // Read through a function, as the assignment narrows the property to null.
+  const sphere = (): THREE.Sphere | null => node.boundingSphere;
+  expect(sphere()).toBeNull();
+  node.boundingSphere = null;
+  expect(sphere()?.radius).toBeCloseTo(Math.sqrt(3) / 2);
+  node.setMatrixAt(0, new THREE.Matrix4().makeTranslation(4, 0, 0));
+  node.computeBoundingSphere();
+  expect(sphere()?.center.x).toBe(4);
+});
+
+it("takes over an instanced object with no instances", async () => {
+  const empty = "new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 0)";
+  const node = await serve({ "asset.glts": script(empty) }).loadInstancesAsync(url, 2);
+  expect(only(instancedMeshes(node)).count).toBe(2);
+});

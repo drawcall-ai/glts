@@ -156,7 +156,7 @@ export class GLTSLoader extends THREE.Loader {
     }
     const request: LoadRequest = {
       requestedURL,
-      instances: count === undefined ? undefined : new Instances(count),
+      instances: count === undefined ? undefined : new Instances(count, requestedURL),
       // Only the host's scene is the standalone script a preview shows.
       isPreview: this.#isPreview && count === undefined && !scope,
       ancestors: scope?.chain ?? []

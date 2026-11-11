@@ -147,6 +147,7 @@ export class NodeRegistry {
     runAll("GLTS node disposal failed", [
       () => this.#disposeDescendants(record),
       () => record.execution.dispose(),
+      () => record.instances?.dispose(),
       // As Object3D.dispose() does, so renderers release what they hold for the node.
       () => record.node.dispatchEvent({ type: "dispose" }),
       ...record.disposeListeners
@@ -201,15 +202,22 @@ export class NodeRegistry {
 
 /** Gives `node` InstancedMesh's instancing API over `instances`, whose edits it takes in as its world matrix updates. */
 function addInstanceMethods(node: Managed, instances: Instances): ScriptRoot & GLTSInstances {
-  const { instanceMatrix, instanceColor, count, boundingBox, boundingSphere, clusters } = instances;
-  // Object.assign gives the node its type; the accessors below read and write `instances`.
-  const instanced: ScriptRoot & GLTSInstances = Object.assign(node, {
-    instanceMatrix,
-    instanceColor,
-    count,
-    boundingBox,
-    boundingSphere,
-    clusters,
+  const properties = {
+    get instanceMatrix(): THREE.InstancedBufferAttribute { return instances.instanceMatrix; },
+    set instanceMatrix(value: THREE.InstancedBufferAttribute) { instances.instanceMatrix = value; },
+    get instanceColor(): THREE.InstancedBufferAttribute | null { return instances.instanceColor; },
+    set instanceColor(value: THREE.InstancedBufferAttribute | null) { instances.instanceColor = value; },
+    get count(): number { return instances.count; },
+    set count(value: number) { instances.count = value; },
+    get boundingBox(): THREE.Box3 | null { return instances.boundingBox; },
+    set boundingBox(value: THREE.Box3 | null) { instances.boundingBox = value; },
+    get boundingSphere(): THREE.Sphere | null { return instances.boundingSphere; },
+    set boundingSphere(value: null) { instances.boundingSphere = value; },
+    get clusters(): GLTSCluster[] | undefined { return instances.clusters; },
+    set clusters(value: GLTSCluster[] | undefined) { instances.clusters = value; },
+  };
+  // Object.assign types the node but copies the properties' current values, which their accessors then replace.
+  const instanced: ScriptRoot & GLTSInstances = Object.assign(node, properties, {
     computeBoundingBox: (): void => instances.computeBoundingBox(),
     computeBoundingSphere: (): void => instances.computeBoundingSphere(),
     getColorAt: (index: number, color: THREE.Color): THREE.Color => instances.getColorAt(index, color),
@@ -227,18 +235,6 @@ function addInstanceMethods(node: Managed, instances: Instances): ScriptRoot & G
       THREE.Object3D.prototype.updateMatrixWorld.call(instanced, force);
     },
   });
-  Object.defineProperties(instanced, Object.getOwnPropertyDescriptors({
-    get instanceMatrix() { return instances.instanceMatrix; },
-    set instanceMatrix(value: THREE.InstancedBufferAttribute) { instances.instanceMatrix = value; },
-    get instanceColor() { return instances.instanceColor; },
-    set instanceColor(value: THREE.InstancedBufferAttribute | null) { instances.instanceColor = value; },
-    get count() { return instances.count; },
-    set count(value: number) { instances.count = value; },
-    get boundingBox() { return instances.boundingBox; },
-    set boundingBox(value: THREE.Box3 | null) { instances.boundingBox = value; },
-    get boundingSphere() { return instances.boundingSphere; },
-    get clusters() { return instances.clusters; },
-    set clusters(value: GLTSCluster[] | undefined) { instances.clusters = value; },
-  }));
+  Object.defineProperties(instanced, Object.getOwnPropertyDescriptors(properties));
   return instanced;
 }
