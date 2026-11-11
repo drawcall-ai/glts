@@ -28,7 +28,7 @@ onFrame((delta) => {
   crystal.rotation.y += delta
 })
 
-onDispose(() => disposeTree(crystal))
+onDispose(() => disposeTree(scene))
 ```
 
 The app loads it like any other Three.js asset and renders with WebGPU:

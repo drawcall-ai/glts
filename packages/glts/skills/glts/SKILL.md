@@ -17,15 +17,14 @@ Build the asset in the imported `scene`, a `THREE.Scene`. The file is a plain sc
 import * as THREE from "three/webgpu"
 import { disposeTree, onDispose, scene } from "@drawcall/glts"
 
-const box = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial())
-scene.add(box)
+scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()))
 
-onDispose(() => disposeTree(box))
+onDispose(() => disposeTree(scene))
 ```
 
 Import contextual bindings, the per-execution values and hooks such as `scene` and `onDispose`, by name from `@drawcall/glts`. Each script execution gets its own context.
 
-Pass `disposeTree` what the script built, not a `scene` holding nested GLTS results or shared resources. It frees geometries, materials, and the textures set on materials; dispose textures used only in node graphs yourself.
+`disposeTree(scene)` frees the geometries, materials, and material textures the scene holds, each once. When the scene holds resources shared with other assets, dispose only the subtrees the script owns. Dispose textures used only in node graphs, `scene.background`, and `scene.environment` yourself.
 
 Rules:
 
@@ -108,17 +107,12 @@ export function tube(radius: number, length: number): THREE.BufferGeometry {
 ```ts
 // parts/axle.glts
 import * as THREE from "three/webgpu"
-import { onDispose, scene } from "@drawcall/glts"
+import { disposeTree, onDispose, scene } from "@drawcall/glts"
 import { tube } from "./geometry.ts"
 
-const geometry = tube(0.03, 1.4)
-const material = new THREE.MeshStandardMaterial()
-scene.add(new THREE.Mesh(geometry, material))
+scene.add(new THREE.Mesh(tube(0.03, 1.4), new THREE.MeshStandardMaterial()))
 
-onDispose(() => {
-  geometry.dispose()
-  material.dispose()
-})
+onDispose(() => disposeTree(scene))
 ```
 
 - A helper may export anything and import what a script can, including other helpers, except that it imports only types from `@drawcall/glts`.
@@ -182,7 +176,7 @@ onMatrixUpdateAt((index, matrix) => {
   mesh.instanceMatrix.needsUpdate = true
 })
 
-onDispose(() => disposeTree(mesh))
+onDispose(() => disposeTree(scene))
 ```
 
 Registering `onMatrixUpdateAt` selects native instancing. It immediately replays the current matrices and then receives every later host `setMatrixAt()`. The script still runs once. Because `instanceCount` is `1` for `loadAsync()`, the script also works as a single scene.
