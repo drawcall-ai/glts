@@ -40,7 +40,6 @@ it("exports the host and contextual script APIs", () => {
     .toEqualTypeOf<GLTSInstances>();
   expectTypeOf<GLTSInstances["instanceMatrix"]>().toEqualTypeOf<THREE.InstancedBufferAttribute>();
   expectTypeOf<GLTSInstances["clusters"]>().toEqualTypeOf<GLTSCluster[] | undefined>();
-  expectTypeOf<THREE.InstancedMesh["clusters"]>().toEqualTypeOf<GLTSCluster[] | undefined>();
   expectTypeOf<ConstructorParameters<typeof GLTSLoader>[0]>()
     .toEqualTypeOf<THREE.LoadingManager>();
   expectTypeOf<ConstructorParameters<typeof GLTSRenderer>[0]>()

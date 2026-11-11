@@ -142,10 +142,9 @@ export type GLTSScene =
   Omit<GLTSScriptScene, keyof GLTSSceneMethods> & GLTSSceneMethods;
 
 /**
- * A range of instances, `count` from `start`, which draw inside `boundingBox` in the instances' local space, and whose
- * matrices scale by at least `minScale` and at most `maxScale` along their longest axis. A node's clusters are disjoint
- * but in any order, which a consumer may draw them in, such as front to back. glts forwards them by reference; whoever
- * draws them validates them.
+ * A range of instances, `count` from `start`, which draw inside `boundingBox` in the instances' local space, with the
+ * smallest and largest scale of their matrices when known. A node's clusters are disjoint, in any order, which a
+ * consumer may draw them in. glts forwards them by reference; whoever draws them validates them.
  */
 export interface GLTSCluster {
   start: number;
@@ -153,13 +152,6 @@ export interface GLTSCluster {
   boundingBox: THREE.Box3;
   minScale?: number;
   maxScale?: number;
-}
-
-declare module "three/src/objects/InstancedMesh.js" {
-  interface InstancedMesh {
-    /** The clusters of its instances, which instanced objects that cull by them read. */
-    clusters?: GLTSCluster[] | undefined;
-  }
 }
 
 /**
