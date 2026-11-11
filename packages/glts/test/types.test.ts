@@ -4,11 +4,11 @@ import * as THREE from "three/webgpu";
 import {
   GLTSLoader,
   GLTSRenderer,
-  instanceCount,
   loadingManager,
   onFrame,
   isPreview,
   scene,
+  type GLTSCluster,
   type GLTSEffect,
   type GLTSEffectContext,
   type GLTSInstances,
@@ -38,6 +38,9 @@ it("exports the host and contextual script APIs", () => {
     .toEqualTypeOf<THREE.Matrix4>();
   expectTypeOf<ReturnType<GLTSInstances["setMatrixAt"]>>()
     .toEqualTypeOf<GLTSInstances>();
+  expectTypeOf<GLTSInstances["instanceMatrix"]>().toEqualTypeOf<THREE.InstancedBufferAttribute>();
+  expectTypeOf<GLTSInstances["clusters"]>().toEqualTypeOf<GLTSCluster[] | undefined>();
+  expectTypeOf<THREE.InstancedMesh["clusters"]>().toEqualTypeOf<GLTSCluster[] | undefined>();
   expectTypeOf<ConstructorParameters<typeof GLTSLoader>[0]>()
     .toEqualTypeOf<THREE.LoadingManager>();
   expectTypeOf<ConstructorParameters<typeof GLTSRenderer>[0]>()
@@ -53,7 +56,6 @@ it("exports the host and contextual script APIs", () => {
     .returns.toEqualTypeOf<Promise<GLTSInstances>>();
   expectTypeOf(loadingManager).toEqualTypeOf<THREE.LoadingManager>();
   expectTypeOf(scene).toExtend<THREE.Scene>();
-  expectTypeOf(instanceCount).toEqualTypeOf<number>();
   expectTypeOf(isPreview).toEqualTypeOf<boolean>();
 });
 

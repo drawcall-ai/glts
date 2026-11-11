@@ -3,7 +3,6 @@ import { LoadingManager } from "three";
 import type {
   GLTSDisposeCallback,
   GLTSFrameCallback,
-  GLTSMatrixUpdateCallback,
   GLTSScriptLoader,
   GLTSScriptScene
 } from "./types.js";
@@ -41,9 +40,7 @@ export const gltsLoader: GLTSScriptLoader = new Proxy(
   { get: () => unavailable("gltsLoader"), set: () => unavailable("gltsLoader") }
 );
 
-// Annotated so scripts may compare them with any value when type checked.
-/** Requested instance count, or 1 for a plain scene load. */
-export const instanceCount: number = 1;
+// Annotated so scripts may compare it with any value when type checked.
 /** True only for a preview loader's directly loaded scene, never nested scenes or instances. */
 export const isPreview: boolean = false;
 
@@ -55,9 +52,4 @@ export function onDispose(_callback: GLTSDisposeCallback): void {
 /** Runs when the host updates this scene; delta is elapsed simulation time in seconds. */
 export function onFrame(_callback: GLTSFrameCallback): void {
   unavailable("onFrame");
-}
-
-/** Opts into authored instancing, receiving current matrices immediately and subsequent host updates. */
-export function onMatrixUpdateAt(_callback: GLTSMatrixUpdateCallback): void {
-  unavailable("onMatrixUpdateAt");
 }

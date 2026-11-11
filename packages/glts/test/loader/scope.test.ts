@@ -196,8 +196,9 @@ it.each(["loadAsync('./child.glts')", "loadInstancesAsync('./child.glts', 2)"])(
       "parent.glts": `import { scene, gltsLoader, loadingManager } from "@drawcall/glts";
         import { observe } from "library"; observe(loadingManager);
         scene.add(await gltsLoader.${load});`,
-      "child.glts": `import { onMatrixUpdateAt, loadingManager } from "@drawcall/glts";
-        import { resource } from "library"; onMatrixUpdateAt(() => {}); resource(loadingManager);`,
+      "child.glts": `import * as THREE from "three"; import { scene, loadingManager } from "@drawcall/glts";
+        import { resource } from "library"; resource(loadingManager);
+        scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));`,
     }, {
       observe: (manager: LoadingManager) => {
         parentManager = manager;

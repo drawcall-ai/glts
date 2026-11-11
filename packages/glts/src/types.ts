@@ -141,18 +141,59 @@ interface GLTSSceneMethods {
 export type GLTSScene =
   Omit<GLTSScriptScene, keyof GLTSSceneMethods> & GLTSSceneMethods;
 
-interface GLTSInstanceMethods {
-  readonly count: number;
+/**
+ * A range of instances, `count` from `start`, which draw inside `boundingBox` in the instances' local space, and whose
+ * matrices scale by at least `minScale` and at most `maxScale` along their longest axis. A node's clusters are disjoint
+ * but in any order, which a consumer may draw them in, such as front to back. glts forwards them by reference; whoever
+ * draws them validates them.
+ */
+export interface GLTSCluster {
+  start: number;
+  count: number;
+  boundingBox: THREE.Box3;
+  minScale?: number;
+  maxScale?: number;
+}
+
+declare module "three/src/objects/InstancedMesh.js" {
+  interface InstancedMesh {
+    /** The clusters of its instances, which instanced objects that cull by them read. */
+    clusters?: GLTSCluster[] | undefined;
+  }
+}
+
+/**
+ * Three's InstancedMesh shape, which a node's instancing data is forwarded to: an InstancedMesh, a nested instances
+ * node, or a library's instanced object.
+ */
+export interface InstancedObject extends THREE.Object3D {
+  instanceMatrix: THREE.InstancedBufferAttribute;
+  instanceColor: THREE.InstancedBufferAttribute | null;
+  count: number;
+  boundingBox: THREE.Box3 | null;
+  clusters?: GLTSCluster[] | undefined;
+  computeBoundingBox(): void;
+}
+
+/** InstancedMesh's instancing API, which a node forwards to the instanced objects at its asset's origin. */
+interface GLTSInstanceMethods extends Omit<InstancedObject, keyof THREE.Object3D> {
+  /** The sphere around `boundingBox`, which InstancedMesh objects in the asset cull by. */
+  readonly boundingSphere: THREE.Sphere | null;
+  /** Bounds the instances by the asset's bounds at each of the first `count` matrices in `instanceMatrix.array`. */
+  computeBoundingBox(): void;
+  computeBoundingSphere(): void;
+  getColorAt(index: number, color: THREE.Color): THREE.Color;
   getMatrixAt(index: number, matrix: THREE.Matrix4): THREE.Matrix4;
+  setColorAt(index: number, color: THREE.Color): this;
   setMatrixAt(index: number, matrix: THREE.Matrix4): this;
 }
 
+/**
+ * A managed scene drawn as instances, driven as an InstancedMesh: edits upload once their attribute's `needsUpdate` is
+ * set, within its update ranges if any, and are taken in by the node's `updateMatrixWorld()`. A reload keeps its
+ * instancing data.
+ */
 export type GLTSInstances = GLTSScene & GLTSInstanceMethods;
-
-export type GLTSMatrixUpdateCallback = (
-  index: number,
-  matrix: THREE.Matrix4
-) => void;
 
 export type GLTSFrameCallback = (delta: number) => void;
 export type GLTSDisposeCallback = () => void;

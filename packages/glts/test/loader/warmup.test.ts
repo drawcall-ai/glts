@@ -50,25 +50,27 @@ it("runs initial scripts one after another and gives shared consumers independen
   expect(disposed.sort()).toEqual(["a1", "b1", "shared1", "shared2", "unused1"]);
 });
 
-it("warms the ordinary scene before running the requested instance count", async () => {
-  const counts: number[] = [];
+it("warms the ordinary scene before running the requested instances", async () => {
+  const runs: string[] = [];
   const loader = serve({
     "parent.glts": `
       import { gltsLoader, scene } from "@drawcall/glts";
+      import { record } from "library";
       const child = await gltsLoader.loadInstancesAsync("./child.glts", 3);
-      if (child.count !== 3) throw new Error("Wrong instance count");
+      record("instances " + child.count);
       scene.add(child);
     `,
     "child.glts": `
-      import { instanceCount, onMatrixUpdateAt } from "@drawcall/glts";
+      import * as THREE from "three";
+      import { scene } from "@drawcall/glts";
       import { record } from "library";
-      record(instanceCount);
-      onMatrixUpdateAt(() => {});
+      record("child");
+      scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
     `,
-  }, { record: (count: number) => counts.push(count) });
+  }, { record: (run: string) => runs.push(run) });
 
   await warmup(loader, [base + "parent.glts", base + "child.glts"]);
-  expect(counts).toEqual([1, 3]);
+  expect(runs).toEqual(["child", "child", "instances 3"]);
 });
 
 it("runs undiscovered nested scripts and waits for unawaited loads before finishing", async () => {
@@ -165,7 +167,7 @@ it("reports execution failures after the other initial scripts finish", async ()
 
 it("runs a queued consumer of a script whose previous run failed", async () => {
   const requested = deferred();
-  const counts: number[] = [];
+  const runs: string[] = [];
   const loader = serve({
     "a.glts": `
       import { gltsLoader, scene } from "@drawcall/glts";
@@ -181,16 +183,15 @@ it("runs a queued consumer of a script whose previous run failed", async () => {
       scene.add(await gltsLoader.loadAsync("./child.glts"));
     `,
     "child.glts": `
-      import { instanceCount } from "@drawcall/glts";
       import { record } from "library";
-      record(instanceCount);
-      if (instanceCount > 1) throw new Error("No instances");
+      record("child");
     `,
-  }, { request: requested.resolve, requested: requested.promise, record: (count: number) => counts.push(count) });
+  }, { request: requested.resolve, requested: requested.promise, record: (run: string) => runs.push(run) });
 
+  // An empty scene has nothing to instance.
   await expect(warmup(loader, [base + "a.glts", base + "b.glts"]))
-    .rejects.toMatchObject({ url: base + "child.glts", cause: { message: "No instances" } });
-  expect(counts).toEqual([2, 1]);
+    .rejects.toMatchObject({ url: base + "child.glts", message: expect.stringContaining("at least one mesh") });
+  expect(runs).toEqual(["child", "child"]);
 });
 
 it("reports a failure shared by several scripts once", async () => {

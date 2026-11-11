@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { inspect } from "node:util";
 import { requestAdapter } from "@drawcall/webgpu";
+import * as THREE from "three/webgpu";
 import { afterAll, expect, it } from "vitest";
 
 import { withHeadless } from "../src/headless/index.js";
@@ -126,4 +127,42 @@ it("runs browser code that needs canvases, decoded images, and module workers", 
     expect(OffscreenCanvas).toBe(Replacement);
   });
   expect(descriptors()).toEqual(before);
+});
+
+it("draws instances from the host's attributes, through edits and replacements", async () => {
+  const file = join(directory, "plane.glts");
+  await writeFile(file, `import * as THREE from "three/webgpu"; import { scene } from "@drawcall/glts";
+    scene.add(new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial()));`);
+  await withHeadless(options, async (loader, canvas) => {
+    // Three's DOM canvas types exclude native canvases; its constructor checks the actual API.
+    const instance: unknown = Reflect.construct(THREE.WebGPURenderer, [{ canvas, alpha: false }]);
+    if (!(instance instanceof THREE.WebGPURenderer)) throw new Error("Unable to construct the renderer");
+    const renderer = instance;
+    await renderer.init();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 2;
+    const scene = new THREE.Scene();
+    const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+    const instances = await loader.loadInstancesAsync(pathToFileURL(file), 2);
+    instances.setMatrixAt(0, hidden).setMatrixAt(1, hidden);
+    instances.instanceMatrix.needsUpdate = true;
+    scene.add(instances);
+    const pixel = async (): Promise<number[]> => {
+      renderer.render(scene, camera);
+      return [...(await canvas.readPixels()).subarray(0, 3)];
+    };
+
+    expect(await pixel()).toEqual([0, 0, 0]);
+    instances.setMatrixAt(1, new THREE.Matrix4());
+    instances.instanceMatrix.addUpdateRange(16, 16);
+    instances.instanceMatrix.needsUpdate = true;
+    expect(await pixel()).toEqual([255, 255, 255]);
+    instances.instanceMatrix = new THREE.InstancedBufferAttribute(new Float32Array(32), 16);
+    expect(await pixel()).toEqual([0, 0, 0]);
+    instances.setMatrixAt(0, new THREE.Matrix4()).setColorAt(0, new THREE.Color(1, 0, 0));
+    instances.instanceMatrix.needsUpdate = true;
+    expect(await pixel()).toEqual([255, 0, 0]);
+    instances.dispose();
+    renderer.dispose();
+  });
 });

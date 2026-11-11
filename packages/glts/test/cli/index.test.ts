@@ -232,30 +232,6 @@ it("renders what a view draws only for its shadows once that arrived", async () 
   expect(centre).toEqual(green);
 }, 30_000);
 
-it("renders instances placed during a render after they were drawn", async () => {
-  const { centre } = await render("instances", { "instances.glts": `
-    import * as THREE from 'three/webgpu';
-    import { scene } from '@drawcall/glts';
-    // More matrices than a uniform buffer holds, all hidden until the placer, drawn after them, places one.
-    const count = 20000;
-    const plane = new THREE.PlaneGeometry(4, 4).rotateX(-Math.PI / 2);
-    const instances = new THREE.InstancedMesh(plane, new THREE.MeshBasicMaterial({ color: '#00ff00' }), count);
-    for (let i = 0; i < count; i++) instances.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
-    instances.frustumCulled = false;
-    const placer = new THREE.Mesh(new THREE.PlaneGeometry(0, 0), new THREE.MeshBasicMaterial());
-    placer.renderOrder = 1;
-    placer.frustumCulled = false;
-    placer.onBeforeRender = () => {
-      placer.onBeforeRender = () => {};
-      instances.setMatrixAt(0, new THREE.Matrix4());
-      instances.instanceMatrix.needsUpdate = true;
-    };
-    scene.add(instances, placer);
-    ${above}
-  ` });
-  expect(centre).toEqual(green);
-}, 30_000);
-
 it("waits for the GPU after each render, so no frames queue for the image", async () => {
   await render("paced", { "paced.glts": `
     import * as THREE from 'three/webgpu';

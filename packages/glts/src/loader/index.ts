@@ -6,6 +6,7 @@ import { aggregate, cleanUpAndThrow, GLTSError, runAll, toGLTSError } from "../e
 import { Dependencies } from "../dependencies.js";
 import { Execution } from "../execution/index.js";
 import { withFiles } from "../files.js";
+import { Instances } from "../instances.js";
 import * as GLTS from "../index.js";
 import { gltsSpecifier, type ProvidedSpecifier } from "../imports.js";
 import { Linker, type Script } from "../linker/index.js";
@@ -102,9 +103,10 @@ export class GLTSLoader extends THREE.Loader {
   }
 
   /**
-   * Runs one scene for a positive integer instance count. Without onMatrixUpdateAt, converts its meshes to
-   * InstancedMesh and rejects cameras, lights, lines, points, sprites, LODs, skins, existing instances/batches,
-   * morph targets, onFrame callbacks, nested GLTS scenes, or a hierarchy with no meshes.
+   * Runs one scene as a positive integer count of instances, driven as an InstancedMesh, and forwards their instancing
+   * data to its instanced objects. Its plain meshes become InstancedMesh objects; it rejects cameras, lights, lines,
+   * points, sprites, LODs, skins, batches, morph targets, nested scenes not loaded as instances, and onFrame callbacks
+   * beside plain meshes.
    */
   async loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances> {
     return this.#load(this.#resolveURL(url), count);
@@ -154,7 +156,7 @@ export class GLTSLoader extends THREE.Loader {
     }
     const request: LoadRequest = {
       requestedURL,
-      matrices: Array.from({ length: count ?? 1 }, () => new THREE.Matrix4()),
+      instances: new Instances(count ?? 1),
       // Only the host's scene is the standalone script a preview shows.
       isPreview: this.#isPreview && count === undefined && !scope,
       instanced: count !== undefined,
