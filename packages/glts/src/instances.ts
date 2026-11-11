@@ -20,8 +20,9 @@ function assertLayout(attribute: THREE.InstancedBufferAttribute, name: string, i
 
 /**
  * The instancing data a node holds for its host, as an InstancedMesh holds it, and forwards unchanged to its targets:
- * the instanced objects at its asset's origin. Above the uniform buffer limit, Three uploads a CPU attribute once for
- * every InstancedMesh drawing it; below the limit, each InstancedMesh uploads its own uniform copy. A reload attaches the new execution's targets to the same data.
+ * the instanced objects at its asset's origin. Above the uniform buffer limit, three uploads a CPU attribute once for
+ * every InstancedMesh drawing it; below the limit, each InstancedMesh uploads its own uniform copy. A reload attaches
+ * the new execution's targets to the same data.
  */
 export class Instances {
   #matrix: THREE.InstancedBufferAttribute;
