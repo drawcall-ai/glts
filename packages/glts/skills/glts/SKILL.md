@@ -15,23 +15,21 @@ Build the asset in the imported `scene`, a `THREE.Scene`. The file is a plain sc
 
 ```ts
 import * as THREE from "three/webgpu"
-import { onDispose, scene } from "@drawcall/glts"
+import { disposeTree, onDispose, scene } from "@drawcall/glts"
 
-const geometry = new THREE.BoxGeometry()
-const material = new THREE.MeshStandardMaterial()
-scene.add(new THREE.Mesh(geometry, material))
+const box = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial())
+scene.add(box)
 
-onDispose(() => {
-  geometry.dispose()
-  material.dispose()
-})
+onDispose(() => disposeTree(box))
 ```
 
 Import contextual bindings, the per-execution values and hooks such as `scene` and `onDispose`, by name from `@drawcall/glts`. Each script execution gets its own context.
 
+Pass `disposeTree` what the script built, not a `scene` holding nested GLTS results or shared resources. It frees geometries, materials, and the textures set on materials; dispose textures used only in node graphs yourself.
+
 Rules:
 
-- Export no values. From `@drawcall/glts`, import only contextual bindings or types.
+- Export no values. From `@drawcall/glts`, import only contextual bindings, `disposeTree`, or types.
 - Import `three/webgpu`, `three/tsl`, `three/addons/*`, browser-compatible npm packages, full `https://` module URLs, or helpers (see Helpers).
 - Never import `.glts` files (load them with `gltsLoader.loadAsync()`) or other local files such as `./data.json`, and never use import attributes.
 - Dynamic `import()` follows the same rules and resolves when it runs, so an import on a path that never runs is never fetched. `@drawcall/glts` must be imported statically. The Vite plugin bundles a literal specifier such as `import("pkg")` like a static import, loaded with the app; a computed one such as `import(name)` loads from the CDN.
@@ -174,11 +172,9 @@ When the asset needs its own per-instance behavior, implement native instancing:
 
 ```ts
 import * as THREE from "three/webgpu"
-import { instanceCount, onDispose, onMatrixUpdateAt, scene } from "@drawcall/glts"
+import { disposeTree, instanceCount, onDispose, onMatrixUpdateAt, scene } from "@drawcall/glts"
 
-const geometry = new THREE.BoxGeometry()
-const material = new THREE.MeshStandardMaterial()
-const mesh = new THREE.InstancedMesh(geometry, material, instanceCount)
+const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), instanceCount)
 scene.add(mesh)
 
 onMatrixUpdateAt((index, matrix) => {
@@ -186,11 +182,7 @@ onMatrixUpdateAt((index, matrix) => {
   mesh.instanceMatrix.needsUpdate = true
 })
 
-onDispose(() => {
-  mesh.dispose()
-  geometry.dispose()
-  material.dispose()
-})
+onDispose(() => disposeTree(mesh))
 ```
 
 Registering `onMatrixUpdateAt` selects native instancing. It immediately replays the current matrices and then receives every later host `setMatrixAt()`. The script still runs once. Because `instanceCount` is `1` for `loadAsync()`, the script also works as a single scene.

@@ -10,6 +10,9 @@ import type {
 import { ScriptLoader } from "./loader/script.js";
 import { createRoot } from "./root.js";
 
+// Context-free, so scripts and hosts share one implementation.
+export { disposeTree } from "./dispose.js";
+
 function unavailable(name: string): never {
   throw new Error(
     `@drawcall/glts ${name} is only available inside a .glts script loaded by GLTSLoader`

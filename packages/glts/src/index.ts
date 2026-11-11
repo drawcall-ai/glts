@@ -1,4 +1,5 @@
 export {
+  disposeTree,
   gltsLoader,
   instanceCount,
   loadingManager,
