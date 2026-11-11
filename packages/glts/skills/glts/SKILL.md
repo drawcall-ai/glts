@@ -160,11 +160,11 @@ scene.add(wheel)
 
 ## Instancing
 
-A host can draw any asset as instances, so an asset needs no instancing code of its own:
+A host can draw any asset as instances with `loadInstancesAsync()`, so an asset needs no instancing code of its own:
 
 - Plain meshes are instanced automatically, each at every instance with its transform in the asset kept. Automatic instancing fails the load for what it cannot repeat per instance, such as lights, skinned meshes, `onFrame()`, and nested scenes loaded with `loadAsync()`.
-- An instanced object, one with an `instanceMatrix` such as an `InstancedMesh`, a library's instanced crowd, or a nested asset loaded with `gltsLoader.loadInstancesAsync()`, draws the host's instances in place of its own. Build it at the asset's origin: one placed elsewhere fails the load, so move the offset into the child asset.
-- Under `loadAsync()`, an instanced object draws one instance at the origin, so the same asset also works as a single scene. Do not scatter copies with an `InstancedMesh` inside an asset, since the host's instances replace them; load each copy as its own scene, or let the host instance the asset.
+- An instanced object, one with an `instanceMatrix` such as an `InstancedMesh`, a library's instanced crowd, or a nested asset loaded with `gltsLoader.loadInstancesAsync()`, draws the host's instances in place of its own. Build it at the asset's origin with a single instance there; one placed elsewhere fails the load, so move the offset into the child asset.
+- An asset that scatters its own copies, with an `InstancedMesh` or nested instances, can be loaded only with `loadAsync()`, which leaves every instanced object as the script built it.
 
 ## Reload safety
 
