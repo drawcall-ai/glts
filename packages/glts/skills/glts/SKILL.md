@@ -212,7 +212,7 @@ rocks.computeBoundingBox()
 scene.add(rocks)
 ```
 
-- Edits upload as an `InstancedMesh`'s do, once `needsUpdate` is set. Culling and `count` follow when the scene's world matrices update; if the rendered scene's `matrixWorldAutoUpdate` is off, call `rocks.updateMatrixWorld()` after editing.
+- Edits upload as an `InstancedMesh`'s do, once `needsUpdate` is set. Culling follows, and `count` is checked, when the scene's world matrices update; if the rendered scene's `matrixWorldAutoUpdate` is off, call `rocks.updateMatrixWorld()` after editing.
 - To grow, assign a larger `instanceMatrix` or `instanceColor`. Growing throws when the renderer keeps previous-frame matrices for velocity, as TRAA and motion blur do, so allocate the largest count up front there. A `StorageInstancedBufferAttribute` that a compute shader writes works too; as an `instanceColor` it holds 4 floats per instance.
 - Set `boundingBox`, or call `computeBoundingBox()` for matrices on the CPU, so the instances are frustum culled. Matrices only the GPU writes are never culled without one.
 - Set `clusters` to disjoint ranges of instances, each with a `boundingBox`, in the order to draw them, such as front to back, for instanced objects in the asset that cull per cluster, such as level-of-detail crowds. The array is passed on by reference, so edits in place take effect.

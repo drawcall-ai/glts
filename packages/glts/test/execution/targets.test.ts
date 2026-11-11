@@ -45,10 +45,11 @@ it("keeps a mirrored mesh's triangles facing out", () => {
   expect(geometry.getAttribute("normal").getZ(0)).toBeCloseTo(1);
 });
 
-it("rejects a plain mesh below an InstancedMesh", () => {
-  const scene = new THREE.Scene();
-  const crowd = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 1);
-  crowd.name = "crowd";
-  scene.add(crowd.add(box()));
-  expect(() => takeTargets(scene, options)).toThrow("crowd has a plain mesh below it, a THREE.Mesh, which would draw once");
+it("rejects a mesh below an InstancedMesh, which would draw once", () => {
+  for (const child of [box(), new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 1)]) {
+    const crowd = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 1);
+    crowd.name = "crowd";
+    const scene = new THREE.Scene().add(crowd.add(child));
+    expect(() => takeTargets(scene, options)).toThrow(`crowd has a mesh below it, a THREE.${child.type}, which would draw once`);
+  }
 });

@@ -86,6 +86,15 @@ it("rebuilds InstancedMesh targets when the host replaces an attribute", async (
   expect(disposed).toHaveBeenCalledTimes(2);
 });
 
+it("addresses a storage instanceColor's 4 floats per instance", async () => {
+  const node = await serve({ "asset.glts": script(instancedMesh) }).loadInstancesAsync(url, 2);
+  const colors = new THREE.StorageInstancedBufferAttribute(2, 4);
+  node.instanceColor = colors;
+  node.setColorAt(1, new THREE.Color(0.5, 0.25, 0));
+  expect([...colors.array]).toEqual([0, 0, 0, 0, 0.5, 0.25, 0, 0]);
+  expect(node.getColorAt(1, new THREE.Color())).toEqual(new THREE.Color(0.5, 0.25, 0));
+});
+
 it("never culls targets of a storage instanceMatrix without a box, and warns once", async () => {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   const node = await serve({ "asset.glts": script(instancedMesh) }).loadInstancesAsync(url, 2);

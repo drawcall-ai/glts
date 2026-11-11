@@ -20,8 +20,8 @@ function assertLayout(attribute: THREE.InstancedBufferAttribute, name: string, i
 
 /**
  * The instancing data a node holds for its host, as an InstancedMesh holds it, and forwards unchanged to its targets:
- * the instanced objects at its asset's origin. Three shares a CPU attribute's upload across the InstancedMesh objects
- * drawing it. A reload attaches the new execution's targets to the same data.
+ * the instanced objects at its asset's origin. Above the uniform buffer limit, Three uploads a CPU attribute once for
+ * every InstancedMesh drawing it; below the limit, each InstancedMesh uploads its own uniform copy. A reload attaches the new execution's targets to the same data.
  */
 export class Instances {
   #matrix: THREE.InstancedBufferAttribute;
@@ -183,14 +183,14 @@ export class Instances {
 
   getColorAt(index: number, color: THREE.Color): THREE.Color {
     const colors = this.instanceColor;
-    return colors ? color.fromArray(colors.array, index * 3) : color.copy(white);
+    return colors ? color.fromArray(colors.array, index * colors.itemSize) : color.copy(white);
   }
 
   setColorAt(index: number, color: THREE.Color): void {
     this.#assertUndisposed();
     const colors = this.instanceColor
       ?? (this.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.instanceMatrix.count * 3).fill(1), 3));
-    color.toArray(colors.array, index * 3);
+    color.toArray(colors.array, index * colors.itemSize);
   }
 
   /** Makes later edits throw, as the node no longer draws them. */

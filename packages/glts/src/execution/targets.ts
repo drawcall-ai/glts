@@ -103,11 +103,11 @@ export interface Targets {
   dispose(): void;
 }
 
-/** A plain mesh below `object`, outside nested nodes, which draw themselves. */
+/** A mesh below `object`, plain or instanced, outside nested nodes, which draw themselves. */
 function findMesh(object: THREE.Object3D, nodes: ReadonlySet<THREE.Object3D>): THREE.Mesh | undefined {
   for (const child of object.children) {
     if (nodes.has(child)) continue;
-    if (child instanceof THREE.Mesh && !(child instanceof THREE.InstancedMesh)) return child;
+    if (child instanceof THREE.Mesh) return child;
     const mesh = findMesh(child, nodes);
     if (mesh) return mesh;
   }
@@ -145,7 +145,7 @@ export function takeTargets(root: THREE.Scene, options: TargetOptions): Targets 
       const mesh = object instanceof THREE.InstancedMesh && findMesh(object, nodes);
       if (mesh) {
         throw new GLTSError(
-          `${name} has a plain mesh below it, ${mesh.name || `a THREE.${mesh.type}`}, which would draw once; add it beside instead`,
+          `${name} has a mesh below it, ${mesh.name || `a THREE.${mesh.type}`}, which would draw once; add it beside instead`,
           { phase: "construct", url }
         );
       }
