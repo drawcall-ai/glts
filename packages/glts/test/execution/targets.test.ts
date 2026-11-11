@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { expect, it, vi } from "vitest";
 
-import { findTargets } from "../../src/execution/targets.js";
+import { takeTargets } from "../../src/execution/targets.js";
 
 const options = { nodes: new Set<THREE.Object3D>(), frames: false, url: "https://example.test/asset.glts" };
 
@@ -15,7 +15,7 @@ it("keeps a hidden ancestor's visibility on instanced objects it moves to the ro
   hidden.visible = false;
   const crowd = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 1);
   scene.add(hidden.add(crowd), box());
-  findTargets(scene, options);
+  takeTargets(scene, options);
   expect(crowd.parent).toBe(scene);
   expect(crowd.visible).toBe(false);
 });
@@ -23,11 +23,32 @@ it("keeps a hidden ancestor's visibility on instanced objects it moves to the ro
 it("attempts every automatic instance disposal after one fails", () => {
   const scene = new THREE.Scene();
   scene.add(box(), box());
-  const { targets, dispose } = findTargets(scene, options);
+  const { targets, dispose } = takeTargets(scene, options);
   const [first, second] = targets;
   if (!first || !second) throw new Error("Expected two targets");
   vi.spyOn(first, "dispose").mockImplementation(() => { throw new Error("first failed"); });
   const disposed = vi.spyOn(second, "dispose");
   expect(dispose).toThrow("Automatic instance disposal failed");
   expect(disposed).toHaveBeenCalledOnce();
+});
+
+it("keeps a mirrored mesh's triangles facing out", () => {
+  const scene = new THREE.Scene();
+  const mirrored = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial());
+  mirrored.scale.x = -1;
+  scene.add(mirrored);
+  const { targets } = takeTargets(scene, options);
+  const target = targets[0];
+  if (!(target instanceof THREE.Mesh)) throw new Error("Expected a mesh");
+  const geometry: THREE.BufferGeometry = target.geometry;
+  geometry.computeVertexNormals();
+  expect(geometry.getAttribute("normal").getZ(0)).toBeCloseTo(1);
+});
+
+it("rejects a plain mesh below an InstancedMesh", () => {
+  const scene = new THREE.Scene();
+  const crowd = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 1);
+  crowd.name = "crowd";
+  scene.add(crowd.add(box()));
+  expect(() => takeTargets(scene, options)).toThrow("crowd has a plain mesh below it, a THREE.Mesh, which would draw once");
 });

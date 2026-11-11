@@ -15,7 +15,7 @@ import type {
   GLTSScene,
 } from "../types.js";
 import { copyRootState, createRoot, type ScriptRoot } from "../root.js";
-import { findTargets, type Targets } from "./targets.js";
+import { takeTargets, type Targets } from "./targets.js";
 
 function assertCallback(value: unknown, name: string): void {
   if (typeof value !== "function") {
@@ -118,7 +118,7 @@ export class Execution {
       await this.#evaluate();
       await this.#scope.settle();
       if (this.#instanced) {
-        this.#targets = findTargets(this.root, {
+        this.#targets = takeTargets(this.root, {
           nodes: new Set(this.#scope.nodes),
           frames: this.#onFrame.length > 0,
           url: this.url,

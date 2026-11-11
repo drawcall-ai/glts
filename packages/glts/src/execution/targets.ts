@@ -63,10 +63,25 @@ function relativeMatrix(object: THREE.Object3D, root: THREE.Object3D): THREE.Mat
   return matrix;
 }
 
+/** `geometry` transformed by `matrix`, its triangles' winding reversed when `matrix` mirrors, as three does for a mesh. */
+function bake(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4): THREE.BufferGeometry {
+  const baked = geometry.clone().applyMatrix4(matrix);
+  if (matrix.determinant() >= 0) return baked;
+  if (!baked.index) baked.setIndex([...Array(baked.getAttribute("position").count).keys()]);
+  const index = baked.index;
+  if (!index) throw new Error("GLTS could not index a mirrored geometry");
+  for (let first = 0; first + 2 < index.count; first += 3) {
+    const second = index.getX(first + 1);
+    index.setX(first + 1, index.getX(first + 2));
+    index.setX(first + 2, second);
+  }
+  return baked;
+}
+
 /** An InstancedMesh drawing `mesh` at each instance, with its transform in `root` baked into its geometry. */
 function instanceMesh(mesh: THREE.Mesh, root: THREE.Object3D): THREE.InstancedMesh {
   const relative = relativeMatrix(mesh, root);
-  const geometry = relative.equals(identity) ? mesh.geometry : mesh.geometry.clone().applyMatrix4(relative);
+  const geometry = relative.equals(identity) ? mesh.geometry : bake(mesh.geometry, relative);
   const instanced = new THREE.InstancedMesh(geometry, mesh.material, 0);
   copyRenderState(mesh, instanced);
   instanced.visible = visibleBelowRoot(mesh, root);
@@ -88,6 +103,17 @@ export interface Targets {
   dispose(): void;
 }
 
+/** A plain mesh below `object`, outside nested nodes, which draw themselves. */
+function findMesh(object: THREE.Object3D, nodes: ReadonlySet<THREE.Object3D>): THREE.Mesh | undefined {
+  for (const child of object.children) {
+    if (nodes.has(child)) continue;
+    if (child instanceof THREE.Mesh && !(child instanceof THREE.InstancedMesh)) return child;
+    const mesh = findMesh(child, nodes);
+    if (mesh) return mesh;
+  }
+  return undefined;
+}
+
 /** Whether `object` holds instances of its own, which the host's would replace: more than one, or one moved. */
 function hasCopies(object: InstancedObject): boolean {
   const first = new THREE.Matrix4().fromArray(object.instanceMatrix.array);
@@ -95,11 +121,11 @@ function hasCopies(object: InstancedObject): boolean {
 }
 
 /**
- * Finds the targets of an asset loaded as instances: the topmost objects with an `instanceMatrix`, which must sit at
- * its origin, since the host's matrices place the asset, and hold no copies of their own. Every plain mesh becomes an
+ * Takes over the targets of an asset loaded as instances: the topmost objects with an `instanceMatrix`, which must sit
+ * at its origin, since the host's matrices place the asset, and hold no copies of their own. Every plain mesh becomes an
  * InstancedMesh target at the root, and the rest of the scene goes.
  */
-export function findTargets(root: THREE.Scene, options: TargetOptions): Targets {
+export function takeTargets(root: THREE.Scene, options: TargetOptions): Targets {
   const { nodes, frames, url } = options;
   root.updateMatrixWorld(true);
   const targets: InstancedObject[] = [];
@@ -116,6 +142,13 @@ export function findTargets(root: THREE.Scene, options: TargetOptions): Targets 
           { phase: "construct", url }
         );
       }
+      const mesh = object instanceof THREE.InstancedMesh && findMesh(object, nodes);
+      if (mesh) {
+        throw new GLTSError(
+          `${name} has a plain mesh below it, ${mesh.name || `a THREE.${mesh.type}`}, which would draw once; add it beside instead`,
+          { phase: "construct", url }
+        );
+      }
       if (!relativeMatrix(object, root).equals(identity)) {
         throw new GLTSError(
           `Instanced objects must sit at the asset's origin, but ${name} does not; move the offset into the child asset`,
@@ -126,7 +159,7 @@ export function findTargets(root: THREE.Scene, options: TargetOptions): Targets 
       return;
     }
     if (nodes.has(object)) {
-      throw new GLTSError("Instanced assets cannot contain nested scenes; load them with loadInstancesAsync()", { phase: "construct", url });
+      throw new GLTSError("Instanced assets cannot contain nested scenes; load them with loadInstancesAsync(url, 1)", { phase: "construct", url });
     }
     if (isUnsupportedForInstancing(object) || (object instanceof THREE.Mesh && object.morphTargetInfluences)) {
       throw new GLTSError(`Automatic instancing does not support THREE.${object.type}`, { phase: "construct", url });
