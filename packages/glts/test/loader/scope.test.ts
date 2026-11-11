@@ -162,17 +162,21 @@ describe("LoadScope", () => {
     expect(scope.manager.getHandler("asset.local")).toBe(scopedHandler);
   });
 
-  it("records relative resource URLs against the worker location, not the script URL", async () => {
-    vi.stubGlobal("location", { href: "https://app.test/workers/worker.js" });
+  it("resolves relative resource URLs against the script, not the page, after the host maps them", async () => {
+    vi.stubGlobal("location", { href: "https://app.test/index.html" });
+    const host = new LoadingManager();
+    host.setURLModifier((url) => (url === "logo.png" ? "/shared/logo.png" : url));
     const dependencies = new Dependencies();
-    const scope = createScope("https://assets.test/scene.glts", new LoadingManager(), dependencies);
-    scope.manager.itemStart("bark.png");
-    scope.manager.itemEnd("bark.png");
+    const scope = createScope("https://assets.test/tree/index.glts", host, dependencies);
+    expect(scope.manager.resolveURL("./bark.png")).toBe("https://assets.test/tree/bark.png");
+    expect(scope.manager.resolveURL("logo.png")).toBe("https://assets.test/shared/logo.png");
+    expect(scope.manager.resolveURL("data:,x")).toBe("data:,x");
     await scope.settle();
-    expect(dependencies.urls()).toEqual(["https://app.test/workers/bark.png"]);
+    expect(dependencies.urls()).toEqual(["https://assets.test/shared/logo.png", "https://assets.test/tree/bark.png"]);
   });
 
-  it("does not invent file dependencies for relative labels without a browser base", async () => {
+  it("does not record relative item labels as dependencies", async () => {
+    vi.stubGlobal("location", { href: "https://app.test/index.html" });
     const dependencies = new Dependencies();
     const scope = createScope("https://assets.test/scene.glts", new LoadingManager(), dependencies);
     for (const label of ["custom work", "http://["]) {

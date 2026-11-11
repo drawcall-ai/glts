@@ -77,7 +77,7 @@ for (const brokenImage of [false, true]) {
     await routeScript(page, "**/assets/model.glts", `
       import { GLTFLoader } from "loaders"
       import { loadingManager, scene } from "@drawcall/glts"
-      const model = await new GLTFLoader(loadingManager).loadAsync(new URL("./model.gltf", import.meta.url).href)
+      const model = await new GLTFLoader(loadingManager).loadAsync("./model.gltf")
       scene.add(model.scene)
     `);
     await page.route("**/assets/model.gltf", (route) => route.fulfill({ json: {
