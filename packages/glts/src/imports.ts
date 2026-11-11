@@ -1,4 +1,4 @@
-import * as Placeholders from "./placeholders.js";
+import type * as GLTS from "./index.js";
 
 /** The package scripts import their execution bindings from. */
 export const gltsSpecifier = "@drawcall/glts";
@@ -8,11 +8,13 @@ export const providedSpecifiers = ["three", "three/webgpu", "three/tsl", gltsSpe
 
 export type ProvidedSpecifier = (typeof providedSpecifiers)[number];
 
-/** The runtime bindings implement the script exports, whose declarations define their types. */
-export type Bindings = Readonly<typeof Placeholders>;
+const names = ["disposeRecursive", "gltsLoader", "isPreview", "loadingManager", "onDispose", "onFrame", "scene"] as const;
+
+/** The values an execution binds a script's imports to, whose declarations define their types. */
+export type Bindings = Readonly<Pick<typeof GLTS, (typeof names)[number]>>;
 
 /** The names a script imports from `@drawcall/glts`. */
-export const importNames: ReadonlySet<string> = new Set(Object.keys(Placeholders));
+export const importNames: ReadonlySet<string> = new Set(names);
 
 /** The namespace a script's `@drawcall/glts` imports read, owned by its execution rather than an ESM module. */
 export function importNamespace(bindings: Bindings): object {

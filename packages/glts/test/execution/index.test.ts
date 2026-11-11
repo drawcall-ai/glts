@@ -12,7 +12,7 @@ it("rejects retained lifecycle registrations after disposal and disposes reentra
   expect(disposed).toHaveBeenCalledTimes(1);
 
   const callback = vi.fn();
-  for (const register of [hooks.onDispose, hooks.onFrame, hooks.onMatrixUpdateAt]) {
+  for (const register of [hooks.onDispose, hooks.onFrame]) {
     expect(() => register(callback)).toThrow("execution has been disposed");
   }
   expect(callback).not.toHaveBeenCalled();

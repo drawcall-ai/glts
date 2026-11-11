@@ -21,11 +21,11 @@ beforeAll(async () => {
     "app/node_modules/x/index.d.ts": `export declare function size(object: object): number;`,
     "app/public/valid.glts": [
       `import * as THREE from "three";`,
-      `import { instanceCount, isPreview, onDispose, scene } from "@drawcall/glts";`,
+      `import { isPreview, onDispose, scene } from "@drawcall/glts";`,
       `import { size } from "x";`,
       `import { y } from "y";`,
       `import confetti from "https://esm.sh/canvas-confetti";`,
-      `if (isPreview === true && instanceCount > 1) confetti();`,
+      `if (isPreview === true) confetti();`,
       `document.title = "valid";`,
       `const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());`,
       `scene.add(mesh);`,

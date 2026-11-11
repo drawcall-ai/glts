@@ -1,4 +1,4 @@
-import { LoadingManager, Matrix4 } from "three";
+import { LoadingManager } from "three";
 
 import { Dependencies } from "../../src/dependencies.js";
 import { Execution } from "../../src/execution/index.js";
@@ -15,7 +15,7 @@ export function createExecution(options: {
   const unexpected = async (): Promise<never> => { throw new Error("Unexpected nested load"); };
   return new Execution({
     script: { requestedURL: url, executionURL: url, module },
-    request: { matrices: [new Matrix4()], isPreview: false, instanced: false },
+    request: { isPreview: false, count: undefined },
     scope: {
       gltsLoader: new ScriptLoader(manager, {}, unexpected, unexpected),
       manager,

@@ -11,11 +11,11 @@ import type {
   GLTSScriptLoader,
   GLTSDisposeCallback,
   GLTSFrameCallback,
-  GLTSMatrixUpdateCallback,
+  InstancedObject,
   GLTSScene,
 } from "../types.js";
 import { copyRootState, createRoot, type ScriptRoot } from "../root.js";
-import { createAutoInstances, type AutoInstances } from "./auto-instances.js";
+import { takeTargets, type Targets } from "./targets.js";
 
 function assertCallback(value: unknown, name: string): void {
   if (typeof value !== "function") {
@@ -39,7 +39,7 @@ export interface ExecutionScope {
 
 export interface ExecutionOptions {
   readonly script: Pick<Script, "requestedURL" | "executionURL" | "module" | "env">;
-  readonly request: Pick<LoadRequest, "matrices" | "isPreview" | "instanced">;
+  readonly request: Pick<LoadRequest, "isPreview" | "count">;
   /** Disposed with the execution, first. */
   readonly scope: ExecutionScope;
   /** The files the execution uses, the script's included. */
@@ -58,12 +58,10 @@ export class Execution {
   readonly bindings: Bindings;
   readonly #onDispose: GLTSDisposeCallback[] = [];
   readonly #onFrame: GLTSFrameCallback[] = [];
-  readonly #onMatrixUpdateAt: GLTSMatrixUpdateCallback[] = [];
-  readonly #matrices: readonly THREE.Matrix4[];
   readonly #instanced: boolean;
   readonly #scope: ExecutionScope;
   readonly #env: Script["env"];
-  #autoInstances: AutoInstances | undefined;
+  #targets: Targets | undefined;
   #disposed = false;
 
   constructor(options: ExecutionOptions) {
@@ -71,8 +69,7 @@ export class Execution {
     this.url = script.executionURL;
     this.module = script.module;
     this.#env = script.env;
-    this.#matrices = request.matrices;
-    this.#instanced = request.instanced;
+    this.#instanced = request.count !== undefined;
     this.#scope = options.scope;
     this.dependencies = dependencies;
     this.source = Object.freeze({
@@ -96,7 +93,6 @@ export class Execution {
     this.bindings = Object.freeze({
       disposeRecursive,
       gltsLoader: options.scope.gltsLoader,
-      instanceCount: this.#matrices.length,
       loadingManager: options.scope.manager,
       onDispose: (callback: GLTSDisposeCallback) => {
         this.#assertUndisposed();
@@ -108,28 +104,22 @@ export class Execution {
         assertCallback(callback, "onFrame");
         this.#onFrame.push(callback);
       },
-      onMatrixUpdateAt: (callback: GLTSMatrixUpdateCallback) => {
-        this.#assertUndisposed();
-        assertCallback(callback, "onMatrixUpdateAt");
-        this.#onMatrixUpdateAt.push(callback);
-        for (const [index, matrix] of this.#matrices.entries()) {
-          callback(index, matrix.clone());
-        }
-      },
       isPreview: request.isPreview,
       get scene() { return execution.root; },
     });
   }
 
   /**
-   * Runs the script, waits for what it loads, and instances it automatically when the request is instanced
-   * and the script does not instance itself; on failure, aborts its loads and disposes it.
+   * Runs the script, waits for what it loads, and finds its targets when loaded as instances; on failure, aborts its
+   * loads and disposes it.
    */
   async run(): Promise<void> {
     try {
       await this.#evaluate();
       await this.#scope.settle();
-      if (this.#instanced && this.#onMatrixUpdateAt.length === 0) this.#autoInstance();
+      if (this.#instanced) {
+        this.#targets = takeTargets(this.root, this.#scope.nodes, this.#onFrame.length > 0, this.url);
+      }
     } catch (error) {
       // The script's own failures are GLTSErrors already; anything else failed while building its scene.
       const primary = toGLTSError(error, "GLTS execution failed", { phase: "construct", url: this.url });
@@ -162,21 +152,9 @@ export class Execution {
     this.root = node;
   }
 
-  /** Instances a script that does not instance itself, which needs it to have no frame callbacks or nested nodes. */
-  #autoInstance(): void {
-    if (this.#onFrame.length > 0) {
-      throw new GLTSError(
-        "Automatically instanced scripts cannot use onFrame(); implement native instancing with onMatrixUpdateAt()",
-        { phase: "construct", url: this.url }
-      );
-    }
-    if (this.#scope.nodes.length > 0) {
-      throw new GLTSError(
-        "Automatically instanced scripts cannot contain nested GLTS scenes; implement native instancing with onMatrixUpdateAt()",
-        { phase: "construct", url: this.url }
-      );
-    }
-    this.#autoInstances = createAutoInstances(this.root, this.#matrices, this.url);
+  /** The instanced objects its node forwards its instancing data to, once it ran as instances. */
+  get targets(): readonly InstancedObject[] {
+    return this.#targets?.targets ?? [];
   }
 
   /** Disposes its scope, automatic instances, and callbacks, then empties the root. */
@@ -189,23 +167,12 @@ export class Execution {
     this.#disposed = true;
     const callbacks = this.#onDispose.splice(0).reverse();
     this.#onFrame.length = 0;
-    this.#onMatrixUpdateAt.length = 0;
     runAll("GLTS execution disposal failed", [
       () => this.#scope.dispose(),
-      () => this.#autoInstances?.dispose(),
+      () => this.#targets?.dispose(),
       ...callbacks,
       () => this.root.clear()
     ]);
-  }
-
-  setMatrixAt(index: number, matrix: THREE.Matrix4): void {
-    if (this.#autoInstances) {
-      this.#autoInstances.setMatrixAt(index, matrix);
-      return;
-    }
-    for (const callback of this.#onMatrixUpdateAt) {
-      callback(index, matrix.clone());
-    }
   }
 
   update(delta: number): void {

@@ -141,18 +141,46 @@ interface GLTSSceneMethods {
 export type GLTSScene =
   Omit<GLTSScriptScene, keyof GLTSSceneMethods> & GLTSSceneMethods;
 
-interface GLTSInstanceMethods {
-  readonly count: number;
-  getMatrixAt(index: number, matrix: THREE.Matrix4): THREE.Matrix4;
-  setMatrixAt(index: number, matrix: THREE.Matrix4): this;
+/**
+ * A range of instances, `count` from `start`, which draw inside `boundingBox` in the instances' local space, with the
+ * smallest and largest scale of their matrices when known. A node's clusters are disjoint, in any order, which a
+ * consumer may draw them in. glts forwards them by reference; whoever draws them validates them.
+ */
+export interface GLTSCluster {
+  start: number;
+  count: number;
+  boundingBox: THREE.Box3;
+  minScale?: number;
+  maxScale?: number;
 }
 
-export type GLTSInstances = GLTSScene & GLTSInstanceMethods;
+/**
+ * Three's InstancedMesh shape, which a node's instancing data is forwarded to: an InstancedMesh, a nested instances
+ * node, or a library's instanced object.
+ */
+export interface InstancedObject extends THREE.Object3D {
+  instanceMatrix: THREE.InstancedBufferAttribute;
+  instanceColor: THREE.InstancedBufferAttribute | null;
+  count: number;
+  boundingBox: THREE.Box3 | null;
+  clusters?: GLTSCluster[] | undefined;
+  computeBoundingBox(): void;
+}
 
-export type GLTSMatrixUpdateCallback = (
-  index: number,
-  matrix: THREE.Matrix4
-) => void;
+/**
+ * A managed scene drawn as instances, driven as an InstancedMesh: edits upload once their attribute's `needsUpdate` is
+ * set, within its update ranges if any, and reach the instanced objects at its asset's origin when its world matrix
+ * updates. A reload keeps its instancing data.
+ */
+export type GLTSInstances = GLTSScene & Omit<InstancedObject, keyof THREE.Object3D> & {
+  count: number;
+  /** Bounds the instances by the asset's bounds at each of the first `count` matrices in `instanceMatrix.array`. */
+  computeBoundingBox(): void;
+  getColorAt(index: number, color: THREE.Color): THREE.Color;
+  getMatrixAt(index: number, matrix: THREE.Matrix4): THREE.Matrix4;
+  setColorAt(index: number, color: THREE.Color): GLTSInstances;
+  setMatrixAt(index: number, matrix: THREE.Matrix4): GLTSInstances;
+};
 
 export type GLTSFrameCallback = (delta: number) => void;
 export type GLTSDisposeCallback = () => void;

@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 import { Dependencies } from "../dependencies.js";
 import { collectError, GLTSError, runAll } from "../errors.js";
-import { canonicalize, pageBase } from "../urls.js";
+import { canonicalize, scriptURL } from "../urls.js";
 
 /**
  * Where an execution's loading window is: loading while the script builds, settled once its loads ended, when further
@@ -89,12 +89,13 @@ export class Resources {
     this.#idle?.reject(reason);
   }
 
-  /** `url` resolved against the page and canonicalized; undefined unless it is an http:, https:, or file: URL. */
+  /**
+   * `url` canonicalized; undefined unless it is an absolute http:, https:, or file: URL. Loaders start items at the URLs
+   * the manager resolved, so a relative one is a label, such as a composite loader's before its files resolve.
+   */
   #resourceURL(url: string): string | undefined {
-    // Three resolves relative resource URLs against the page, not the GLTS source.
-    const base = pageBase();
-    if (!URL.canParse(url, base)) return;
-    const resource = new URL(url, base);
+    if (!URL.canParse(url)) return;
+    const resource = new URL(url);
     if (!["http:", "https:", "file:"].includes(resource.protocol)) return;
     return canonicalize(resource);
   }
@@ -118,8 +119,10 @@ export class Resources {
     const itemError = manager.itemError.bind(manager);
     const getHandler = manager.getHandler.bind(manager);
 
+    // Relative URLs resolve against the script, as its nested scripts do, so an asset loads its files wherever it is
+    // served; the host maps the URL first, so that its URL modifier sees what the script asked for.
     manager.resolveURL = (url): string => {
-      const resolved = host.resolveURL(url);
+      const resolved = scriptURL(host.resolveURL(url), this.#url).href;
       if (phase() !== "loading") return resolved;
       // FileLoader skips itemStart when joining another manager's in-flight request.
       this.#aliases.add(url);

@@ -167,8 +167,9 @@ test("invalidates inactive instances through the same path and URL modifier as l
   await page.route("**/actual/scene.glts", (route) => {
     requests += 1;
     return fulfillScript(route, `
-      import { scene, onMatrixUpdateAt } from "@drawcall/glts"
-      onMatrixUpdateAt(() => {})
+      import * as THREE from "three"
+      import { scene } from "@drawcall/glts"
+      scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()))
       scene.name = "v${requests}"
     `);
   });

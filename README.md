@@ -4,7 +4,7 @@
 
 A `.glts` file is a small TypeScript script that builds a scene with ordinary Three.js code. `GLTSLoader` fetches and runs it and gives you a native `THREE.Scene` that you can add anywhere, update every frame, hot reload, and dispose.
 
-Use GLTS when an asset is easier to write as code than to model: procedural geometry, parametric or animated props, or assets written by AI coding agents. Assets can load other assets, share code through helper modules, be instanced, import npm packages, and bring their own preview staging and render settings.
+Use GLTS when an asset is easier to write as code than to model: procedural geometry, parametric or animated props, or assets written by AI coding agents. Assets can load other assets, share code through helper modules, be instanced like a Three.js `InstancedMesh`, import npm packages, and bring their own preview staging and render settings.
 
 GLTS runs scripts as code, not in a sandbox. Only load scripts you trust.
 

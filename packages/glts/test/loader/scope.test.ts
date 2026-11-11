@@ -162,17 +162,27 @@ describe("LoadScope", () => {
     expect(scope.manager.getHandler("asset.local")).toBe(scopedHandler);
   });
 
-  it("records relative resource URLs against the worker location, not the script URL", async () => {
-    vi.stubGlobal("location", { href: "https://app.test/workers/worker.js" });
+  it("resolves relative resource URLs against the script, not the page, after the host maps them", async () => {
+    vi.stubGlobal("location", { href: "https://app.test/index.html" });
+    const host = new LoadingManager();
+    host.setURLModifier((url) => (url === "logo.png" ? "/shared/logo.png" : url));
     const dependencies = new Dependencies();
-    const scope = createScope("https://assets.test/scene.glts", new LoadingManager(), dependencies);
-    scope.manager.itemStart("bark.png");
-    scope.manager.itemEnd("bark.png");
+    const scope = createScope("https://assets.test/tree/index.glts", host, dependencies);
+    expect(scope.manager.resolveURL("./bark.png")).toBe("https://assets.test/tree/bark.png");
+    expect(scope.manager.resolveURL("logo.png")).toBe("https://assets.test/shared/logo.png");
+    expect(scope.manager.resolveURL("data:,x")).toBe("data:,x");
     await scope.settle();
-    expect(dependencies.urls()).toEqual(["https://app.test/workers/bark.png"]);
+    expect(dependencies.urls()).toEqual(["https://assets.test/shared/logo.png", "https://assets.test/tree/bark.png"]);
   });
 
-  it("does not invent file dependencies for relative labels without a browser base", async () => {
+  it("names the URL a blob: script cannot resolve", () => {
+    const scope = createScope("blob:https://app.test/0f6c", new LoadingManager());
+    expect(() => scope.manager.resolveURL("./bark.png")).toThrow('"./bark.png" cannot resolve against the script\'s URL');
+    expect(scope.manager.resolveURL("https://assets.test/bark.png")).toBe("https://assets.test/bark.png");
+  });
+
+  it("does not record relative item labels as dependencies", async () => {
+    vi.stubGlobal("location", { href: "https://app.test/index.html" });
     const dependencies = new Dependencies();
     const scope = createScope("https://assets.test/scene.glts", new LoadingManager(), dependencies);
     for (const label of ["custom work", "http://["]) {
@@ -196,8 +206,9 @@ it.each(["loadAsync('./child.glts')", "loadInstancesAsync('./child.glts', 2)"])(
       "parent.glts": `import { scene, gltsLoader, loadingManager } from "@drawcall/glts";
         import { observe } from "library"; observe(loadingManager);
         scene.add(await gltsLoader.${load});`,
-      "child.glts": `import { onMatrixUpdateAt, loadingManager } from "@drawcall/glts";
-        import { resource } from "library"; onMatrixUpdateAt(() => {}); resource(loadingManager);`,
+      "child.glts": `import * as THREE from "three"; import { scene, loadingManager } from "@drawcall/glts";
+        import { resource } from "library"; resource(loadingManager);
+        scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));`,
     }, {
       observe: (manager: LoadingManager) => {
         parentManager = manager;

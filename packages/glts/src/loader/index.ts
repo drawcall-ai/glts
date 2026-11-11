@@ -102,9 +102,8 @@ export class GLTSLoader extends THREE.Loader {
   }
 
   /**
-   * Runs one scene for a positive integer instance count. Without onMatrixUpdateAt, converts its meshes to
-   * InstancedMesh and rejects cameras, lights, lines, points, sprites, LODs, skins, existing instances/batches,
-   * morph targets, onFrame callbacks, nested GLTS scenes, or a hierarchy with no meshes.
+   * Runs one scene as a positive integer count of instances, driven as an InstancedMesh, which forwards their
+   * instancing data to its instanced objects and makes its plain meshes InstancedMesh objects.
    */
   async loadInstancesAsync(url: GLTSURL, count: number): Promise<GLTSInstances> {
     return this.#load(this.#resolveURL(url), count);
@@ -154,10 +153,9 @@ export class GLTSLoader extends THREE.Loader {
     }
     const request: LoadRequest = {
       requestedURL,
-      matrices: Array.from({ length: count ?? 1 }, () => new THREE.Matrix4()),
+      count,
       // Only the host's scene is the standalone script a preview shows.
       isPreview: this.#isPreview && count === undefined && !scope,
-      instanced: count !== undefined,
       ancestors: scope?.chain ?? []
     };
     // trackItem starts the operation, and with it getScript, synchronously, so a reload requested from now on
@@ -172,7 +170,7 @@ export class GLTSLoader extends THREE.Loader {
         return this.#nodes.add(execution, request);
       } catch (error) {
         cleanUpAndThrow(
-          toGLTSError(error, `Unable to construct GLTS ${request.instanced ? "instances" : "scene"}`, {
+          toGLTSError(error, `Unable to construct GLTS ${request.count === undefined ? "scene" : "instances"}`, {
             phase: "construct", url: requestedURL
           }),
           requestedURL,

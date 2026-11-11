@@ -167,7 +167,8 @@ it("retains file dependencies when the host serves their contents through blob U
 it.each([false, true])("keeps readonly source metadata after disposal but not on clones (instanced: %s)", async (instanced) => {
   const loader = serve({
     "scene.glts": `import "./helper.ts";
-      import { onMatrixUpdateAt } from "@drawcall/glts"; onMatrixUpdateAt(() => {});`,
+      import * as THREE from "three"; import { scene } from "@drawcall/glts";
+      scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));`,
     "helper.ts": "",
   });
   const scene = await (instanced

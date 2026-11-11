@@ -3,16 +3,17 @@ import type * as THREE from "three";
 import type { Dependencies } from "./dependencies.js";
 import { cleanUpAndThrow, GLTSError, runAll } from "./errors.js";
 import type { Execution } from "./execution/index.js";
+import { addInstancing } from "./instances.js";
 import type { ScriptRoot } from "./root.js";
-import type { GLTSInstances, GLTSScene } from "./types.js";
+import type { GLTSScene } from "./types.js";
 
 /** What a load asks for; a reload repeats it. */
 export interface LoadRequest {
   /** The URL the script was requested by, which its node keeps. */
   readonly requestedURL: string;
-  readonly matrices: THREE.Matrix4[];
+  /** The instance count of a load as instances. */
+  readonly count: number | undefined;
   readonly isPreview: boolean;
-  readonly instanced: boolean;
   /** The URLs of the scripts that loaded this one, outermost first; empty for the host's loads. */
   readonly ancestors: readonly string[];
 }
@@ -74,8 +75,8 @@ export class NodeRegistry {
   readonly #records = new Set<NodeRecord>();
 
   /**
-   * Makes the root of `execution` a managed node of this loader, with instance methods when `request` asks for
-   * instances; a root the script made non-extensible fails its load.
+   * Makes the root of `execution` a managed node of this loader; for instances, one with InstancedMesh's instancing API
+   * that forwards its data to the targets of its latest execution. A root the script made non-extensible fails its load.
    */
   add(execution: Execution, request: LoadRequest): Managed {
     const scene: Managed = Object.assign(execution.root, {
@@ -84,7 +85,7 @@ export class NodeRegistry {
       dispose: (): void => this.#dispose(record),
       update: (delta: number): void => this.#update(recordOf(scene), delta)
     });
-    const node = request.instanced ? addInstanceMethods(scene, request.matrices.length) : scene;
+    const node = request.count === undefined ? scene : addInstancing(scene, request.count, () => record.execution.targets);
     const record: NodeRecord = { ...request, execution, node, disposeListeners: new Set() };
     // Object.assign gives the node its type; the getter follows replacement executions.
     Object.defineProperty(node, "source", { get: () => record.execution.source });
@@ -194,23 +195,4 @@ export class NodeRegistry {
     });
     return found;
   }
-}
-
-function addInstanceMethods(node: Managed, count: number): ScriptRoot & GLTSInstances {
-  const matrixAt = (index: number): THREE.Matrix4 => {
-    const matrix = recordOf(node).matrices[index];
-    if (!Number.isSafeInteger(index) || !matrix) {
-      throw new RangeError(`GLTS instance index is out of range: ${index}`);
-    }
-    return matrix;
-  };
-  const instances: ScriptRoot & GLTSInstances = Object.assign(node, {
-    count,
-    getMatrixAt: (index: number, matrix: THREE.Matrix4) => matrix.copy(matrixAt(index)),
-    setMatrixAt: (index: number, matrix: THREE.Matrix4): ScriptRoot & GLTSInstances => {
-      recordOf(node).execution.setMatrixAt(index, matrixAt(index).copy(matrix));
-      return instances;
-    }
-  });
-  return instances;
 }

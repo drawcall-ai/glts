@@ -80,8 +80,9 @@ test("enables preview only for a root scene across recursion and reload, never f
     scene.userData.preview = isPreview
   `);
   await routeScript(page, "**/assets/preview-instances.glts", `
-    import { isPreview, onMatrixUpdateAt, scene } from "@drawcall/glts"
-    onMatrixUpdateAt(() => {})
+    import * as THREE from "three"
+    import { isPreview, scene } from "@drawcall/glts"
+    scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()))
     scene.userData.preview = isPreview
   `);
 
@@ -216,11 +217,12 @@ test("releases script state, source metadata, and scene after disposal", async (
 
 test("releases nested scenes, instances, and helper imports across load and dispose cycles", async ({ page }) => {
   const script = (nested: string) => `
+    import * as THREE from "three"
     import { uniform } from "three/tsl"
-    import { gltsLoader, onDispose, onFrame, onMatrixUpdateAt, scene } from "@drawcall/glts"
+    import { disposeRecursive, gltsLoader, onDispose, onFrame, scene } from "@drawcall/glts"
     import { settle, track } from "./track.ts"
 
-    const state = { frames: 0, matrices: [] }
+    const state = { frames: 0 }
     await settle()
     track(state, scene.source, scene)
     onFrame(() => { state.frames += 1 })
@@ -239,7 +241,11 @@ test("releases nested scenes, instances, and helper imports across load and disp
       })
     `),
     "/assets/leak/child.glts": script(""),
-    "/assets/leak/instances.glts": script("onMatrixUpdateAt((index, matrix) => { state.matrices[index] = matrix })"),
+    "/assets/leak/instances.glts": script(`
+      const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 1)
+      scene.add(mesh)
+      onDispose(() => disposeRecursive(mesh))
+    `),
     "/assets/leak/failing-parent.glts": script(`scene.add(await gltsLoader.loadAsync("./failing.glts"))`),
     "/assets/leak/failing.glts": script(`throw new Error("expected failure")`),
     "/assets/leak/mesh.glts": `
@@ -290,6 +296,7 @@ test("releases nested scenes, instances, and helper imports across load and disp
 
       const instances = await loader.loadInstancesAsync("/assets/leak/mesh.glts", 3);
       instances.setMatrixAt(1, new window.Matrix4().makeTranslation(1, 0, 0));
+      instances.instanceMatrix.needsUpdate = true;
       instances.dispose();
     }
     // Three keeps a rendered scene's render list until a render finds it unused for ten animation frames.
