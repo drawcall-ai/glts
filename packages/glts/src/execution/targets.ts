@@ -5,9 +5,14 @@ import type { InstancedObject } from "../types.js";
 
 const identity = new THREE.Matrix4();
 
+function hasInstanceMatrix(object: THREE.Object3D): boolean {
+  return "instanceMatrix" in object && object.instanceMatrix instanceof THREE.InstancedBufferAttribute;
+}
+
 /** Whether `object` has three's InstancedMesh shape, which a node forwards its instancing data to. */
 function isInstanced(object: THREE.Object3D): object is InstancedObject {
-  return "instanceMatrix" in object && object.instanceMatrix instanceof THREE.InstancedBufferAttribute;
+  return hasInstanceMatrix(object) && typeof object.count === "number"
+    && "computeBoundingBox" in object && typeof object.computeBoundingBox === "function";
 }
 
 function isUnsupportedForInstancing(object: THREE.Object3D): boolean {
@@ -85,7 +90,8 @@ export interface Targets {
 
 /** Whether `object` holds instances of its own, which the host's would replace: more than one, or one moved. */
 function hasCopies(object: InstancedObject): boolean {
-  return object.count > 1 || !new THREE.Matrix4().fromArray(object.instanceMatrix.array).equals(identity);
+  const first = new THREE.Matrix4().fromArray(object.instanceMatrix.array);
+  return object.count > 1 || (object.count === 1 && !first.equals(identity));
 }
 
 /**
@@ -99,8 +105,11 @@ export function findTargets(root: THREE.Scene, options: TargetOptions): Targets 
   const targets: InstancedObject[] = [];
   const meshes: THREE.Mesh[] = [];
   const visit = (object: THREE.Object3D): void => {
+    const name = object.name || `a THREE.${object.type}`;
+    if (hasInstanceMatrix(object) && !isInstanced(object)) {
+      throw new GLTSError(`${name} has an instanceMatrix but not InstancedMesh's count and computeBoundingBox()`, { phase: "construct", url });
+    }
     if (isInstanced(object)) {
-      const name = object.name || `a THREE.${object.type}`;
       if (hasCopies(object)) {
         throw new GLTSError(
           `This asset scatters its own copies with ${name}; load it with loadAsync()`,
@@ -147,7 +156,10 @@ export function findTargets(root: THREE.Scene, options: TargetOptions): Targets 
     return instance;
   });
   const kept = new Set<THREE.Object3D>(targets);
-  for (const target of targets) root.attach(target);
+  for (const target of targets) {
+    target.visible &&= visibleBelowRoot(target, root);
+    root.attach(target);
+  }
   root.remove(...root.children.filter((child) => !kept.has(child)));
   root.add(...created);
   return {
