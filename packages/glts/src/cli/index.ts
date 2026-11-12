@@ -22,6 +22,12 @@ function views(value: string): View[][] {
   catch (error) { throw new InvalidArgumentError(error instanceof Error ? error.message : String(error)); }
 }
 
+function packages(value: string): string[] {
+  return value.split(",").map(name => name.trim()).filter(name => name !== "");
+}
+
+const dedupe = "packages resolved from the app's root wherever they are imported, comma-separated: the app's Vite resolve.dedupe";
+
 // Each command is a fresh process; V8 reuses its compilation of the modules commands import, such as Three and Babel.
 enableCompileCache();
 
@@ -34,6 +40,7 @@ program.command("render")
   .option("--size <pixels>", "pixels per square view", size, 768)
   .option("--time <seconds>", "simulate from zero in 1/60-second steps, and render at that time", time, 0)
   .option("--views <json>", 'rows of view objects, e.g. [[{"camera":"+x"},{"camera":"persp"}]]', views)
+  .option("--dedupe <packages>", dedupe, packages)
   .action(async (file: string, { output, ...options }: RenderOptions & { output: string }) => {
     const [{ render }, { write }] = await Promise.all([import("./render.js"), import("./headless.js")]);
     await write(output, await render(file, options));
@@ -43,6 +50,7 @@ program.command("export")
   .description("Export the constructed asset and explicit animation clips to GLB; preview staging and frame callbacks are excluded.")
   .argument("<file.glts>", "GLTS script")
   .requiredOption("-o, --output <file.glb>", "output GLB path")
+  .option("--dedupe <packages>", dedupe, packages)
   .action(async (file: string, options: ExportOptions) => {
     const { exportFile } = await import("./export.js");
     await exportFile(file, options);

@@ -12,10 +12,12 @@ import { setGlobals } from "../headless/globals.js";
 
 export interface ExportOptions {
   output: string;
+  /** See `RenderOptions.dedupe`. */
+  dedupe?: readonly string[];
 }
 
-export async function exportFile(file: string, { output }: ExportOptions): Promise<void> {
-  await write(output, await runHeadless({ file, root: process.cwd(), isPreview: false, size: 1 }, async (loader, url) => {
+export async function exportFile(file: string, { output, dedupe = [] }: ExportOptions): Promise<void> {
+  await write(output, await runHeadless({ file, root: process.cwd(), isPreview: false, size: 1, dedupe }, async (loader, url) => {
     const items = new ItemCount(loader.manager);
     const scene = await loader.loadAsync(url);
     // Items started after the script's load settled, such as from a timer, would be missing from the GLB.

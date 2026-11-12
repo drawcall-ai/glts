@@ -16,6 +16,9 @@ export interface RenderOptions {
   time?: number;
   /** Rows of views of the contact sheet; default: one view from `scene.defaultCamera`, or a fitted perspective view. */
   views?: View[][];
+  /** Packages resolved from the app's root wherever they are imported, as the app's Vite `resolve.dedupe`: a package
+   *  linked into the app then shares the app's copies; default: none. */
+  dedupe?: readonly string[];
 }
 
 const captionHeight = 28;
@@ -47,8 +50,8 @@ function contactSheet(rows: View[][], size: number): { readonly height: number; 
  * Renders the GLTS script at `file` with its preview staging, as the CLI's `render` command does, and returns the PNG.
  * Without a GPU, @drawcall/webgpu falls back to its bundled CPU renderer. One process runs one render at a time.
  */
-export async function render(file: string, { root = process.cwd(), size = 768, time = 0, views }: RenderOptions = {}): Promise<Uint8Array> {
-  return await runHeadless({ file, root, isPreview: true, size }, (loader, url, canvas) => renderScene(loader, url, canvas, { size, time, views }));
+export async function render(file: string, { root = process.cwd(), size = 768, time = 0, views, dedupe = [] }: RenderOptions = {}): Promise<Uint8Array> {
+  return await runHeadless({ file, root, isPreview: true, size, dedupe }, (loader, url, canvas) => renderScene(loader, url, canvas, { size, time, views }));
 }
 
 function findUnique(scene: THREE.Object3D, name: string): THREE.Object3D {

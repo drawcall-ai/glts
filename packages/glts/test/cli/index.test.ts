@@ -466,3 +466,33 @@ it("keeps native packages outside browser builds of the package root", async () 
   await build({ configFile: false, logLevel: "silent", root: project, plugins: [{ name:"check-modules", moduleParsed(info) { modules.push(info.id); } }], build: { write: false, lib: { entry: join(project, "browser.js"), formats: ["es"] }, minify: false } });
   expect(modules.some(id => /\/cli\/|\/headless\/|@drawcall\/webgpu|@napi-rs\/canvas|\/sharp\//.test(id))).toBe(false);
 }, 30_000);
+
+it("resolves --dedupe packages from the app's root, as Vite's resolve.dedupe", async () => {
+  const identity = {
+    "package.json": JSON.stringify({ name: "@fixture/identity", type: "module", exports: { "./subpath": "./subpath.js" } }),
+    "subpath.js": "export const token = {};",
+  };
+  const files = {
+    "node_modules/probe/package.json": JSON.stringify({ name: "probe", type: "module", exports: "./index.js" }),
+    "node_modules/probe/index.js": `export { token as nested } from "@fixture/identity/subpath";`,
+    ...Object.fromEntries(Object.entries(identity).flatMap(([file, source]) => [
+      [`node_modules/@fixture/identity/${file}`, source],
+      [`node_modules/probe/node_modules/@fixture/identity/${file}`, source],
+    ])),
+    "identity.glts": `
+      import * as THREE from "three";
+      import { scene } from "@drawcall/glts";
+      import { token } from "@fixture/identity/subpath";
+      import { nested } from "probe";
+      if (token !== nested) throw new Error("Duplicate package identity");
+      scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+    `,
+  };
+  for (const [file, source] of Object.entries(files)) {
+    await mkdir(dirname(join(project, file)), { recursive: true });
+    await writeFile(join(project, file), source);
+  }
+  await expect(run("export", "identity.glts", "-o", "duplicate.glb")).rejects.toThrow("Duplicate package identity");
+  await run("export", "identity.glts", "-o", "identity.glb", "--dedupe", "@fixture/identity");
+  await run("render", "identity.glts", "-o", "identity.png", "--size", "8", "--dedupe", "@fixture/identity");
+}, 30_000);

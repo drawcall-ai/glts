@@ -15,6 +15,8 @@ export interface HeadlessScript {
   readonly root: string;
   readonly isPreview: boolean;
   readonly size: number;
+  /** Packages resolved from the app's root wherever they are imported, as Vite's `resolve.dedupe`. */
+  readonly dedupe: readonly string[];
 }
 
 /**
@@ -24,14 +26,14 @@ export interface HeadlessScript {
  * they fill match the app's.
  */
 export async function runHeadless(
-  { file, root, isPreview, size }: HeadlessScript,
+  { file, root, isPreview, size, dedupe }: HeadlessScript,
   encode: (loader: GLTSLoader, url: URL, canvas: Canvas) => Promise<Uint8Array>
 ): Promise<Uint8Array> {
   const url = pathToFileURL(resolve(file));
   const publicDir = resolve(root, "public");
   const pageURL = pathToFileURL(`${existsSync(publicDir) ? publicDir : resolve(root)}/`);
   return await withHeadless({
-    projectURL: url, baseURL: pageURL, size,
+    projectURL: url, baseURL: pageURL, size, dedupe,
     resolveURL: servedFiles(pageURL, "/"),
     loader: { isPreview, env: await developmentEnv(root), resolve: (specifier) => specifier },
   }, (loader, canvas) => encode(loader, url, canvas));
