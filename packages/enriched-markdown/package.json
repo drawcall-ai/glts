@@ -1,0 +1,59 @@
+{
+  "name": "@drawcall/glts-enriched-markdown",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Draws GLTS assets in react-native-enriched-markdown.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/drawcall-ai/glts.git",
+    "directory": "packages/enriched-markdown"
+  },
+  "bugs": {
+    "url": "https://github.com/drawcall-ai/glts/issues"
+  },
+  "homepage": "https://github.com/drawcall-ai/glts/tree/main/packages/enriched-markdown#readme",
+  "keywords": [
+    "glts",
+    "three",
+    "markdown",
+    "react-native-enriched-markdown"
+  ],
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
+    "prepack": "pnpm build && pnpm test",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
+  },
+  "peerDependencies": {
+    "@drawcall/glts": ">=4.0.0",
+    "react": ">=18.0.0",
+    "three": ">=0.186.0"
+  },
+  "devDependencies": {
+    "@drawcall/glts": "workspace:*",
+    "@types/react": "^19.2.0",
+    "@types/three": "^0.186.0",
+    "react": "^19.2.0",
+    "three": "^0.186.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.17"
+  }
+}

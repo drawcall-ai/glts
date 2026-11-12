@@ -66,6 +66,10 @@ npx drawcall glts export asset.glts -o asset.glb
 
 Rendering uses [@drawcall/webgpu](https://github.com/drawcall-ai/webgpu), with or without a GPU, and includes preview staging; in Node.js, `render(file, options)` from `@drawcall/glts/node` returns the same PNG as bytes. Export excludes it and writes supported geometry, materials, textures, skins, and explicit animation clips; procedural frame callbacks remain in the `.glts` file.
 
+## Markdown
+
+[@drawcall/glts-enriched-markdown](packages/enriched-markdown) draws `![alt](asset.glts)` images in [react-native-enriched-markdown](https://github.com/software-mansion/enriched-markdown) as live scenes.
+
 ## Agent skill
 
 Everything else (helpers, composition, instancing, rendering, reload, packages, and the Vite plugin) is documented in the [GLTS skill](https://github.com/drawcall-ai/glts/blob/main/packages/glts/skills/glts/SKILL.md). Install it for your coding agent:
