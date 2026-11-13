@@ -216,19 +216,12 @@ export class GLTSLoader extends THREE.Loader {
       if (records.length === 0) return;
       const failure: ItemFailure = { message: "Unable to reload GLTS script", phase: "reload" };
       await trackItem(this.manager, requestedURL, this.#lifetime.signal, failure, async () => {
-        // Each referer may get its own source, so every one present is fetched before any node is rebuilt.
-        const referers = [...new Set(records.map((record) => record.referer))];
-        const scripts = new Map(await Promise.all(referers.map(async (referer) =>
-          [referer, await this.#linker.getScript(requestedURL, referer)] as const)));
-        const scriptOf = (request: LoadRequest): Script => {
-          const script = scripts.get(request.referer);
-          if (!script) throw new Error(`No reloaded source for the referer ${request.referer}`);
-          return script;
-        };
+        // Every node of a URL shares its source, so the first node's referer stands for all of them.
+        const script = await this.#linker.getScript(requestedURL, records[0]?.referer);
         await this.#nodes.rebuild(
-          records.filter((record) => record.execution.module !== scriptOf(record).module),
+          records.filter((record) => record.execution.module !== script.module),
           requestedURL,
-          (request) => this.#execute(scriptOf(request), request),
+          (request) => this.#execute(script, request),
           // So the next load or reload fetches the source again.
           () => { this.#linker.invalidate(requestedURL); }
         );

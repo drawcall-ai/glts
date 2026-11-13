@@ -62,9 +62,8 @@ export class Linker {
   readonly #history = new ImportHistory();
   /** The literal dynamic imports getModules links after their importers. */
   readonly #dynamicLinks: (() => Promise<string>)[] = [];
-  // Linked files and modules, by Importer.key; scripts also by the referer they were fetched for, without its query,
-  // as a script's query variants share its source and so declare the same dependencies.
-  readonly #scripts = new Map<string | undefined, Map<string, Entry<LinkedFile>>>();
+  // Linked files and modules, by Importer.key.
+  readonly #scripts = new Map<string, Entry<LinkedFile>>();
   readonly #helpers = new Map<string, Entry<LinkedFile>>();
   readonly #packages = new Map<string, Entry<Module>>();
 
@@ -108,15 +107,11 @@ export class Linker {
 
   /**
    * The script at `requestedURL`, sharing its linked source file until invalidated. `referer`, the URL of the script
-   * loading it, is sent as `GLTS-Referer` when the source is fetched, so a server can answer for that script; loads
-   * from different referring scripts may get different sources, so each links its own.
+   * loading it, is sent as `GLTS-Referer` when the source is fetched, so a server can answer for that script.
    */
   async getScript(requestedURL: string, referer?: string): Promise<Script> {
     this.#history.request(requestedURL);
-    const referringScript = referer === undefined ? undefined : withoutQuery(referer);
-    const scripts = this.#scripts.get(referringScript) ?? new Map<string, Entry<LinkedFile>>();
-    this.#scripts.set(referringScript, scripts);
-    const script = await linkOnce(scripts, withoutQuery(requestedURL), [], (chain, waiter) => this.#linkFile("script", requestedURL, chain, waiter, referer));
+    const script = await linkOnce(this.#scripts, withoutQuery(requestedURL), [], (chain, waiter) => this.#linkFile("script", requestedURL, chain, waiter, referer));
     const executionURL = new URL(script.fetchedURL);
     executionURL.search = new URL(requestedURL).search;
     const dependencies = new Dependencies();
@@ -132,9 +127,7 @@ export class Linker {
   invalidate(url: string): string[] {
     const { helpers, scripts, requests } = this.#history.affected(url, this.#helpers.keys());
     for (const helper of helpers) this.#helpers.delete(helper);
-    for (const linked of this.#scripts.values()) {
-      for (const script of scripts) linked.delete(script);
-    }
+    for (const script of scripts) this.#scripts.delete(script);
     return requests.length > 0 ? requests : [url];
   }
 

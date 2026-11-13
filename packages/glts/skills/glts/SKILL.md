@@ -192,7 +192,7 @@ loader.dispose() // also disposes every scene it loaded
 - In Node.js, load scripts from disk with `file:` URLs, such as `pathToFileURL("scene.glts")`; their helpers and nested scripts are read from disk too, and `reload()` of an edited file re-reads it. Resources that scripts load with Three.js loaders go through the global `fetch`, which in Node.js does not read `file:` URLs; install one that does to load them from disk.
 - Per-load progress callbacks are rejected. Track progress with `manager.onProgress`; nested scripts and their resources report through the same manager.
 - Serve cross-origin scripts and packages with CORS, and allow `blob:` ES modules in the page's or worker's CSP.
-- A nested load from the loading script's own origin carries that script's URL, after redirects, in a `GLTS-Referer` header, so a server can answer for that script, such as by redirecting to the dependency version it declares. A server hosting scripts for pages on other origins must allow the header in CORS preflights.
+- A nested load from the loading script's own origin carries that script's URL, after redirects, in a `GLTS-Referer` header, so a server can answer for that script, such as by redirecting to the dependency version it declares. A server hosting scripts for pages on other origins must allow the header in CORS preflights. Like the query, it reaches the server only with the first request for a script file until invalidation.
 
 The returned scene participates in ordinary Three.js composition. Advance it from the host's frame loop and dispose it when removed. Cloning creates an unmanaged Three.js scene.
 
