@@ -13,11 +13,15 @@ export async function fetchSource(
   fetch: Fetch,
   url: string,
   bypassCache: boolean,
-  chain: readonly string[]
+  chain: readonly string[],
+  referer?: string
 ): Promise<Source> {
   let response: Response;
   try {
-    response = await fetch(url, { cache: bypassCache ? "no-cache" : "default" });
+    response = await fetch(url, {
+      cache: bypassCache ? "no-cache" : "default",
+      headers: referer === undefined ? {} : { "GLTS-Referer": referer }
+    });
   } catch (error) {
     throw new GLTSError("Unable to fetch source", { importChain: chain, phase: "fetch", url }, error);
   }

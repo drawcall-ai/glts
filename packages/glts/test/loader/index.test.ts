@@ -48,6 +48,58 @@ it("fetches scripts past the HTTP cache with the loader's request header and cre
   }))).toEqual([{ cache: "no-cache", credentials: "include", header: "header" }]);
 });
 
+it("sends same-origin nested loads their parent's redirected URL as GLTS-Referer, linking and reloading a child per parent", async () => {
+  const requests: string[] = [];
+  const child = (version: string) => `https://assets.test/child@${version}/index.glts`;
+  const parent = `import { gltsLoader, scene } from "@drawcall/glts";
+    scene.add(await gltsLoader.loadAsync("../child/index.glts"));
+    scene.add(await gltsLoader.loadAsync("https://cdn.test/other.glts"));`;
+  const named = (name: string) => `import { scene } from "@drawcall/glts"; scene.name = ${JSON.stringify(name)};`;
+  const sources: Record<string, string> = {
+    "https://assets.test/a@1.0.0/index.glts": parent,
+    "https://assets.test/b@1.0.0/index.glts": parent,
+    [child("1.0.0")]: named("1.0.0"),
+    [child("2.0.0")]: named("2.0.0"),
+    "https://cdn.test/other.glts": named("other"),
+  };
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = String(input);
+    const referer = new Headers(init.headers).get("glts-referer");
+    requests.push(`${url} ${referer}`);
+    // The server gives a's scripts the child 1.0.0 and every other script 2.0.0.
+    const version = referer?.startsWith("https://assets.test/a@") ? "1.0.0" : "2.0.0";
+    const fetched = url === "https://assets.test/child/index.glts" ? child(version) : url;
+    const response = new Response(sources[fetched]);
+    Object.defineProperty(response, "url", { value: fetched });
+    return response;
+  });
+  const loader = new GLTSLoader(new LoadingManager());
+  const scenes = await Promise.all([
+    loader.loadAsync("https://assets.test/a@1.0.0/index.glts"),
+    loader.loadAsync("https://assets.test/a@1.0.0/index.glts?seed=2"),
+    loader.loadAsync("https://assets.test/b@1.0.0/index.glts"),
+  ]);
+  const childNames = () => scenes.map((scene) => scene.children[0]?.name);
+  expect(childNames()).toEqual(["1.0.0", "1.0.0", "2.0.0"]);
+  // A cross-origin load sends no referer; the child links once per parent, sharing its query variants.
+  const unversioned = (): string[] => requests.filter((request) => !request.split(" ")[0]?.includes("@")).sort();
+  expect(unversioned()).toEqual([
+    "https://assets.test/child/index.glts https://assets.test/a@1.0.0/index.glts",
+    "https://assets.test/child/index.glts https://assets.test/b@1.0.0/index.glts",
+    "https://cdn.test/other.glts null",
+  ]);
+
+  sources[child("2.0.0")] = named("2.0.0 edited");
+  requests.length = 0;
+  await loader.reload("https://assets.test/child/index.glts");
+  expect(childNames()).toEqual(["1.0.0", "1.0.0", "2.0.0 edited"]);
+  expect(unversioned()).toEqual([
+    "https://assets.test/child/index.glts https://assets.test/a@1.0.0/index.glts",
+    "https://assets.test/child/index.glts https://assets.test/b@1.0.0/index.glts",
+  ]);
+  loader.dispose();
+});
+
 it("rejects a relative URL without a page to resolve it against, but loads absolute ones", async () => {
   vi.stubGlobal("fetch", async () => new Response(null, { status: 404 }));
   const loader = new GLTSLoader(new LoadingManager());
