@@ -1,13 +1,9 @@
-// Loads the asset at `?url=<asset.glts>` (served with CORS) with `isPreview: true`, renders
-// one frame with its `defaultCamera` or a camera fitted to its bounds, then logs "ready",
-// or logs and shows the error. A .glts file dropped anywhere on the page, or picked when no
-// URL was given, replaces the shown asset the same way.
+// Loads the asset at `?url=<asset.glts>` (served with CORS) with `isPreview: true` and renders
+// it every frame with its `defaultCamera` or a camera fitted to its bounds, then logs "ready"
+// once what it streams in has arrived, or logs and shows the error. A .glts file dropped
+// anywhere on the page, or picked when no URL was given, replaces the shown asset the same way.
 import { GLTSLoader, GLTSRenderer, type GLTSScene } from "@drawcall/glts";
 import * as THREE from "three/webgpu";
-
-// Frame callbacks run once with this step before the render, so they can
-// apply authored state such as animation poses.
-const delta = 1 / 60;
 
 const hint = element("#hint", HTMLElement);
 const picker = element("#picker", HTMLInputElement);
@@ -27,11 +23,33 @@ renderer.setSize(innerWidth, innerHeight, false);
 renderer.setClearColor(0x111111);
 document.body.prepend(renderer.domElement);
 const glts = new GLTSRenderer(renderer);
+const timer = new THREE.Timer();
 
-const loader = new GLTSLoader(new THREE.LoadingManager(), { isPreview: true });
-let current: GLTSScene | undefined;
+// Content can stream in after a scene's load resolves, as items on the manager, such as
+// @drawcall/lod's levels, which load and appear only while frames render. `activity` counts
+// the items' starts and ends, so that "ready" waits for a frame in which none started or ended.
+const manager = new THREE.LoadingManager();
+let loading = false;
+let activity = 0;
+manager.onStart = () => {
+  loading = true;
+  activity += 1;
+};
+manager.onProgress = () => {
+  activity += 1;
+};
+manager.onLoad = () => {
+  loading = false;
+  activity += 1;
+};
+
+const loader = new GLTSLoader(manager, { isPreview: true });
+let current:
+  | { scene: GLTSScene; camera: THREE.Camera; activity: number; ready: boolean }
+  | undefined;
 // Counts loads so a slower earlier load never replaces a later one.
 let loads = 0;
+renderer.setAnimationLoop(render);
 
 picker.addEventListener("change", () => {
   const file = picker.files?.[0];
@@ -68,21 +86,23 @@ async function show(url: string): Promise<void> {
       scene.dispose();
       return;
     }
-    current?.dispose();
-    current = scene;
-    render(scene);
+    current?.scene.dispose();
+    current = { scene, camera: scene.defaultCamera ?? fitCamera(scene), activity: -1, ready: false };
   } catch (error) {
     if (load === loads) fail(error);
-    return;
   }
-  if (!failed) console.log("ready");
 }
 
-function render(scene: GLTSScene): void {
-  scene.updateWorldMatrix(true, true);
-  scene.update(delta);
-  const camera = scene.defaultCamera ?? fitCamera(scene);
-  glts.render(scene, camera);
+function render(): void {
+  timer.update();
+  if (!current) return;
+  current.scene.update(timer.getDelta());
+  glts.render(current.scene, current.camera);
+  if (!current.ready && !loading && current.activity === activity) {
+    current.ready = true;
+    if (!failed) console.log("ready");
+  }
+  current.activity = activity;
 }
 
 function element<T extends Element>(selector: string, type: new () => T): T {
