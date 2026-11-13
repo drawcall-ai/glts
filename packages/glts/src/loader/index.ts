@@ -156,14 +156,16 @@ export class GLTSLoader extends THREE.Loader {
       count,
       // Only the host's scene is the standalone script a preview shows.
       isPreview: this.#isPreview && count === undefined && !scope,
-      ancestors: scope?.chain ?? []
+      ancestors: scope?.chain ?? [],
+      // Only the loading script's own server can tell its URL apart, and elsewhere the header would need a preflight.
+      referer: scope && new URL(scope.url).origin === new URL(requestedURL).origin ? scope.url : undefined
     };
     // trackItem starts the operation, and with it getScript, synchronously, so a reload requested from now on
     // finds this load pending and rebuilds its node if it read the source the reload invalidates.
     const manager = scope?.manager ?? this.manager;
     const failure: ItemFailure = { message: "Unable to load GLTS script", phase: "evaluate" };
     const loading = trackItem(manager, requestedURL, this.#lifetime.signal, failure, async () => {
-      const script = await this.#linker.getScript(requestedURL);
+      const script = await this.#linker.getScript(requestedURL, request.referer);
       const execution = await this.#execute(script, request, nested);
       try {
         this.#lifetime.signal.throwIfAborted();
@@ -214,7 +216,8 @@ export class GLTSLoader extends THREE.Loader {
       if (records.length === 0) return;
       const failure: ItemFailure = { message: "Unable to reload GLTS script", phase: "reload" };
       await trackItem(this.manager, requestedURL, this.#lifetime.signal, failure, async () => {
-        const script = await this.#linker.getScript(requestedURL);
+        // Every node of a URL shares its source, so the first node's referer stands for all of them.
+        const script = await this.#linker.getScript(requestedURL, records[0]?.referer);
         await this.#nodes.rebuild(
           records.filter((record) => record.execution.module !== script.module),
           requestedURL,

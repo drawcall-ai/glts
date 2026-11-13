@@ -48,6 +48,39 @@ it("fetches scripts past the HTTP cache with the loader's request header and cre
   }))).toEqual([{ cache: "no-cache", credentials: "include", header: "header" }]);
 });
 
+it("sends a same-origin nested load the redirected URL of its parent as GLTS-Referer", async () => {
+  const requests: string[] = [];
+  const redirects: Record<string, string> = {
+    "https://assets.test/parent/index.glts": "https://assets.test/parent@1.0.0/index.glts",
+    "https://assets.test/child/index.glts": "https://assets.test/child@2.0.0/index.glts",
+  };
+  const sources: Record<string, string> = {
+    "https://assets.test/parent@1.0.0/index.glts": `import { gltsLoader, scene } from "@drawcall/glts";
+      scene.add(await gltsLoader.loadAsync("../child/index.glts"));
+      scene.add(await gltsLoader.loadAsync("https://cdn.test/other.glts"));`,
+    "https://assets.test/child@2.0.0/index.glts": `import { scene } from "@drawcall/glts"; scene.name = import.meta.url;`,
+    "https://cdn.test/other.glts": `import { scene } from "@drawcall/glts";`,
+  };
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = String(input);
+    requests.push(`${url} ${new Headers(init.headers).get("glts-referer")}`);
+    const fetched = redirects[url] ?? url;
+    const response = new Response(sources[fetched]);
+    Object.defineProperty(response, "url", { value: fetched });
+    return response;
+  });
+  const loader = new GLTSLoader(new LoadingManager());
+  const parent = await loader.loadAsync("https://assets.test/parent/index.glts");
+  expect(parent.children[0]?.name).toBe("https://assets.test/child@2.0.0/index.glts");
+  // A load from another origin sends no referer, so it needs no CORS preflight.
+  expect(requests.sort()).toEqual([
+    "https://assets.test/child/index.glts https://assets.test/parent@1.0.0/index.glts",
+    "https://assets.test/parent/index.glts null",
+    "https://cdn.test/other.glts null",
+  ]);
+  loader.dispose();
+});
+
 it("rejects a relative URL without a page to resolve it against, but loads absolute ones", async () => {
   vi.stubGlobal("fetch", async () => new Response(null, { status: 404 }));
   const loader = new GLTSLoader(new LoadingManager());

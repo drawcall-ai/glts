@@ -16,6 +16,11 @@ export interface LoadRequest {
   readonly isPreview: boolean;
   /** The URLs of the scripts that loaded this one, outermost first; empty for the host's loads. */
   readonly ancestors: readonly string[];
+  /**
+   * The execution URL of the script that loaded this one, sent as `GLTS-Referer`; absent for the host's loads and for
+   * loads from another origin.
+   */
+  readonly referer: string | undefined;
 }
 
 /** A script's root once its load returns it. */

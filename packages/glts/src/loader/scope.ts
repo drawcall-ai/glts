@@ -45,8 +45,9 @@ export class LoadScope implements ExecutionScope {
    * the execution and its own requested and fetched URLs.
    */
   readonly chain: readonly string[];
+  /** The script's execution URL, which its nested URLs resolve against. */
+  readonly url: string;
   readonly #host: THREE.LoadingManager;
-  readonly #url: string;
   readonly #dependencies: Dependencies;
   readonly #signal: AbortSignal;
   readonly #resources: Resources;
@@ -68,7 +69,7 @@ export class LoadScope implements ExecutionScope {
   constructor(options: LoadScopeOptions) {
     this.#host = options.host;
     const { script, request } = options;
-    this.#url = script.executionURL;
+    this.url = script.executionURL;
     this.chain = [...new Set([...request.ancestors, script.requestedURL, script.executionURL])];
     this.#dependencies = options.dependencies;
     this.#signal = options.signal;
@@ -108,7 +109,7 @@ export class LoadScope implements ExecutionScope {
       if (this.#phase === "aborted") throw this.#abortReason;
       const failures = this.#nestedFailures.splice(0);
       if (failures.length > 0) {
-        const primary = toGLTSError(failures[0], "Nested GLTS load failed", { phase: "evaluate", url: this.#url });
+        const primary = toGLTSError(failures[0], "Nested GLTS load failed", { phase: "evaluate", url: this.url });
         throw aggregate("Nested GLTS load failed", primary, failures.slice(1));
       }
       const loads = this.#loads.length;
@@ -139,7 +140,7 @@ export class LoadScope implements ExecutionScope {
    */
   dispose(): void {
     this.#phase = "disposed";
-    this.#resources.abort(new GLTSError("The script was disposed", { phase: "dispose", url: this.#url }));
+    this.#resources.abort(new GLTSError("The script was disposed", { phase: "dispose", url: this.url }));
     runAll("Nested GLTS node disposal failed", [...this.#nodes].reverse().map((node) => () => node.dispose()));
   }
 
@@ -163,7 +164,7 @@ export class LoadScope implements ExecutionScope {
     const resolved = this.#resolve(url);
     const phase = this.#phase;
     if (phase === "aborted" || phase === "disposed") {
-      throw new GLTSError("The contextual gltsLoader is no longer open", { phase: "dispose", url: this.#url });
+      throw new GLTSError("The contextual gltsLoader is no longer open", { phase: "dispose", url: this.url });
     }
     const late = phase === "settled";
     if (!late) this.#nestedURLs.add(resolved);
@@ -184,7 +185,7 @@ export class LoadScope implements ExecutionScope {
 
   /** Resolves a nested URL against the script, rejecting a script already loading it. */
   #resolve(url: GLTSURL): string {
-    const resolved = canonicalize(scriptURL(this.#host.resolveURL(String(url)), this.#url));
+    const resolved = canonicalize(scriptURL(this.#host.resolveURL(String(url)), this.url));
     if (this.chain.includes(resolved)) {
       throw new GLTSError("Cyclic nested GLTS load", {
         importChain: [...this.chain, resolved],

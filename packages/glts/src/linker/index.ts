@@ -105,10 +105,13 @@ export class Linker {
     return modules;
   }
 
-  /** The script at `requestedURL`, sharing its linked source file until invalidated. */
-  async getScript(requestedURL: string): Promise<Script> {
+  /**
+   * The script at `requestedURL`, sharing its linked source file until invalidated. `referer`, the URL of the script
+   * loading it, is sent as `GLTS-Referer` when the source is fetched, so a server can answer for that script.
+   */
+  async getScript(requestedURL: string, referer?: string): Promise<Script> {
     this.#history.request(requestedURL);
-    const script = await linkOnce(this.#scripts, withoutQuery(requestedURL), [], (chain, waiter) => this.#linkFile("script", requestedURL, chain, waiter));
+    const script = await linkOnce(this.#scripts, withoutQuery(requestedURL), [], (chain, waiter) => this.#linkFile("script", requestedURL, chain, waiter, referer));
     const executionURL = new URL(script.fetchedURL);
     executionURL.search = new URL(requestedURL).search;
     const dependencies = new Dependencies();
@@ -133,9 +136,9 @@ export class Linker {
   }
 
   /** Links the script or helper at `requestedURL`, `chain` ending at it. */
-  async #linkFile(kind: "script" | "helper", requestedURL: string, chain: readonly string[], waiter: Waiter): Promise<LinkedFile> {
+  async #linkFile(kind: "script" | "helper", requestedURL: string, chain: readonly string[], waiter: Waiter, referer?: string): Promise<LinkedFile> {
     const script = kind === "script";
-    const fetched = await fetchSource(this.#fetch, requestedURL, true, chain);
+    const fetched = await fetchSource(this.#fetch, requestedURL, true, chain, referer);
     const importer: Importer = { kind, key: script ? withoutQuery(requestedURL) : requestedURL, fetchedURL: fetched.url };
     const dependencies = new Dependencies();
     // Query variants share a script's linked file; each execution records its own URLs (getScript).
