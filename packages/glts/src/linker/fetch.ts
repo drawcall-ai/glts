@@ -3,22 +3,24 @@ import { canonicalize } from "../urls.js";
 
 export type Fetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-/** The source of a script, helper, or package and the URL it came from, after redirects. */
+/** The source of a script, helper, or package and its URL, which a redirect replaces. */
 export interface Source {
   readonly source: string;
   readonly url: string;
 }
 
+/** Fetches the source at `url` from `from`, where the host's URL modifier maps it. */
 export async function fetchSource(
   fetch: Fetch,
   url: string,
   bypassCache: boolean,
   chain: readonly string[],
-  referer?: string
+  referer?: string,
+  from = url
 ): Promise<Source> {
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(from, {
       cache: bypassCache ? "no-cache" : "default",
       headers: referer === undefined ? {} : { "GLTS-Referer": referer }
     });
@@ -31,7 +33,7 @@ export async function fetchSource(
   }
 
   try {
-    return { source: await response.text(), url: canonicalize(new URL(response.url || url)) };
+    return { source: await response.text(), url: canonicalize(new URL(response.redirected ? response.url : url)) };
   } catch (error) {
     throw new GLTSError("Unable to read response body", { importChain: chain, phase: "fetch", url }, error);
   }

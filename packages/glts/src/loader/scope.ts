@@ -6,7 +6,6 @@ import type { ExecutionScope } from "../execution/index.js";
 import type { Script } from "../linker/index.js";
 import { nodeDependencies, onNodeDispose, type LoadRequest } from "../nodes.js";
 import type { GLTSInstances, GLTSModuleSource, GLTSScene, GLTSURL } from "../types.js";
-import { canonicalize, scriptURL } from "../urls.js";
 import { Resources, type ScopePhase } from "./resources.js";
 import { ScriptLoader } from "./script.js";
 
@@ -19,6 +18,8 @@ export interface NestedLoader {
 export interface LoadScopeOptions {
   /** The host's manager, which gets the scope's items and resolves its URLs. */
   readonly host: THREE.LoadingManager;
+  /** The URL of the script a URL names, requested by the script at `base`, through the host's manager. */
+  readonly locate: (url: string, base: string) => string;
   /** The script the execution runs, whose URL nested URLs resolve against. */
   readonly script: Pick<Script, "requestedURL" | "executionURL">;
   /** The load the execution runs for. */
@@ -47,7 +48,7 @@ export class LoadScope implements ExecutionScope {
   readonly chain: readonly string[];
   /** The script's execution URL, which its nested URLs resolve against. */
   readonly url: string;
-  readonly #host: THREE.LoadingManager;
+  readonly #locate: (url: string, base: string) => string;
   readonly #dependencies: Dependencies;
   readonly #signal: AbortSignal;
   readonly #resources: Resources;
@@ -67,7 +68,7 @@ export class LoadScope implements ExecutionScope {
   #abortReason: unknown;
 
   constructor(options: LoadScopeOptions) {
-    this.#host = options.host;
+    this.#locate = options.locate;
     const { script, request } = options;
     this.url = script.executionURL;
     this.chain = [...new Set([...request.ancestors, script.requestedURL, script.executionURL])];
@@ -185,7 +186,7 @@ export class LoadScope implements ExecutionScope {
 
   /** Resolves a nested URL against the script, rejecting a script already loading it. */
   #resolve(url: GLTSURL): string {
-    const resolved = canonicalize(scriptURL(this.#host.resolveURL(String(url)), this.url));
+    const resolved = this.#locate(String(url), this.url);
     if (this.chain.includes(resolved)) {
       throw new GLTSError("Cyclic nested GLTS load", {
         importChain: [...this.chain, resolved],

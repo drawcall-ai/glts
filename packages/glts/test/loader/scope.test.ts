@@ -13,6 +13,7 @@ function createScope(url: string, host: LoadingManager, dependencies = new Depen
   const unexpected = async (): Promise<never> => { throw new Error("Unexpected nested load"); };
   return new LoadScope({
     host,
+    locate: (url, base) => new URL(url, base).href,
     script: { requestedURL: url, executionURL: url },
     request: { ancestors: [] },
     dependencies,
@@ -131,6 +132,7 @@ describe("LoadScope", () => {
     const nested = new Promise<never>((_resolve, reject) => { fail = reject; });
     const scope = new LoadScope({
       host: new LoadingManager(),
+      locate: (url, base) => new URL(url, base).href,
       script: { requestedURL: `${base}tree.glts`, executionURL: `${base}tree.glts` },
       request: { ancestors: [] },
       dependencies: new Dependencies(),

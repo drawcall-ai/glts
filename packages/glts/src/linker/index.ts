@@ -53,6 +53,7 @@ export interface Importer {
 export class Linker {
   readonly #cdnURL: URL;
   readonly #fetch: Fetch;
+  readonly #read: (url: string, kind: "script" | "helper") => string;
   readonly #resolve: GLTSResolve | undefined;
   readonly #bridge: Bridge;
   readonly #external: readonly string[];
@@ -67,9 +68,11 @@ export class Linker {
   readonly #helpers = new Map<string, Entry<LinkedFile>>();
   readonly #packages = new Map<string, Entry<Module>>();
 
-  constructor({ cdnURL, fetch, modules, moduleSources, resolve, external = [], env, linkDynamicImports = false }: {
+  constructor({ cdnURL, fetch, read = (url) => url, modules, moduleSources, resolve, external = [], env, linkDynamicImports = false }: {
     readonly cdnURL: URL;
     readonly fetch: Fetch;
+    /** Where the source of the script or helper at a URL is read, such as where the host's URL modifier maps it. */
+    readonly read?: (url: string, kind: "script" | "helper") => string;
     /** Every namespace the host shares by bare specifier or absolute helper URL. */
     readonly modules: GLTSModules;
     readonly moduleSources?: GLTSLoaderOptions["moduleSources"];
@@ -84,6 +87,7 @@ export class Linker {
   }) {
     this.#cdnURL = cdnURL;
     this.#fetch = fetch;
+    this.#read = read;
     this.#resolve = resolve;
     this.#bridge = new Bridge(modules);
     this.#external = [...this.#bridge.hostSpecifiers.filter(isBareSpecifier), ...external];
@@ -138,7 +142,7 @@ export class Linker {
   /** Links the script or helper at `requestedURL`, `chain` ending at it. */
   async #linkFile(kind: "script" | "helper", requestedURL: string, chain: readonly string[], waiter: Waiter, referer?: string): Promise<LinkedFile> {
     const script = kind === "script";
-    const fetched = await fetchSource(this.#fetch, requestedURL, true, chain, referer);
+    const fetched = await fetchSource(this.#fetch, requestedURL, true, chain, referer, this.#read(requestedURL, kind));
     const importer: Importer = { kind, key: script ? withoutQuery(requestedURL) : requestedURL, fetchedURL: fetched.url };
     const dependencies = new Dependencies();
     // Query variants share a script's linked file; each execution records its own URLs (getScript).

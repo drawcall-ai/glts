@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 import { Dependencies } from "../dependencies.js";
 import { collectError, GLTSError, runAll } from "../errors.js";
-import { canonicalize, scriptURL } from "../urls.js";
+import { canonicalize, locate } from "../urls.js";
 
 /**
  * Where an execution's loading window is: loading while the script builds, settled once its loads ended, when further
@@ -120,15 +120,15 @@ export class Resources {
     const getHandler = manager.getHandler.bind(manager);
 
     // Relative URLs resolve against the script, as its nested scripts do, so an asset loads its files wherever it is
-    // served; the host maps the URL first, so that its URL modifier sees what the script asked for.
+    // served; the host's URL modifier sees what the script asked for first (see locate).
     manager.resolveURL = (url): string => {
-      const resolved = scriptURL(host.resolveURL(url), this.#url).href;
-      if (phase() !== "loading") return resolved;
+      const located = locate((url) => host.resolveURL(url), url, this.#url);
+      if (phase() !== "loading") return located.from;
       // FileLoader skips itemStart when joining another manager's in-flight request.
       this.#aliases.add(url);
-      const resource = this.#resourceURL(resolved) ?? this.#resourceURL(url);
+      const resource = this.#resourceURL(located.url) ?? this.#resourceURL(url);
       if (resource) this.#resolved.add(resource);
-      return resolved;
+      return located.from;
     };
     manager.getHandler = (url) => {
       const handler = getHandler(url);

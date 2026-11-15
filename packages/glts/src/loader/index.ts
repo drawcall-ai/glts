@@ -12,7 +12,7 @@ import { Linker, type Script } from "../linker/index.js";
 import { defaultCDNURL } from "../linker/resolution.js";
 import { NodeRegistry, type LoadRequest } from "../nodes.js";
 import type { GLTSInstances, GLTSLoaderOptions, GLTSModules, GLTSModuleSource, GLTSScene, GLTSURL } from "../types.js";
-import { canonicalize, pageURL } from "../urls.js";
+import { canonicalize, locate, pageURL } from "../urls.js";
 import { trackItem, type ItemFailure } from "./items.js";
 import { LoadScope, type NestedLoader } from "./scope.js";
 import { resolveWarmup, type WarmupScripts } from "./warmup.js";
@@ -44,6 +44,8 @@ export class GLTSLoader extends THREE.Loader {
     loadAsync: (url, scope) => this.#load(url, undefined, scope),
     loadInstancesAsync: (url, count, scope) => this.#load(url, count, scope)
   };
+  /** Where the source of each script is read, by its URL: where the manager's URL modifier maps it. */
+  readonly #sources = new Map<string, string>();
   /** The unsettled loads of each requested URL. */
   readonly #loads = new Map<string, Set<Promise<unknown>>>();
   /** Reloads run one at a time, in request order. */
@@ -63,6 +65,8 @@ export class GLTSLoader extends THREE.Loader {
     this.#linker = new Linker({
       cdnURL: pageURL(options.cdnURL ?? defaultCDNURL),
       fetch: withFiles((input, init) => this.#fetch(input, init)),
+      // A script's URL is located before it loads; a helper's is the URL its importer resolved.
+      read: (url, kind) => kind === "script" ? this.#sources.get(url) ?? url : locate((url) => this.manager.resolveURL(url), url).from,
       modules: hostModules(options.modules),
       moduleSources: this.moduleSources,
       external: options.external,
@@ -197,7 +201,9 @@ export class GLTSLoader extends THREE.Loader {
     signal.throwIfAborted();
     const dependencies = new Dependencies();
     dependencies.include(script.dependencies);
-    const scope = new LoadScope({ script, request, host: this.manager, dependencies, loader, signal, moduleSources: this.moduleSources });
+    const scope = new LoadScope({
+      script, request, host: this.manager, locate: this.#locate, dependencies, loader, signal, moduleSources: this.moduleSources
+    });
     const execution = new Execution({ script, request, scope, dependencies });
     await execution.run();
     return execution;
@@ -232,9 +238,16 @@ export class GLTSLoader extends THREE.Loader {
   }
 
   #resolveURL(url: GLTSURL): string {
-    const input = url instanceof URL ? url.href : `${this.path}${url}`;
-    return canonicalize(pageURL(this.manager.resolveURL(input)));
+    return this.#locate(url instanceof URL ? url.href : `${this.path}${url}`);
   }
+
+  /** The URL of the script at `url`, requested by the script at `base` or by the page, noting where its source is read. */
+  readonly #locate = (url: string, base?: string): string => {
+    const located = locate((url) => this.manager.resolveURL(url), url, base);
+    const resolved = canonicalize(new URL(located.url));
+    this.#sources.set(resolved, located.from);
+    return resolved;
+  };
 
   #fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const headers = new Headers(init?.headers);
