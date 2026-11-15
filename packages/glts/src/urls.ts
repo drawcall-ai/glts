@@ -44,6 +44,30 @@ export function scriptURL(url: string, script: string): URL {
   });
 }
 
+/** Whether `url` holds its contents, as a `data:` or `blob:` URL does, rather than naming where they are. */
+const holdsContents = (url: string): boolean => /^(?:data|blob):/i.test(url);
+
+/** The URL a file is known by, against which its relative URLs resolve, and the URL its contents are read from. */
+export interface Location {
+  readonly url: string;
+  readonly from: string;
+}
+
+/**
+ * Locates `url`, requested by the script at `base`, or by the page without one, through the host's URL modifier `map`.
+ * It sees the URL as requested, and, when it leaves that as is, the URL it resolves to, as three's loaders hand it the
+ * URL they fetch. A `data:` or `blob:` URL it gives only holds the contents: the file keeps the URL it was requested at.
+ */
+export function locate(map: (url: string) => string, url: string, base?: string): Location {
+  const resolve = (url: string): string => (base === undefined ? pageURL(url) : scriptURL(url, base)).href;
+  const mapped = map(url);
+  if (holdsContents(mapped)) return { url: resolve(url), from: mapped };
+  const resolved = resolve(mapped);
+  if (mapped !== url || resolved === url) return { url: resolved, from: resolved };
+  const again = map(resolved);
+  return { url: holdsContents(again) ? resolved : again, from: again };
+}
+
 /** Tells this copy of GLTS apart from others in the realm, which share one module map and one global object. */
 const copy = Math.random().toString(36).slice(2);
 let sequence = 0;

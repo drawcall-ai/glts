@@ -248,6 +248,7 @@ it("exposes only frozen source metadata at the redirected URL without its query"
   vi.stubGlobal("fetch", async () => {
     const response = new Response(`import { scene } from "@drawcall/glts"; import { capture } from "library"; capture(scene.source);`);
     Object.defineProperty(response, "url", { value: `${base}redirected/scene.glts?version=2` });
+    Object.defineProperty(response, "redirected", { value: true });
     return response;
   });
   const scene = await loader.loadAsync(`${base}original.glts`);
@@ -341,4 +342,32 @@ it("retains runtime origins even when a bundled namespace contains the same remo
       expect(loader.moduleSources["generator@1"]?.moduleHashes[remote]).toBe(hash);
     } finally { loader.dispose(); }
   }
+});
+
+it("keeps the URLs of files the host's URL modifier serves as data: URLs, and maps the URLs resolved against them", async () => {
+  const files: Record<string, string> = {
+    "tree/scene.glts": `import { value } from "./helper.ts";
+      import { gltsLoader, loadingManager, scene } from "@drawcall/glts";
+      const bark = await (await fetch(loadingManager.resolveURL("./bark.txt"))).text();
+      scene.add(await gltsLoader.loadAsync("./leaf.glts"));
+      scene.userData.loaded = { value, url: import.meta.url, bark };`,
+    "tree/helper.ts": "export const value = 1;",
+    "tree/bark.txt": "bark",
+    "tree/leaf.glts": `import { scene } from "@drawcall/glts"; scene.userData.url = import.meta.url;`,
+  };
+  const { fetch } = globalThis;
+  const loader = serve({});
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (!url.startsWith("data:")) throw new Error(`fetched ${url}`);
+    return fetch(input);
+  });
+  loader.manager.setURLModifier((url) => {
+    const file = url.startsWith(base) ? files[url.slice(base.length).replace(/[?#].*$/s, "")] : undefined;
+    return file === undefined ? url : `data:text/plain,${encodeURIComponent(file)}`;
+  });
+  const scene = await loader.loadAsync(`${base}tree/scene.glts?seed=1`);
+  expect(scene.userData.loaded).toEqual({ value: 1, url: `${base}tree/scene.glts?seed=1`, bark: "bark" });
+  expect(scene.children[0]?.userData.url).toBe(`${base}tree/leaf.glts`);
+  expect(scene.source.dependencyUrls).toEqual(["bark.txt", "helper.ts", "leaf.glts"].map((path) => `${base}tree/${path}`));
 });

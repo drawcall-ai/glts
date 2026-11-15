@@ -67,6 +67,7 @@ it("sends a same-origin nested load the redirected URL of its parent as GLTS-Ref
     const fetched = redirects[url] ?? url;
     const response = new Response(sources[fetched]);
     Object.defineProperty(response, "url", { value: fetched });
+    Object.defineProperty(response, "redirected", { value: true });
     return response;
   });
   const loader = new GLTSLoader(new LoadingManager());

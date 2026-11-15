@@ -68,6 +68,7 @@ it("links query variants to one graph, fetched with the first request's query, e
     if (String(input) === `${redirected}helper.ts`) return new Response("export const value = 1;");
     const response = new Response(`import "./helper.ts";`);
     Object.defineProperty(response, "url", { value: `${redirected}scene.glts?token=cdn` });
+    Object.defineProperty(response, "redirected", { value: true });
     return response;
   });
   const queries = ["?signature=valid", "?variant=2", ""];
@@ -150,6 +151,7 @@ it("records requested and redirected helper URLs while excluding package modules
     if (String(input) === scene) return new Response(`import "./helper.ts"; import "library";`);
     const response = new Response(`export const value = 1;`);
     Object.defineProperty(response, "url", { value: "https://assets.test/redirected/helper.ts" });
+    Object.defineProperty(response, "redirected", { value: true });
     return response;
   }, { modules: { library: { value: 1 } } });
   const script = await linker.getScript(scene);

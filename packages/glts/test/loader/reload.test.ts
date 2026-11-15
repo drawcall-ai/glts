@@ -120,6 +120,7 @@ it("keeps the source URL when rebuilding fails and updates it when the replaceme
       ? `throw new Error("rebuild failed");`
       : `import { scene } from "@drawcall/glts"; scene.userData.version = ${version};`);
     Object.defineProperty(response, "url", { value: fetched });
+    Object.defineProperty(response, "redirected", { value: true });
     return response;
   });
   const node = await loader.loadAsync(`${base}original.glts`);
