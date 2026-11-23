@@ -1,6 +1,6 @@
 ---
 name: glts
-description: Write and host GLTS procedural Three.js assets. Covers authoring `.glts` scripts (scene, resources, cleanup, helpers, composition, instancing, preview staging, rendering profile, reload safety) and using `@drawcall/glts` in an app (GLTSLoader and its options, instances, reload, errors, GLTSRenderer, sharing packages with `modules`, and the `@drawcall/glts/vite` plugin, including precomputing caches into builds). Use when creating, editing, reviewing, loading, rendering, or hot reloading `.glts` files, or when configuring `@drawcall/glts` in a Three.js or Vite app.
+description: Write and host GLTS procedural Three.js assets. Covers authoring `.glts` scripts (scene, resources, cleanup, helpers, composition, instancing, preview staging, rendering profile, reload safety) and using `@drawcall/glts` in an app (GLTSLoader and its options, instances, reload, errors, GLTSRenderer, sharing packages with `modules`, and the `@drawcall/glts/vite` plugin). Use when creating, editing, reviewing, loading, rendering, or hot reloading `.glts` files, or when configuring `@drawcall/glts` in a Three.js or Vite app.
 ---
 
 # GLTS
@@ -125,7 +125,7 @@ onDispose(() => disposeRecursive(scene))
 
 ## Caching generated content
 
-When expensive generation belongs to the asset, capture its code and package dependencies from contextual `scene.source`. It lists only what the script has used so far, so read it after loading generation inputs. Put query parameters and other generator arguments in a `{ value }` dependency. This avoids hand-maintained helper and package lists. For persistence, use the [vitecache skill](https://github.com/drawcall-ai/vitecache/blob/main/packages/vitecache/skills/vitecache/SKILL.md).
+When expensive generation belongs to the asset, capture its code and package dependencies from contextual `scene.source`. It lists only what the script has used so far, so read it after loading generation inputs. Put query parameters and other generator arguments in a `{ value }` dependency. This avoids hand-maintained helper and package lists. For persistence, use the [cache skill](https://github.com/drawcall-ai/cache/blob/main/packages/cache/skills/cache/SKILL.md).
 
 ```ts
 import { scene } from "@drawcall/glts"
@@ -304,29 +304,12 @@ It works on the `.glts` files in Vite's public directory, which the app loads by
 - `three` and packages in the `dependencies` or `devDependencies` of the app's nearest `package.json` are the app's own instances.
 - Other packages, and versioned imports such as `pkg@2`, are fetched from the CDN during development and builds and bundled with the app. Each package that scripts import or the app declares exists once.
 - Scripts outside the public directory and `https://` imports still load packages at runtime.
-- Scripts and helpers receive [Vite's resolved environment variables](https://vite.dev/guide/env-and-mode) through `import.meta.env`. `import.meta.env.SSR` is false in the browser and true during build warmup; there, the packages scripts import see the same `import.meta.env`.
+- Scripts and helpers receive [Vite's resolved environment variables](https://vite.dev/guide/env-and-mode) through `import.meta.env`.
 - Keep helpers in the public directory too; a helper import that leaves it fails the dev server's check and the build, since the app does not serve it as source.
 - The plugin compiles every `.ts` file in the public directory as a helper, serving and building it in that form instead of its source; keep other TypeScript out of the public directory.
 - Editing or creating a public script or helper hot reloads the nodes loaded from it; changing which packages scripts import reloads the page.
 
-Builds execute every public script headlessly in Node.js to warm the caches owned by its assets, then dispose the scenes. Execution and cleanup failures fail the build. Generated scenes are not saved, and scripts still execute normally when the app loads them.
-
-### Precomputing into the build
-
-Wrap whatever the deployed cache should already hold in a public `.glts` script: the build warmup runs it, and the caches its libraries fill during that run ship with the app. Make the same requests, with the same URLs and options, as the app makes, so the app finds them; a shared helper keeps both in step:
-
-```ts
-// public/precompute.glts
-import { gltsLoader, loadingManager, scene } from "@drawcall/glts"
-import { requests } from "./requests.ts"
-import { AssetLoader } from "some-library"
-
-loadingManager.addHandler(/\.glts$/i, gltsLoader)
-const loader = new AssetLoader(loadingManager)
-for (const request of requests) scene.add(await loader.loadAsync(request))
-```
-
-Libraries that build their caches lazily can build them whole when `import.meta.env.PROD && import.meta.env.SSR`. During warmup, served paths such as `/models/tree.glb` load the public file, but resolved URLs, including `import.meta.url`, are `file:` URLs, so key precomputed caches on requested paths or content, not on resolved URLs. The warmup provides WebGPU through [@drawcall/webgpu](https://github.com/drawcall-ai/webgpu/blob/main/skills/webgpu/SKILL.md), 2D canvases and `OffscreenCanvas` that draw decoded `ImageBitmap`s, and module workers loaded from files; code that imports or starts workers from `blob:` URLs fails there.
+Builds do not run public scripts: they run only where the app loads them. A library that precomputes what scripts load does so through its own build step, such as the warming of the [cache plugin](https://github.com/drawcall-ai/cache/blob/main/packages/cache/skills/cache/SKILL.md).
 
 Type checking: the plugin type checks the public `.glts` files and their helpers strictly, independently of the app's `tsconfig.json`, using the app's `typescript` 5 or 6; install it as a dev dependency, or `vite build` fails.
 

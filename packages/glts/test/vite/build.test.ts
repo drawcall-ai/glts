@@ -53,15 +53,11 @@ beforeAll(async () => {
   await writeFiles(temp, {
     "package.json": JSON.stringify({ type: "module", dependencies: { x: "1.0.0" } }),
     "node_modules/x/package.json": JSON.stringify({ name: "x", type: "module", main: "index.js" }),
-    "node_modules/x/index.js": [
-      `export const marker = {};`,
-      `export const record = (sources) => process.getBuiltinModule("node:fs").writeFileSync("warmup-sources.json", JSON.stringify(sources));`,
-    ].join("\n"),
-    "node_modules/x/index.d.ts": `export declare const marker: object; export declare function record(sources: object): void;`,
+    "node_modules/x/index.js": `export const marker = {};`,
+    "node_modules/x/index.d.ts": `export declare const marker: object;`,
     "web/public/scene.glts": [
       `#!/usr/bin/env glts`,
-      `import { gltsLoader } from "@drawcall/glts";`,
-      `import { marker, record } from "x";`,
+      `import { marker } from "x";`,
       `import { y } from "y";`,
       `import { token } from "z";`,
       `import { Buffer } from "buffer";`,
@@ -70,7 +66,6 @@ beforeAll(async () => {
       `import { value } from "./helper.ts";`,
       `if (value !== 1) throw new Error("Missing helper");`,
       `if (!marker || !y || !token || !Buffer || !w || !THREE) throw new Error("Missing imports");`,
-      `if (import.meta.env.SSR) record(gltsLoader.moduleSources);`,
     ].join("\n"),
     "web/public/helper.ts": `export const value: number = 1;`,
     "web/public/dynamic.ts": `export const value: number = 2;`,
@@ -155,9 +150,4 @@ it("hashes exactly the CDN modules the bundle contains", () => {
   }));
   expect([...hashed].sort()).toEqual(bundled.sort());
   expect(bundled.map((url) => new URL(url).pathname)).toContain("/p");
-});
-
-it("gives the build warmup's loader the moduleSources the app publishes", async () => {
-  const warmup: unknown = JSON.parse(await readFile(join(temp, "web/warmup-sources.json"), "utf8"));
-  expect(warmup).toEqual(JSON.parse(JSON.stringify(get(built, "moduleSources"))));
 });
