@@ -14,7 +14,6 @@ import type { GLTSModuleSource, GLTSURL } from "../types.js";
 import { hostModulesSource, loaderSource } from "./modules.js";
 import { typecheck } from "./typecheck.js";
 import { scan, type CompileCache, type Scan } from "./scan.js";
-import { warmupBuild } from "./warmup.js";
 
 /** Replaces app imports of @drawcall/glts. */
 const loaderId = "\0glts:loader";
@@ -47,7 +46,6 @@ async function fetchCDNSource(url: string): Promise<string> {
 }
 
 interface Project {
-  readonly root: string;
   /** Where the app serves the `.glts` files it loads by URL; none when disabled. */
   readonly publicDir: string | undefined;
   readonly packages: readonly string[];
@@ -63,8 +61,7 @@ export interface GLTSPluginOptions {
 /**
  * Bundles the packages scripts and their helpers import, sharing the
  * app's packages and fetching the rest from the CDN, type checks and precompiles
- * public scripts and helpers, runs every public script during builds to warm
- * asset caches, and hot reloads edited scripts and helpers.
+ * public scripts and helpers, and hot reloads edited scripts and helpers.
  */
 export function glts(options: GLTSPluginOptions = {}): Plugin {
   const cdnURL = new URL(options.cdnURL ?? defaultCDNURL);
@@ -127,7 +124,7 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
       const publicDir = config.publicDir === false ? undefined
         : normalizePath(resolve(root, config.publicDir ?? "public"));
       const cache: CompileCache = new Map();
-      const project = { root, publicDir, packages: appPackages(root), cache, scan: scan(publicDir, cache) };
+      const project = { publicDir, packages: appPackages(root), cache, scan: scan(publicDir, cache) };
       configuredProject = project;
       // A failed scan rejects again where the map loads.
       const specifiers = await project.scan.then(({ specifiers }) => specifiers, () => []);
@@ -136,23 +133,12 @@ export function glts(options: GLTSPluginOptions = {}): Plugin {
     },
     async buildStart() {
       if (this.environment.config.command !== "build") return;
-      const { root, publicDir, packages, scan: scanning } = configured();
-      const { scripts, specifiers, failures } = await scanning;
+      const { scripts, failures } = await configured().scan;
       // Each message names its file; a plugin stack trace would only bury them.
       if (failures.size > 0) this.error({ message: [...failures.values()].map(errorMessage).join("\n\n"), stack: "" });
       const errors = await typecheck(scripts);
       // The diagnostics locate the errors; a plugin stack trace would only bury them.
       if (errors) this.error({ message: errors, stack: "" });
-      if (publicDir && scripts.length > 0) {
-        const external = await shared();
-        const env = { ...this.environment.config.env, SSR: true };
-        // The app's loaders publish these too, so caches keyed on a loader's moduleSources match the browser's.
-        const sources = await moduleSources(specifiers);
-        await warmupBuild({
-          root, publicDir, packages, external, scripts, env, moduleSources: sources, cdnURL: cdnURL.href, base: this.environment.config.base,
-          dedupe: this.environment.config.resolve.dedupe,
-        });
-      }
     },
     configureServer({ environments: { client }, config, middlewares }) {
       void reportTypecheck(client, configured().scan);

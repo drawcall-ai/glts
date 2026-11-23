@@ -1,4 +1,4 @@
-import { waitFor, type Waiter } from "../waits.js";
+import { waitFor, type Waiter } from "./waits.js";
 
 export interface Entry<T> {
   readonly promise: Promise<T>;

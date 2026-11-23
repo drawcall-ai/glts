@@ -3,7 +3,7 @@ import { GLTSError, toGLTSError } from "../errors.js";
 import { gltsSpecifier } from "../imports.js";
 import type { GLTSLoaderOptions, GLTSModules, GLTSResolve } from "../types.js";
 import { withoutQuery } from "../urls.js";
-import type { Waiter } from "../waits.js";
+import type { Waiter } from "./waits.js";
 import { Bridge } from "./bridge.js";
 import { linkOnce, type Entry } from "./cache.js";
 import { fetchSource, type Fetch, type Source } from "./fetch.js";

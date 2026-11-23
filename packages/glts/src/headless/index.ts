@@ -4,7 +4,7 @@ import type * as Native from "@napi-rs/canvas";
 import { LoadingManager } from "three";
 import { withFiles } from "../files.js";
 import { gltsSpecifier } from "../imports.js";
-import { isBareSpecifier, packageName } from "../linker/resolution.js";
+import { isBareSpecifier } from "../linker/resolution.js";
 import { GLTSLoader } from "../loader/index.js";
 import type { GLTSLoaderOptions } from "../types.js";
 import { canvasClass } from "./canvas.js";
@@ -18,8 +18,6 @@ interface HeadlessOptions {
   readonly baseURL: URL;
   readonly size: number;
   readonly loader: GLTSLoaderOptions;
-  /** Packages Vite resolves from the app root, including imports made by native dependencies. */
-  readonly dedupe?: readonly string[];
   readonly resolveURL?: (url: string) => string;
 }
 
@@ -27,8 +25,8 @@ interface HeadlessOptions {
 let active = false;
 
 /**
- * Supplies the same Node asset-loading environment to CLI rendering/export and build warmup: a WebGPU canvas, file
- * fetches, a document making 2D canvases, OffscreenCanvas, ImageBitmaps they draw, and module workers.
+ * Supplies the Node asset-loading environment of CLI rendering and export: a WebGPU canvas, file fetches, a
+ * document making 2D canvases, OffscreenCanvas, ImageBitmaps they draw, and module workers.
  */
 export async function withHeadless<T>(options: HeadlessOptions, use: (loader: GLTSLoader, canvas: GPUCanvas) => Promise<T>): Promise<T> {
   if (active) throw new Error("A headless GLTS session is already active");
@@ -66,8 +64,7 @@ async function run<T>(options: HeadlessOptions, use: (loader: GLTSLoader, canvas
         }
         if (specifier === gltsSpecifier) return nextResolve(new URL("../index.js", import.meta.url).href, context);
         // Linked modules have `data:` URLs in Node, memory ones included (see linker/memory.ts).
-        // Dedupe also roots imports from physical packages, matching Vite's package identity.
-        if (isBareSpecifier(specifier) && (context.parentURL?.startsWith("data:") || options.dedupe?.includes(packageName(specifier)))) {
+        if (isBareSpecifier(specifier) && context.parentURL?.startsWith("data:")) {
           return nextResolve(specifier, { ...context, parentURL: options.projectURL.href });
         }
         return nextResolve(specifier, context);
@@ -106,14 +103,9 @@ async function run<T>(options: HeadlessOptions, use: (loader: GLTSLoader, canvas
   }
 }
 
-/** Resolves the app paths a page served under `base` requests, such as `/models/tree.glb`, to the files in `publicURL`. */
-export function servedFiles(publicURL: URL, base: string): (url: string) => string {
-  const prefix = new URL(base, "http://glts.local/").pathname;
-  return (url) => {
-    if (!url.startsWith("/")) return url;
-    const path = prefix !== "/" && url.startsWith(prefix) ? url.slice(prefix.length) : url;
-    return new URL(path.replace(/^\/+/, ""), publicURL).href;
-  };
+/** Resolves the app paths a page served at `/` requests, such as `/models/tree.glb`, to the files in `publicURL`. */
+export function servedFiles(publicURL: URL): (url: string) => string {
+  return (url) => (url.startsWith("/") ? new URL(url.replace(/^\/+/, ""), publicURL).href : url);
 }
 
 function createElement(name: string): Native.Canvas {

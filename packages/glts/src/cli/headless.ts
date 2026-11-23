@@ -32,7 +32,7 @@ export async function runHeadless(
   const pageURL = pathToFileURL(`${existsSync(publicDir) ? publicDir : resolve(root)}/`);
   return await withHeadless({
     projectURL: url, baseURL: pageURL, size,
-    resolveURL: servedFiles(pageURL, "/"),
+    resolveURL: servedFiles(pageURL),
     loader: { isPreview, env: await developmentEnv(root), resolve: (specifier) => specifier },
   }, (loader, canvas) => encode(loader, url, canvas));
 }

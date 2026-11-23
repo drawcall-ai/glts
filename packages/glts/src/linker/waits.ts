@@ -1,4 +1,4 @@
-import { GLTSError } from "./errors.js";
+import { GLTSError } from "../errors.js";
 
 /** One pending piece of work that others await through a shared promise, and the work it awaits in turn. */
 export interface Waiter {
